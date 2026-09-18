@@ -1,0 +1,76 @@
+# Design System
+
+Source of truth: `Lector Desktop Mockups.dc.html` — a 9-screen mockup canvas covering Home/Library, empty state, Reading (book + continuous-strip layouts), the "What can I say?" command reference, Settings, two-step first-run onboarding, and the save-changes confirmation dialog. Tokens below are extracted directly from that file's light theme, which is the only fully-rendered theme in the mockups.
+
+## Brand feel
+
+Calm, minimal, utilitarian. A focused reading tool, not a busy productivity suite. Confirmed through iterative review, not a first guess.
+
+## Color tokens — Light theme (authoritative, extracted from final mockups)
+
+| Role | Hex |
+|---|---|
+| Canvas/outer background | `#E7E2D9` |
+| Surface (window/card background) | `#F6F3EE` |
+| Secondary panel background (sidebar, toolbars, footers) | `#EFEAE2` |
+| Tertiary panel shade (blurred/inactive toolbar states) | `#F2EEE7` |
+| Input/search field background | `#FFFDF9` |
+| Primary text (UI chrome) | `#161A18` |
+| Reading body text (serif content) | `#1C211E` |
+| Secondary text / inactive nav items | `#4A4F49` |
+| Body copy in dialogs and notes | `#5A5F58` |
+| Muted/tertiary text | `#6B6F6A` |
+| Very muted text (chapter labels, timestamps) | `#9A968E` |
+| Accent (primary buttons, active nav, links) | `#3E6259` |
+| Accent hover/pressed | `#33534B` |
+| Accent darker (link hover, badge text on tinted backgrounds) | `#2C463F` |
+| Voice-focus / "listening here" indicator | `#C97A3D` |
+| Highlight background | `#F7DE7A` |
+| Destructive hover (e.g. window close button) | `#C0453B` |
+| Border / divider (light) | `#D2CCC2` |
+| Border / divider (subtle) | `#D8D3C9` |
+| Border / muted decorative | `#A8A6A0` |
+
+**Why the focus indicator and highlight color are different colors, on purpose:** the voice-scan focus indicator (amber/clay, `#C97A3D`) and the highlight fill (soft yellow, `#F7DE7A`) must stay visually distinct — one means "the app is currently listening/pointing here," the other means "this text is already highlighted." Collapsing them into one color was flagged early as a usability risk and deliberately avoided throughout every iteration.
+
+## Color tokens — Dark and Sepia themes (provisional, not yet re-verified against final mockups)
+
+The final mockup file includes a theme *selector* (on the Settings screen) but only fully renders the light theme end-to-end — dark and sepia are represented as an intent/toggle, not fully specified across every screen. The values below are the last working proposal from earlier design iteration and should be treated as a starting point to confirm, not as finalized as the light-theme table above:
+
+| Role | Dark | Sepia |
+|---|---|---|
+| Background | `#1C1A17` | `#F1E7D0` |
+| Text | `#EDE8DF` | `#3B2F20` |
+| Muted text | `#9C948A` | `#8A7859` |
+| Accent | `#6FA394` | `#4F6B5C` |
+| Border | `#3A362F` | `#DDCBA0` |
+| Surface | `#26231F` | `#F8F0DE` |
+| Highlight | `#6B5A24` | `#E8C468` |
+| Focus indicator | `#E0954F` | `#B5672E` |
+
+**Action item before implementation:** run the same "is this readable, is the focus/highlight distinction still clear" check against dark and sepia that the light theme already passed, since only light has actually been eyeballed across all 9 screens.
+
+## Typography
+
+- **Reading/body text:** `Charter, Georgia, serif` — a serif face for long-form reading content.
+- **UI chrome:** `system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Helvetica, sans-serif` — native system font, not a webfont, keeping the app lightweight and OS-native-feeling.
+- No Inter/Roboto/Arial as a deliberate choice, no emoji-as-icons — all icons are real stroke SVGs.
+
+## Layout patterns
+
+- **Home/Library:** left sidebar navigation (Recent / All PDFs / Favorites / Settings) + main content area with search, a primary "Open PDF" action, and a card grid of recent files (thumbnail + filename + relative timestamp), capped at 10.
+- **Reading view:** left icon toolbar rail (highlight tool, search-in-document, zoom in/out, book/strip layout toggle, theme cycle, "What can I say?") + main reading pane. Book layout centers a bounded page card; strip layout removes the card boundary and flows continuously with a subtle page-break marker between pages.
+- **Modals/dialogs** (save confirmation, "What can I say?" reference): centered card over a dimmed and slightly blurred background, not a full-screen takeover — keeps context visible.
+- **Settings:** single-column sections (Theme, Voice activation, Save behavior), not tabs — small enough surface area that tabs would add navigation overhead for no benefit.
+
+## Accessibility baseline
+
+Every interactive element is a real `<button>`/`<a>`/`<input>`, never a clickable `div` — required for keyboard focus and screen-reader compatibility, and a direct consequence of the "voice is an accelerator, not a replacement UI" requirement: the app must be fully operable by keyboard and mouse alone.
+
+## Design rationale notes
+
+Each mockup screen carries inline captions naming the UX heuristic behind specific choices (Hick's Law, Von Restorff's Law, Miller's Law, Fitts's Law, Jakob's Law, Postel's Law / error prevention, Peak-End Rule, Aesthetic-Usability effect). Worth preserving as inline code comments near the relevant UI logic when implementing, not just in this doc — e.g. the save-dialog default is intentionally the non-destructive option specifically so "don't ask again" can never silently arm a destructive default.
+
+## Naming placeholder
+
+UI copy currently reads "Lector" throughout the mockups. Per the PRD, this is a working name, not finalized — search-and-replace before any public release once a final name is chosen.
