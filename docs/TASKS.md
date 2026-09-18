@@ -14,9 +14,9 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 
 *No voice, no PDF rendering yet — just confirm the environment works before building on it.*
 
-- [ ] `pyproject.toml` with dependencies: PySide6, PyMuPDF, vosk, sounddevice
-- [ ] Create `src/lector/` package skeleton matching `docs/ARCHITECTURE.md`'s folder layout exactly (empty `features/` subfolders + `shared/`)
-- [ ] `__main__.py` entry point that launches a blank `QApplication` window
+- [x] `pyproject.toml` with dependencies: PySide6, PyMuPDF, vosk, sounddevice
+- [x] Create `src/lector/` package skeleton matching `docs/ARCHITECTURE.md`'s folder layout exactly (empty `features/` subfolders + `shared/`)
+- [x] `__main__.py` entry point that launches a blank `QApplication` window
 - [ ] Manually verify the app launches on both Windows and Mac
 
 ## Milestone 2 — Core reader (mouse/keyboard only, no voice)

@@ -8,4 +8,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Nothing yet — project is pre-implementation. PRD, tech stack, and design system finalized; architecture in progress.
+- Blank application window launches via `python -m lector` (Milestone 1 skeleton).

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lector"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6",
+    "PyMuPDF",
+    "vosk",
+    "sounddevice",
+]
+
+[project.scripts]
+lector = "lector.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lector"]
