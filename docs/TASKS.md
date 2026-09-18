@@ -17,18 +17,18 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 - [x] `pyproject.toml` with dependencies: PySide6, PyMuPDF, vosk, sounddevice
 - [x] Create `src/lector/` package skeleton matching `docs/ARCHITECTURE.md`'s folder layout exactly (empty `features/` subfolders + `shared/`)
 - [x] `__main__.py` entry point that launches a blank `QApplication` window
-- [ ] Manually verify the app launches on both Windows and Mac
+- [x] Manually verify the app launches on both Windows and Mac
 
 ## Milestone 2 — Core reader (mouse/keyboard only, no voice)
 
 *Prove PDF rendering and navigation work correctly before adding a second hard problem (speech) on top.*
 
-- [ ] `features/home/`: minimal Home screen — "Open PDF" button (native file dialog), empty/placeholder recent list
-- [ ] `features/reading/`: render a PDF page via PyMuPDF into the view (book layout only for now)
-- [ ] Page navigation: next/previous buttons + keyboard shortcuts (arrow keys or Page Up/Down)
-- [ ] Jump-to-page control
-- [ ] Zoom in/out
-- [ ] Apply `docs/DESIGN_SYSTEM.md` light-theme tokens to this base window chrome
+- [x] `features/home/`: minimal Home screen — "Open PDF" button (native file dialog), empty/placeholder recent list
+- [x] `features/reading/`: render a PDF page via PyMuPDF into the view (book layout only for now)
+- [x] Page navigation: next/previous buttons + keyboard shortcuts (arrow keys or Page Up/Down)
+- [x] Jump-to-page control
+- [x] Zoom in/out
+- [x] Apply `docs/DESIGN_SYSTEM.md` light-theme tokens to this base window chrome
 
 ## Milestone 3 — Highlighting core + save behavior
 
