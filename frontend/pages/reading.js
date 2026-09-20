@@ -23,11 +23,13 @@ const zoomSlider = document.getElementById("zoomSlider");
 const layoutBtn = document.getElementById("layoutBtn");
 const themeBtn = document.getElementById("themeBtn");
 
+const pageArea = document.getElementById("pageArea");
 const bookScroll = document.getElementById("bookScroll");
 const pageCard = document.getElementById("pageCard");
 const pageSurface = document.getElementById("pageSurface");
 const stripScroll = document.getElementById("stripScroll");
 const stripContainer = document.getElementById("stripContainer");
+const selectionLayer = document.getElementById("selectionLayer");
 const highlightCountLbl = document.getElementById("highlightCount");
 
 let state = { is_open: false };
@@ -35,13 +37,29 @@ let layoutMode = "book"; // or "strip"
 let highlightMode = false;
 let stripDirty = true;
 let stripBuildPromise = null; // guards against overlapping refreshStrip() builds (e.g. rapid nav)
-let dragStart = null; // {pageIndex, x, y}
+let selection = null; // the drag in progress, if any — see beginSelection()
 let renderedZoom = null; // the zoom level the currently-displayed page images were actually rendered at
 
 const THEME_ORDER = ["light", "dark", "sepia"];
 
 function b64ToDataUrl(b64) {
   return `data:image/png;base64,${b64}`;
+}
+
+// Point an <img> at freshly rendered page bytes and resolve only once they
+// are actually decoded and ready to paint. Callers need that guarantee to
+// hand over cleanly from the selection overlay to the re-rendered page: if
+// the overlay is torn down the instant .src is assigned, the still-displayed
+// old image shows for a frame or two with nothing on it, which reads as the
+// highlight flickering off before it appears.
+async function showImage(img, b64) {
+  img.src = b64ToDataUrl(b64);
+  try {
+    await img.decode();
+  } catch {
+    // Rejects if this src was superseded by a newer one (rapid nav/zoom) —
+    // that render's own showImage() call is the one that matters then.
+  }
 }
 
 function updateChrome() {
@@ -76,11 +94,11 @@ async function refreshBook() {
   stripScroll.hidden = true;
   const { image, width, height } = await callApi("get_page_image", state.page_index);
   if (image) {
-    pageSurface.src = b64ToDataUrl(image);
     pageSurface.width = width;
     pageSurface.height = height;
     pageSurface.style.width = "";
     pageSurface.style.height = "";
+    await showImage(pageSurface, image);
   }
   renderedZoom = state.zoom;
 }
@@ -138,7 +156,7 @@ function observeStripPages(imgs) {
 async function renderStripPage(img) {
   const index = Number(img.dataset.pageIndex);
   const { image } = await callApi("get_page_image", index);
-  if (image) img.src = b64ToDataUrl(image);
+  if (image) await showImage(img, image);
 }
 
 async function refreshStrip() {
@@ -180,7 +198,7 @@ async function updateStripPageImage(index) {
   if (!image) return;
   img.width = width;
   img.height = height;
-  img.src = b64ToDataUrl(image);
+  await showImage(img, image);
 }
 
 let stripScrollTicking = false;
@@ -243,46 +261,240 @@ function setHighlightMode(on) {
   document.querySelectorAll(".page-surface").forEach((el) => {
     el.classList.toggle("selecting", on);
   });
+  if (!on) cancelSelection();
+}
+
+// ------------------------------------------------------------------ //
+// Drag selection                                                       //
+// ------------------------------------------------------------------ //
+//
+// Highlighting is two distinct beats, the way Adobe Reader and every other
+// desktop annotator does it: while the mouse is held the words under the
+// drag are *selected* — washed in the selection color, snapping to whole
+// words and whole lines as the cursor moves — and only on release does that
+// selection become a highlight. Before this, nothing at all happened until
+// the mouse came up, so there was no way to tell what was about to be
+// highlighted (or that the drag had registered) until it already had been.
+//
+// The preview is drawn entirely on the frontend: it has to follow the cursor
+// on every mousemove, which is far too often to go back across the bridge
+// for. Python still owns the word boxes (api.py's get_page_words, per
+// ARCHITECTURE.md's "bounding-box data sent to the frontend") and still owns
+// the actual annotation write — what crosses back on release is the *word
+// index range* the preview had drawn, so the highlight that gets written is
+// by construction the one the reader was looking at.
+
+// Word boxes per page, keyed by page index. The promise itself is cached, so
+// a second drag on the same page while the first fetch is still in flight
+// joins it rather than issuing another bridge call. No invalidation: boxes
+// are in PDF points, so zoom doesn't touch them, and highlighting adds an
+// annotation without moving any text. Opening another document reloads this
+// page, and with it the cache.
+const wordCache = new Map();
+
+function getPageWords(pageIndex) {
+  if (!wordCache.has(pageIndex)) {
+    wordCache.set(pageIndex, callApi("get_page_words", pageIndex));
+  }
+  return wordCache.get(pageIndex);
+}
+
+// Index of the word nearest a point given in PDF points — 0 distance for a
+// point inside a word's box, so pressing squarely on a word always picks
+// that word, and a point out in the margin picks the nearest word on the
+// line it's level with.
+function nearestWordIndex(words, x, y) {
+  let bestIdx = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const dx = Math.max(w.x0 - x, 0, x - w.x1);
+    const dy = Math.max(w.y0 - y, 0, y - w.y1);
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+// PDF points -> displayed CSS pixels for a given page image. Derived from the
+// image's own measured width rather than state.zoom because the two disagree
+// mid-zoom: applyZoomPreview() resizes the image ahead of the debounced
+// re-render, so for a moment the page on screen is not the size its zoom
+// level says it is.
+function pageScale(el, page) {
+  const rect = el.getBoundingClientRect();
+  return page.width ? rect.width / page.width : 0;
+}
+
+// The word range covered by the drag: from the word under the press to the
+// word under the cursor now, inclusive, in reading order.
+function selectionRange(sel, page, ev) {
+  if (!page || !page.words.length) return null;
+  const rect = sel.el.getBoundingClientRect();
+  const scale = pageScale(sel.el, page);
+  if (!scale) return null;
+  const start = nearestWordIndex(page.words, sel.startOffset.x / scale, sel.startOffset.y / scale);
+  const end = nearestWordIndex(
+    page.words, (ev.clientX - rect.left) / scale, (ev.clientY - rect.top) / scale
+  );
+  if (start === null || end === null) return null;
+  return { lo: Math.min(start, end), hi: Math.max(start, end) };
+}
+
+// One box per line of text, spanning the selected words on that line —
+// mirrors merge_line_rects() in features/annotations/highlighter.py, which
+// composes the annotation quads the same way. They have to agree: the wash
+// the reader sees while dragging and the highlight they get on release are
+// meant to be the same shape, so neither may leave the gap at every space
+// that a box-per-word would.
+function mergeLineBoxes(words, range) {
+  const boxes = [];
+  for (let i = range.lo; i <= range.hi; i++) {
+    const w = words[i];
+    const last = boxes[boxes.length - 1];
+    if (last && last.line === w.line) {
+      last.x0 = Math.min(last.x0, w.x0);
+      last.y0 = Math.min(last.y0, w.y0);
+      last.x1 = Math.max(last.x1, w.x1);
+      last.y1 = Math.max(last.y1, w.y1);
+    } else {
+      boxes.push({ line: w.line, x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 });
+    }
+  }
+  return boxes;
+}
+
+function paintSelection(sel, applied) {
+  const page = sel.page;
+  if (!page || !sel.range) return;
+  const scale = pageScale(sel.el, page);
+  if (!scale) return;
+  // Positioned against .page-area (the selection layer's offset parent)
+  // rather than against the page image, so the same code serves book layout
+  // and the strip without caring how either one nests its pages.
+  const rect = sel.el.getBoundingClientRect();
+  const areaRect = pageArea.getBoundingClientRect();
+  const fragment = document.createDocumentFragment();
+  for (const box of mergeLineBoxes(page.words, sel.range)) {
+    const div = document.createElement("div");
+    div.className = applied ? "selection-rect applied" : "selection-rect";
+    div.style.left = `${rect.left - areaRect.left + box.x0 * scale}px`;
+    div.style.top = `${rect.top - areaRect.top + box.y0 * scale}px`;
+    div.style.width = `${(box.x1 - box.x0) * scale}px`;
+    div.style.height = `${(box.y1 - box.y0) * scale}px`;
+    fragment.appendChild(div);
+  }
+  selectionLayer.replaceChildren(fragment);
+}
+
+function clearSelection() {
+  selectionLayer.replaceChildren();
+}
+
+function cancelSelection() {
+  selection = null;
+  clearSelection();
+}
+
+function beginSelection(el, pageIndex, ev) {
+  const rect = el.getBoundingClientRect();
+  const sel = {
+    el,
+    pageIndex,
+    page: null,
+    // Kept as an offset within the page image, not as a viewport point, so
+    // scrolling mid-drag doesn't move where the selection started.
+    startOffset: { x: ev.clientX - rect.left, y: ev.clientY - rect.top },
+    range: null,
+  };
+  selection = sel;
+  clearSelection();
+  getPageWords(pageIndex).then((page) => {
+    // The drag can be over (or cancelled) before the word list arrives; only
+    // the drag that asked for it may adopt it.
+    if (selection === sel) sel.page = page;
+  });
+}
+
+function onSelectionMove(ev) {
+  if (!selection || !selection.page) return;
+  const range = selectionRange(selection, selection.page, ev);
+  if (!range) return;
+  selection.range = range;
+  paintSelection(selection, false);
+}
+
+async function endSelection(ev) {
+  const sel = selection;
+  selection = null;
+  if (!sel) return;
+  // A drag shorter than the first word fetch still has to highlight
+  // something, so fall back to awaiting the list here — this is also the
+  // path a plain click (no mousemove at all) takes, which highlights the one
+  // word clicked, as it did before.
+  const page = sel.page || (await getPageWords(sel.pageIndex));
+  sel.page = page;
+  sel.range = selectionRange(sel, page, ev);
+  if (!sel.range) {
+    clearSelection();
+    return;
+  }
+  // Repaint in the highlight color before the round trip, so the highlight
+  // lands under the cursor the instant the mouse is released rather than
+  // after the page has been re-rendered with the real annotation in it.
+  paintSelection(sel, true);
+  await applyHighlight(sel.pageIndex, sel.range);
+  clearSelection();
+}
+
+// Writes the selected range as a real PDF annotation and brings the view
+// back in step with it.
+async function applyHighlight(pageIndex, range) {
+  state = await callApi("highlight_words", pageIndex, range.lo, range.hi);
+  updateChrome();
+  if (layoutMode === "strip") {
+    highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
+    await updateStripPageImage(pageIndex);
+  } else {
+    highlightCountLbl.textContent = `${state.highlight_count_page} ${state.highlight_count_page === 1 ? "highlight" : "highlights"} on this page`;
+    // Keep the strip in sync even though it isn't visible right now, by
+    // patching just the one page that changed — flagging the whole strip
+    // dirty (forcing a full rebuild the next time it's shown) was overkill
+    // for a single-page change and, before the buildStrip() fix above, was
+    // what made switching to strip mode right after highlighting look like
+    // it had jumped back to page 1.
+    if (!stripDirty) {
+      await updateStripPageImage(pageIndex);
+    }
+    await refreshBook();
+  }
 }
 
 function bindSelection(el, getPageIndex) {
   el.addEventListener("mousedown", (ev) => {
-    if (!highlightMode) return;
-    const rect = el.getBoundingClientRect();
-    dragStart = { pageIndex: getPageIndex(), x: ev.clientX - rect.left, y: ev.clientY - rect.top };
-  });
-  el.addEventListener("mouseup", async (ev) => {
-    const pageIndex = getPageIndex();
-    if (!highlightMode || !dragStart || dragStart.pageIndex !== pageIndex) {
-      dragStart = null;
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    const end = { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
-    const start = dragStart;
-    dragStart = null;
-    state = await callApi(
-      "highlight_range", pageIndex, state.zoom, start.x, start.y, end.x, end.y
-    );
-    updateChrome();
-    if (layoutMode === "strip") {
-      highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
-      await updateStripPageImage(pageIndex);
-    } else {
-      highlightCountLbl.textContent = `${state.highlight_count_page} ${state.highlight_count_page === 1 ? "highlight" : "highlights"} on this page`;
-      // Keep the strip in sync even though it isn't visible right now, by
-      // patching just the one page that changed — flagging the whole strip
-      // dirty (forcing a full rebuild the next time it's shown) was overkill
-      // for a single-page change and, before the buildStrip() fix above, was
-      // what made switching to strip mode right after highlighting look like
-      // it had jumped back to page 1.
-      if (!stripDirty) {
-        await updateStripPageImage(pageIndex);
-      }
-      await refreshBook();
-    }
+    if (!highlightMode || ev.button !== 0) return;
+    ev.preventDefault(); // no drag-the-image ghost while selecting
+    beginSelection(el, getPageIndex(), ev);
   });
 }
+
+// Tracked on the document, not on the page image: a drag that runs off the
+// edge of the page (or off the window) should still select up to where it
+// left and still commit on release, the same way it does in a text editor.
+document.addEventListener("mousemove", onSelectionMove);
+document.addEventListener("mouseup", endSelection);
+
+// The overlay is positioned from the page image's measured position, so it
+// has to be redrawn when the page moves under a drag that isn't moving.
+function repaintSelectionOnScroll() {
+  if (selection && selection.range) paintSelection(selection, false);
+}
+
+bookScroll.addEventListener("scroll", repaintSelectionOnScroll);
+stripScroll.addEventListener("scroll", repaintSelectionOnScroll);
 
 // ------------------------------------------------------------------ //
 // Navigation / zoom                                                    //
@@ -651,6 +863,12 @@ document.addEventListener("keydown", (ev) => {
     case "h":
     case "H":
       setHighlightMode(!highlightMode);
+      break;
+    case "Escape":
+      // Abandons a selection mid-drag: the wash disappears and the release
+      // that follows writes nothing, so a drag started by mistake costs
+      // nothing to back out of.
+      cancelSelection();
       break;
     case "z":
       if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); ev.shiftKey ? redo() : undo(); }

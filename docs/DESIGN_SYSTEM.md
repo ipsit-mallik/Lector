@@ -26,12 +26,17 @@ Calm, minimal, utilitarian. A focused reading tool, not a busy productivity suit
 | Accent darker (link hover, badge text on tinted backgrounds) | `#2C463F` |
 | Voice-focus / "listening here" indicator | `#C97A3D` |
 | Highlight background | `#F7DE7A` |
+| Text-selection wash (drag in progress, before the highlight is applied) | `rgba(62, 98, 89, 0.42)` — the accent at 42%, blended multiply |
 | Destructive hover (e.g. window close button) | `#C0453B` |
 | Border / divider (light) | `#D2CCC2` |
 | Border / divider (subtle) | `#D8D3C9` |
 | Border / muted decorative | `#A8A6A0` |
 
 **Why the focus indicator and highlight color are different colors, on purpose:** the voice-scan focus indicator (amber/clay, `#C97A3D`) and the highlight fill (soft yellow, `#F7DE7A`) must stay visually distinct — one means "the app is currently listening/pointing here," the other means "this text is already highlighted." Collapsing them into one color was flagged early as a usability risk and deliberately avoided throughout every iteration.
+
+**The selection wash is a third state in that same family, and follows the same rule:** it means "this is what you are *about* to highlight" — text the reader has under an in-progress drag, which is not yet an annotation and may never become one (releasing outside, or pressing Escape, discards it). It is the accent green at low opacity rather than a fourth hue, which keeps the three states legible as a sequence — selecting (green wash) → highlighted (yellow) → being read aloud to/listened at (amber) — without introducing a color the palette doesn't already contain. It is deliberately *not* themed per light/dark/sepia: it sits on the rendered PDF page, which is the document's own paper and stays white in every theme, so a per-theme value would be tuned against a background that never changes.
+
+**Highlighting is two visible beats, not one**, matching Adobe Reader and other desktop annotators: while the mouse is held, the words under the drag are washed in the selection color, snapping to whole words and running edge-to-edge across each full line it covers; only on release does that same shape become the yellow highlight. The selection preview and the written annotation are composed identically (one box per line of text, not one per word), so the shape never changes under the cursor at the moment of release.
 
 ## Color tokens — Dark and Sepia themes (provisional, not yet re-verified against final mockups)
 

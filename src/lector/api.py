@@ -9,10 +9,8 @@ data — no PySide6/Qt types, no live PyMuPDF objects.
 import base64
 import os
 
-import fitz  # PyMuPDF
 import webview
 
-from lector.features.annotations import highlighter
 from lector.features.home import recent as home_recent
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
@@ -167,14 +165,41 @@ class Api:
     # Highlighting                                                         #
     # ------------------------------------------------------------------ #
 
-    def highlight_range(self, page_index: int, zoom: float, x0: float, y0: float, x1: float, y1: float) -> dict:
-        start_pt = fitz.Point(x0 / zoom, y0 / zoom)
-        end_pt = fitz.Point(x1 / zoom, y1 / zoom)
-        words = self._doc.words_on_page(page_index)
-        start_idx = highlighter.nearest_word_index(words, start_pt)
-        end_idx = highlighter.nearest_word_index(words, end_pt)
-        if start_idx is not None and end_idx is not None:
-            self._doc.highlight_word_range(page_index, words, start_idx, end_idx)
+    def get_page_words(self, page_index: int) -> dict:
+        """Word boxes for one page, in PDF points, in reading order.
+
+        The frontend needs these locally to paint the live selection as the
+        reader drags: hit-testing the cursor against the word list has to
+        happen on every mousemove, which is far too often to go back across
+        the bridge for. Positions are in points (not rendered pixels) so the
+        same payload stays correct at any zoom, and `line` groups words that
+        share a line of text so a selection can be drawn as one continuous
+        bar per line rather than one box per word.
+
+        Word *indices* into this list are the currency of the highlight call
+        below — the frontend sends back the range it had drawn, so what gets
+        written is what the reader saw selected.
+        """
+        if not self._doc.is_open:
+            return {"width": 0, "height": 0, "words": []}
+        width, height = self._doc.page_size_points(page_index)
+        return {
+            "width": width,
+            "height": height,
+            "words": [
+                {
+                    "x0": w.rect.x0,
+                    "y0": w.rect.y0,
+                    "x1": w.rect.x1,
+                    "y1": w.rect.y1,
+                    "line": f"{w.block_no}:{w.line_no}",
+                }
+                for w in self._doc.words_on_page(page_index)
+            ],
+        }
+
+    def highlight_words(self, page_index: int, start_idx: int, end_idx: int) -> dict:
+        self._doc.highlight_word_indices(page_index, start_idx, end_idx)
         return self._state()
 
     def undo_highlight(self) -> dict:

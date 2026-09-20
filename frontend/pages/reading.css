@@ -251,6 +251,40 @@ html, body { height: 100%; }
 .strip-gap { height: 20px; flex: none; }
 
 /* ------------------------------------------------------------------ */
+/* Selection wash (drag-to-highlight)                                  */
+/* ------------------------------------------------------------------ */
+
+/* Absolutely positioned inside .page-area and clipped to it, so a selection
+ * running off the top or bottom of the visible page is cut at the same edge
+ * the page itself is, rather than painting over the topbar or footer. */
+.selection-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.selection-rect {
+  position: absolute;
+  background-color: var(--color-selection);
+  border-radius: 1px;
+  /* Multiply rather than plain alpha so the glyphs underneath stay dark and
+   * readable through the wash — the page is an image, so there is no real
+   * text to re-color the way a browser's own selection would. */
+  mix-blend-mode: multiply;
+}
+
+/* The moment the mouse is released the wash becomes the highlight color, so
+ * the applied highlight appears instantly under the cursor instead of after
+ * the page has been re-rendered with the real annotation. The overlay is
+ * removed once that re-rendered page image is on screen, and what it is
+ * replaced by is the same shape in the same color. */
+.selection-rect.applied {
+  background-color: var(--color-highlight);
+}
+
+/* ------------------------------------------------------------------ */
 /* Footer                                                              */
 /* ------------------------------------------------------------------ */
 

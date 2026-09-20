@@ -67,6 +67,11 @@
         <div class="strip-scroll" id="stripScroll" hidden>
           <div class="strip-container" id="stripContainer"></div>
         </div>
+        <!-- Live selection wash painted while a highlight is being dragged
+             out (see reading.js). Sits outside both scrollers, as a sibling
+             clipped to the page area, so it can serve whichever layout is
+             active without being duplicated into each one. -->
+        <div class="selection-layer" id="selectionLayer" aria-hidden="true"></div>
       </div>
     </div>
 

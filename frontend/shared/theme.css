@@ -92,7 +92,17 @@
   --color-border-muted: #C9B78E;
 }
 
+/* Text-selection wash drawn over a page while the reader is dragging out a
+ * highlight, before the highlight itself is applied. Deliberately *not*
+ * per-theme: it sits on the rendered PDF page, which is the document's own
+ * paper (white in every theme today), so a theme-specific value would be
+ * tuned against a background that never changes. It is the app accent at low
+ * opacity, which keeps it clearly distinct from both the yellow highlight
+ * fill ("already highlighted") and the amber voice-focus indicator
+ * ("listening here") — the distinction DESIGN_SYSTEM.md calls out. */
 :root {
+  --color-selection: rgba(62, 98, 89, 0.42);
+
   --font-reading: Charter, Georgia, serif;
   --font-ui: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Helvetica, sans-serif;
 }

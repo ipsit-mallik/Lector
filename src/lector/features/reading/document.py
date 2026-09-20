@@ -121,6 +121,35 @@ class PdfDocument:
             return []
         return highlighter.words_on_page(self._doc[page_index])
 
+    def page_size_points(self, page_index: int) -> tuple[float, float]:
+        """A page's size in PDF points (i.e. at zoom 1.0).
+
+        The frontend needs this to map the word boxes it is handed onto the
+        page image it is actually displaying, whose pixel size depends on the
+        current zoom (and, mid-zoom, on a preview scale that has not been
+        re-rendered yet) — dividing by this gives it a zoom-independent
+        conversion instead of one that has to be kept in step with rendering.
+        """
+        if not self._doc:
+            return (0.0, 0.0)
+        rect = self._doc[page_index].rect
+        return (rect.width, rect.height)
+
+    def highlight_word_indices(self, page_index: int, start_idx: int, end_idx: int):
+        """Highlight the reading-order run between two word indices.
+
+        Indices are into this page's `words_on_page` list — the same list the
+        frontend was handed to draw its live selection, so what gets written
+        is exactly the run the reader saw selected under the cursor.
+        """
+        words = self.words_on_page(page_index)
+        if not words:
+            return None
+        last = len(words) - 1
+        start_idx = max(0, min(int(start_idx), last))
+        end_idx = max(0, min(int(end_idx), last))
+        return self.highlight_word_range(page_index, words, start_idx, end_idx)
+
     def highlight_word_range(
         self, page_index: int, words: list[highlighter.Word], start_idx: int, end_idx: int
     ):

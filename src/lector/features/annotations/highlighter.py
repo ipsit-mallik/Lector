@@ -7,7 +7,6 @@ PyMuPDF write layer together because a match result becomes annotation
 coordinates directly, so keeping them in one feature avoids indirection.
 """
 from dataclasses import dataclass
-from typing import Optional
 
 import fitz  # PyMuPDF
 
@@ -36,42 +35,44 @@ def words_on_page(page: fitz.Page) -> list[Word]:
     return words
 
 
-def nearest_word_index(words: list[Word], point: fitz.Point) -> Optional[int]:
-    """Index of the word whose bounding box is closest to `point`.
-
-    Distance is 0 whenever the point already falls inside a word's box, so a
-    press/release squarely on a word always resolves to that word.
-    """
-    if not words:
-        return None
-    best_idx = 0
-    best_dist = None
-    for i, w in enumerate(words):
-        dx = max(w.rect.x0 - point.x, 0.0, point.x - w.rect.x1)
-        dy = max(w.rect.y0 - point.y, 0.0, point.y - w.rect.y1)
-        dist = dx * dx + dy * dy
-        if best_dist is None or dist < best_dist:
-            best_dist = dist
-            best_idx = i
-    return best_idx
-
-
 def words_between(words: list[Word], start_idx: int, end_idx: int) -> list[Word]:
     """Contiguous reading-order run covering both indices, inclusive."""
     lo, hi = sorted((start_idx, end_idx))
     return words[lo:hi + 1]
 
 
+def merge_line_rects(words: list[Word]) -> list[fitz.Rect]:
+    """One rect per line of text, spanning the selected words on that line.
+
+    `words` is a contiguous reading-order run (what `words_between` returns),
+    so words belonging to the same line are always adjacent in it and a single
+    pass is enough. Merging matters because a rect per *word* leaves a gap at
+    every space, which reads as a row of disconnected blocks rather than the
+    continuous bar desktop annotators draw over a highlighted line — and it is
+    also what the frontend's live selection preview paints, so the applied
+    highlight has to be composed the same way or the shape would change under
+    the reader's cursor the moment they release the mouse.
+    """
+    merged: list[tuple[tuple[int, int], fitz.Rect]] = []
+    for w in words:
+        key = (w.block_no, w.line_no)
+        if merged and merged[-1][0] == key:
+            merged[-1][1].include_rect(w.rect)
+        else:
+            merged.append((key, fitz.Rect(w.rect)))
+    return [rect for _, rect in merged]
+
+
 def add_highlight(page: fitz.Page, words: list[Word]):
     """Write `words` as one real PDF highlight annotation (not a UI overlay).
 
-    One quad per word so a selection spanning multiple lines highlights
-    correctly, the same way desktop PDF annotators compose multi-line
-    highlights.
+    One quad per line of the selection (see `merge_line_rects`) so a selection
+    spanning multiple lines highlights correctly, the same way desktop PDF
+    annotators compose multi-line highlights.
     """
     if not words:
         return None
-    quads = [w.rect.quad for w in words]
+    quads = [rect.quad for rect in merge_line_rects(words)]
     annot = page.add_highlight_annot(quads=quads)
     annot.set_colors(stroke=HIGHLIGHT_COLOR)
     annot.update()
