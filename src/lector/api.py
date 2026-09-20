@@ -80,15 +80,16 @@ class Api:
         page_index = min(position["page_index"], self._doc.page_count - 1)
         if page_index > 0:
             self._doc.go_to_page(page_index)
+        self._doc.set_zoom(position["zoom"])
 
     def _remember_position(self) -> None:
-        """Persist the current page/layout, but only when it actually moved."""
+        """Persist the current page/layout/zoom, but only when it actually moved."""
         if not self._path or not self._doc.is_open:
             return
-        current = (self._doc.page_index, self._layout_mode)
+        current = (self._doc.page_index, self._layout_mode, self._doc.zoom)
         if current == self._persisted_position:
             return
-        settings.set_document_position(self._path, current[0], current[1])
+        settings.set_document_position(self._path, current[0], current[1], current[2])
         self._persisted_position = current
 
     def set_layout_mode(self, mode: str) -> dict:
@@ -151,14 +152,17 @@ class Api:
 
     def zoom_in(self) -> dict:
         self._doc.zoom_in()
+        self._remember_position()
         return self._state()
 
     def zoom_out(self) -> dict:
         self._doc.zoom_out()
+        self._remember_position()
         return self._state()
 
     def set_zoom(self, value: float) -> dict:
         self._doc.set_zoom(value)
+        self._remember_position()
         return self._state()
 
     # ------------------------------------------------------------------ #

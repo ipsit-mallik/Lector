@@ -128,7 +128,7 @@ def add_recent_file(path: str) -> None:
     entries = [e for e in get_recent_files() if e["path"] != path]
     entry = {"path": path, "opened_at": datetime.datetime.now().isoformat()}
     if existing is not None:
-        for key in (_POSITION_PAGE_KEY, _POSITION_LAYOUT_KEY):
+        for key in (_POSITION_PAGE_KEY, _POSITION_LAYOUT_KEY, _POSITION_ZOOM_KEY):
             if key in existing:
                 entry[key] = existing[key]
     entries.insert(0, entry)
@@ -144,10 +144,16 @@ def add_recent_file(path: str) -> None:
 # instead of accumulating in settings.json forever.
 _POSITION_PAGE_KEY = "page_index"
 _POSITION_LAYOUT_KEY = "layout_mode"
+_POSITION_ZOOM_KEY = "zoom"
+
+# Fallback when a stored position predates zoom persistence, or the stored
+# value is corrupt — matches PdfDocument.DEFAULT_ZOOM without importing the
+# reading feature into settings just for one constant.
+_DEFAULT_ZOOM = 1.0
 
 
 def get_document_position(path: str) -> dict | None:
-    """The page/layout `path` was last left on, or None if never recorded."""
+    """The page/layout/zoom `path` was last left on, or None if never recorded."""
     entry = next((e for e in get_recent_files() if e["path"] == path), None)
     if entry is None or _POSITION_PAGE_KEY not in entry:
         return None
@@ -155,13 +161,17 @@ def get_document_position(path: str) -> dict | None:
     if not isinstance(page_index, int) or page_index < 0:
         return None
     layout = entry.get(_POSITION_LAYOUT_KEY, BOOK)
+    zoom = entry.get(_POSITION_ZOOM_KEY, _DEFAULT_ZOOM)
+    if not isinstance(zoom, (int, float)) or zoom <= 0:
+        zoom = _DEFAULT_ZOOM
     return {
         "page_index": page_index,
         "layout_mode": layout if layout in (BOOK, STRIP) else BOOK,
+        "zoom": float(zoom),
     }
 
 
-def set_document_position(path: str, page_index: int, layout_mode: str) -> None:
+def set_document_position(path: str, page_index: int, layout_mode: str, zoom: float) -> None:
     """Record where `path` is being read, leaving recent-list order alone.
 
     Deliberately does not promote `path` to the front of the recent list:
@@ -178,6 +188,7 @@ def set_document_position(path: str, page_index: int, layout_mode: str) -> None:
         if isinstance(entry, dict) and entry.get("path") == path:
             entry[_POSITION_PAGE_KEY] = int(page_index)
             entry[_POSITION_LAYOUT_KEY] = layout_mode
+            entry[_POSITION_ZOOM_KEY] = float(zoom)
             _save(data)
             return
 
