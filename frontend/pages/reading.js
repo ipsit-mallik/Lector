@@ -300,9 +300,10 @@ function getPageWords(pageIndex) {
 }
 
 // Index of the word nearest a point given in PDF points — 0 distance for a
-// point inside a word's box, so pressing squarely on a word always picks
-// that word, and a point out in the margin picks the nearest word on the
-// line it's level with.
+// point inside a word's box, and a point out in the margin picks the nearest
+// word on the line it's level with. Used only to extend a live drag, never
+// to decide what was pressed on: it always returns *some* word, however far
+// away, which is the wrong answer for a press (see wordIndexAt below).
 function nearestWordIndex(words, x, y) {
   let bestIdx = null;
   let bestDist = Infinity;
@@ -310,6 +311,37 @@ function nearestWordIndex(words, x, y) {
     const w = words[i];
     const dx = Math.max(w.x0 - x, 0, x - w.x1);
     const dy = Math.max(w.y0 - y, 0, y - w.y1);
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+// How far outside a word's own box a press still counts as landing on it,
+// in PDF points (so it tracks the document's scale, not the zoom level).
+// Without some slack the inter-word spaces and the thin band between lines
+// would be dead zones; 3pt is roughly a space width at body size, enough to
+// forgive a press that lands in a gap without reaching the next line.
+const HIT_PAD = 3;
+
+// Index of the word actually *under* a point, or null when the point is in
+// whitespace. This is a containment test, not a nearest-word one, and that
+// distinction is the whole point: pressing in the margin, between paragraphs
+// or in the empty half of a page below the last line must do nothing at all.
+// Resolving the press with nearestWordIndex() instead is what made a click
+// anywhere on the page highlight whichever word happened to be closest to
+// it, including words the reader never clicked on.
+function wordIndexAt(words, x, y) {
+  let bestIdx = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const dx = Math.max(w.x0 - x, 0, x - w.x1);
+    const dy = Math.max(w.y0 - y, 0, y - w.y1);
+    if (dx > HIT_PAD || dy > HIT_PAD) continue;
     const dist = dx * dx + dy * dy;
     if (dist < bestDist) {
       bestDist = dist;
@@ -329,19 +361,36 @@ function pageScale(el, page) {
   return page.width ? rect.width / page.width : 0;
 }
 
-// The word range covered by the drag: from the word under the press to the
-// word under the cursor now, inclusive, in reading order.
+// The word range covered by the drag: from the word the drag is anchored to,
+// to the word under the cursor now, inclusive, in reading order.
+//
+// The two ends are resolved by different rules, deliberately. The anchor has
+// to be a word the reader actually pressed on (wordIndexAt), so that a click
+// on empty page selects nothing; the far end snaps to the nearest word
+// (nearestWordIndex), so that dragging out past the end of a line — or off
+// the page altogether — keeps extending the selection the way dragging in a
+// text editor does, instead of stopping dead at the last glyph.
+//
+// A drag that begins in whitespace and runs into text is still a selection:
+// the anchor is left unresolved until the cursor first touches a word, and
+// that word becomes it.
 function selectionRange(sel, page, ev) {
   if (!page || !page.words.length) return null;
   const rect = sel.el.getBoundingClientRect();
   const scale = pageScale(sel.el, page);
   if (!scale) return null;
-  const start = nearestWordIndex(page.words, sel.startOffset.x / scale, sel.startOffset.y / scale);
-  const end = nearestWordIndex(
-    page.words, (ev.clientX - rect.left) / scale, (ev.clientY - rect.top) / scale
-  );
-  if (start === null || end === null) return null;
-  return { lo: Math.min(start, end), hi: Math.max(start, end) };
+  const x = (ev.clientX - rect.left) / scale;
+  const y = (ev.clientY - rect.top) / scale;
+  if (sel.anchor === null) {
+    sel.anchor = wordIndexAt(page.words, sel.startOffset.x / scale, sel.startOffset.y / scale);
+  }
+  if (sel.anchor === null) {
+    sel.anchor = wordIndexAt(page.words, x, y);
+  }
+  if (sel.anchor === null) return null;
+  const end = nearestWordIndex(page.words, x, y);
+  if (end === null) return null;
+  return { lo: Math.min(sel.anchor, end), hi: Math.max(sel.anchor, end) };
 }
 
 // One box per line of text, spanning the selected words on that line —
@@ -408,6 +457,10 @@ function beginSelection(el, pageIndex, ev) {
     // Kept as an offset within the page image, not as a viewport point, so
     // scrolling mid-drag doesn't move where the selection started.
     startOffset: { x: ev.clientX - rect.left, y: ev.clientY - rect.top },
+    // Resolved on the first move (or on release) rather than here, because
+    // the word list may not have arrived yet, and because a drag starting in
+    // whitespace only earns an anchor once it reaches a word.
+    anchor: null,
     range: null,
   };
   selection = sel;
