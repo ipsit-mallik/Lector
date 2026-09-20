@@ -1,0 +1,115 @@
+/* Design tokens as CSS custom properties.
+ *
+ * Source of truth for all color/spacing/typography tokens used by the
+ * frontend (per docs/ARCHITECTURE.md) — docs/DESIGN_SYSTEM.md is the
+ * authoritative reference this file translates directly; src/lector/shared/theme.py
+ * now only exists for Python-side code that still needs these values (e.g.
+ * generating themed exports), not as the UI's source of truth.
+ *
+ * Dark and sepia values are provisional/unverified (see DESIGN_SYSTEM.md) —
+ * treat them as a starting point to confirm, not as settled as light.
+ */
+
+:root,
+[data-theme="light"] {
+  --color-canvas: #E7E2D9;
+  --color-surface: #F6F3EE;
+  --color-panel: #EFEAE2;
+  --color-panel-tertiary: #F2EEE7;
+  --color-input-bg: #FFFDF9;
+
+  --color-text-primary: #161A18;
+  --color-text-body: #1C211E;
+  --color-text-secondary: #4A4F49;
+  --color-text-dialog: #5A5F58;
+  --color-text-muted: #6B6F6A;
+  --color-text-very-muted: #9A968E;
+
+  --color-accent: #3E6259;
+  --color-accent-hover: #33534B;
+  --color-accent-dark: #2C463F;
+
+  --color-voice-focus: #C97A3D;
+  --color-highlight: #F7DE7A;
+  --color-destructive: #C0453B;
+
+  --color-border-light: #D2CCC2;
+  --color-border-subtle: #D8D3C9;
+  --color-border-muted: #A8A6A0;
+}
+
+[data-theme="dark"] {
+  --color-canvas: #1C1A17;
+  --color-surface: #26231F;
+  --color-panel: #211E1A;
+  --color-panel-tertiary: #232019;
+  --color-input-bg: #2C2822;
+
+  --color-text-primary: #EDE8DF;
+  --color-text-body: #E5E0D6;
+  --color-text-secondary: #B7B1A4;
+  --color-text-dialog: #C7C1B4;
+  --color-text-muted: #9C948A;
+  --color-text-very-muted: #746D63;
+
+  --color-accent: #6FA394;
+  --color-accent-hover: #7FB3A4;
+  --color-accent-dark: #5C8B7D;
+
+  --color-voice-focus: #E0954F;
+  --color-highlight: #6B5A24;
+  --color-destructive: #D9695D;
+
+  --color-border-light: #3A362F;
+  --color-border-subtle: #332F29;
+  --color-border-muted: #4A453C;
+}
+
+[data-theme="sepia"] {
+  --color-canvas: #F1E7D0;
+  --color-surface: #F8F0DE;
+  --color-panel: #EDE2C8;
+  --color-panel-tertiary: #F3E9D2;
+  --color-input-bg: #FCF7EA;
+
+  --color-text-primary: #3B2F20;
+  --color-text-body: #3B2F20;
+  --color-text-secondary: #5B4C38;
+  --color-text-dialog: #5B4C38;
+  --color-text-muted: #8A7859;
+  --color-text-very-muted: #A4967C;
+
+  --color-accent: #4F6B5C;
+  --color-accent-hover: #43594D;
+  --color-accent-dark: #37483E;
+
+  --color-voice-focus: #B5672E;
+  --color-highlight: #E8C468;
+  --color-destructive: #B5453A;
+
+  --color-border-light: #DDCBA0;
+  --color-border-subtle: #E3D3AC;
+  --color-border-muted: #C9B78E;
+}
+
+:root {
+  --font-reading: Charter, Georgia, serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--font-ui);
+  color: var(--color-text-primary);
+  background-color: var(--color-canvas);
+}
+
+body {
+  overflow: hidden;
+}

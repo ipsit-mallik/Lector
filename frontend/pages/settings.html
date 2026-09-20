@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <script>document.documentElement.dataset.theme = localStorage.getItem("lector-theme") || "light";</script>
+  <title>Lector — Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="home-view">
+    <div class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" data-icon="logo"></div>
+        <span class="brand-name">Lector</span>
+      </div>
+      <button class="nav-item" id="recentNav">
+        <span data-icon="recent"></span> Recent
+      </button>
+      <button class="nav-item" disabled><span data-icon="all_pdfs"></span> All PDFs</button>
+      <button class="nav-item" disabled><span data-icon="favorites"></span> Favorites</button>
+      <button class="nav-item active"><span data-icon="settings"></span> Settings</button>
+      <div class="sidebar-fill"></div>
+      <p style="font-size:11px;color:var(--color-text-very-muted);padding:0 8px;">
+        Version 1.0 · fully offline<br>No account, no sync
+      </p>
+    </div>
+
+    <div class="content">
+      <h1 class="page-title">Settings</h1>
+
+      <div class="section">
+        <h3>Theme</h3>
+        <p class="sub">Applies to the reading page and the app chrome.</p>
+        <div class="theme-cards" id="themeCards"></div>
+      </div>
+
+      <div class="section">
+        <h3>When I save highlights</h3>
+        <p class="sub">Lector never changes a file until you save.</p>
+        <div id="copyRow" class="option-row selected" data-mode="copy">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Save a copy</span>
+            <span class="option-subtitle">Writes "name — highlighted.pdf" next to the original.</span>
+          </div>
+          <span class="option-badge">RECOMMENDED</span>
+        </div>
+        <div id="overwriteRow" class="option-row" data-mode="overwrite" style="margin-top:8px;">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Overwrite the original</span>
+            <span class="option-subtitle">Highlights are written straight into the file you opened.</span>
+          </div>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="rememberCheck">
+          Don't ask again — just do this every time
+        </label>
+      </div>
+
+      <div class="section">
+        <h3>When I reopen a PDF</h3>
+        <p class="sub">Applies to files you open again from Recent.</p>
+        <div id="continueRow" class="option-row selected" data-mode="continue">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Continue where I left off</span>
+            <span class="option-subtitle">Opens on the last page you were reading, in the layout you were using.</span>
+          </div>
+          <span class="option-badge">RECOMMENDED</span>
+        </div>
+        <div id="startRow" class="option-row" data-mode="start" style="margin-top:8px;">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Always start at the beginning</span>
+            <span class="option-subtitle">Every PDF opens on page 1, in book layout.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/icons.js"></script>
+  <script src="../js/bridge.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

@@ -34,20 +34,22 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 
 *The core value mechanic. Prove annotation persistence actually works before voice ever touches it.*
 
-- [ ] `features/annotations/`: mouse-based text selection using PyMuPDF word/line bounding boxes
-- [ ] Write selection as a real PDF highlight annotation via PyMuPDF (not a UI overlay)
-- [ ] Save-confirmation dialog: "Save a copy" / "Overwrite the original", pre-selected to copy, "Don't ask again" checkbox (unchecked by default) — generalized wording, fires only on explicit Save action
-- [ ] `features/settings/`: persist the save-behavior preference via `QSettings`
-- [ ] **Manual verification:** open the saved file in a different PDF viewer (not Lector) and confirm the highlight is actually there
+- [x] `features/annotations/`: mouse-based text selection using PyMuPDF word/line bounding boxes
+- [x] Write selection as a real PDF highlight annotation via PyMuPDF (not a UI overlay)
+- [x] Save-confirmation dialog: "Save a copy" / "Overwrite the original", pre-selected to copy, "Don't ask again" checkbox (unchecked by default) — generalized wording, fires only on explicit Save action
+- [x] `features/settings/`: persist the save-behavior preference via `QSettings`
+- [ ] **Manual verification:** open the saved file in a different PDF viewer (not Lector) and confirm the highlight is actually there — implementation was verified by reopening both the copy and the overwritten original as fresh PyMuPDF documents and confirming the highlight annotation is structurally present in each; still needs a human check in an actual third-party viewer (e.g. Adobe Reader, Preview, browser PDF viewer) before this box is checked
 
 ## Milestone 4 — Strip layout, Settings, theme, recent files
 
 *Round out the non-voice app into something usable standalone.*
 
-- [ ] `features/reading/`: continuous-strip layout, toggle between book/strip
-- [ ] `features/settings/`: theme picker (light/dark/sepia) wired to `shared/theme.py` tokens
-- [ ] Recent files: persist last 10 opened files (path + timestamp) via `QSettings`; render as the card grid on Home
-- [ ] Stub onboarding screens (placeholder only — full flow built in Milestone 8)
+- [x] `features/reading/`: continuous-strip layout, toggle between book/strip
+- [x] `features/settings/`: theme picker (light/dark/sepia) wired to `shared/theme.py` tokens
+- [x] Recent files: persist last 10 opened files (path + timestamp) via `QSettings`; render as the card grid on Home
+- [x] Resume reading position: persist each document's last page + layout (book/strip) alongside its recent-files entry; restore both when it is reopened, governed by a Settings preference ("Continue where I left off" default vs. "Always start at the beginning"). Added at the developer's request after the rest of this milestone; verified by an end-to-end test over a real 20-page PDF (restore, start-at-beginning, clamping a stale page against a shortened file, corrupt stored values, recent-list order left undisturbed) and by a rendered screenshot of the new Settings section, which matches the option-row pattern of the save-behavior section above it.
+- [ ] **Manual verification:** confirm in the running app that a document reopened from Recent comes back in strip layout when that is what it was left in — the restore path itself is covered by the test above, but the reading view actually *coming up* in the restored layout was not screenshotted (the app's pywebview window can't be driven from the agent environment; only the Settings page was rendered headlessly).
+- [ ] Stub onboarding screens (placeholder only — full flow built in Milestone 8) — deferred: not started yet, no onboarding screen exists at all. Milestone 8 owns the real thing; a stub wasn't built this pass since Settings/theme/recent-files already made this a large milestone. Pick up next.
 
 ## Milestone 5 — Voice engine: push-to-talk only
 

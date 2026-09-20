@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <script>document.documentElement.dataset.theme = localStorage.getItem("lector-theme") || "light";</script>
+  <title>Lector — Reading</title>
+  <link rel="stylesheet" href="reading.css">
+</head>
+<body>
+  <div class="reading-view">
+    <div class="topbar">
+      <button class="back-btn" id="backBtn">
+        <span data-icon="chevron_left"></span>
+        Library
+      </button>
+      <div class="doc-title" id="docTitle"></div>
+      <div class="spacer"></div>
+      <button class="icon-btn nav-btn" id="prevBtn" title="Previous page  (←)">
+        <span data-icon="chevron_left"></span>
+      </button>
+      <input class="page-input" id="pageInput" type="number" min="1" value="1">
+      <span class="page-suffix" id="pageSuffix">of 1</span>
+      <button class="icon-btn nav-btn" id="nextBtn" title="Next page  (→)">
+        <span data-icon="chevron_right"></span>
+      </button>
+      <span style="width:10px"></span>
+      <div class="vline short"></div>
+      <div class="zoom-control">
+        <button class="zoom-label" id="zoomLabel" type="button">150%</button>
+        <div class="zoom-popover" id="zoomPopover" hidden>
+          <input class="zoom-slider" id="zoomSlider" type="range" min="50" max="400" step="5" value="150">
+        </div>
+      </div>
+    </div>
+    <div class="hline"></div>
+
+    <div class="body-row">
+      <div class="rail">
+        <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)"></button>
+        <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" disabled></button>
+        <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" disabled></button>
+        <button class="icon-btn" data-icon="search" title="Find in document  (Milestone 4)" disabled></button>
+
+        <div class="rail-sep"></div>
+
+        <button class="icon-btn" id="zoomInBtn" data-icon="zoom_in" title="Zoom in  (=)"></button>
+        <button class="icon-btn" id="zoomOutBtn" data-icon="zoom_out" title="Zoom out  (−)"></button>
+
+        <div class="rail-sep"></div>
+
+        <button class="icon-btn active" id="layoutBtn" data-icon="book_layout" title="Book layout — one page at a time"></button>
+        <button class="icon-btn" id="themeBtn" data-icon="theme" title="Cycle theme  (light / dark / sepia)"></button>
+        <button class="icon-btn" data-icon="help" title="What can I say?  (Milestone 8)" disabled></button>
+
+        <div class="rail-fill"></div>
+        <div class="offline-label">OFF<br>LINE</div>
+      </div>
+
+      <div class="vline"></div>
+
+      <div class="page-area" id="pageArea">
+        <div class="book-scroll" id="bookScroll">
+          <div class="page-card" id="pageCard">
+            <img class="page-surface" id="pageSurface" draggable="false">
+          </div>
+        </div>
+        <div class="strip-scroll" id="stripScroll" hidden>
+          <div class="strip-container" id="stripContainer"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hline"></div>
+    <div class="footer">
+      <div class="mic-pill">
+        <span data-icon="logo"></span>
+        <span>Mic idle</span>
+      </div>
+      <span class="hint">Hold Space to talk</span>
+      <div class="spacer"></div>
+      <span class="highlight-count" id="highlightCount">0 highlights on this page</span>
+      <button class="btn-secondary what-btn" disabled title="What can I say?  (Milestone 8)">What can I say?</button>
+    </div>
+  </div>
+
+  <!-- Save-changes confirmation: frameless overlay + dimmed scrim, per
+       docs/DESIGN_SYSTEM.md's modal pattern. Plain dim only — backdrop blur
+       explicitly deferred. -->
+  <div class="dialog-scrim" id="saveDialog" hidden>
+    <div class="dialog-card">
+      <div class="dialog-body">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="highlight"></div>
+          <div>
+            <p class="dialog-title">Save changes?</p>
+            <p class="dialog-desc">
+              Saving a copy leaves the original file untouched; overwriting
+              writes your changes straight into the PDF you opened.
+            </p>
+          </div>
+        </div>
+
+        <div class="option-row selected" id="copyRow" data-mode="copy">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Save a copy</span>
+            <span class="option-subtitle">Saved as a new file alongside the original.</span>
+          </div>
+          <span class="option-badge">RECOMMENDED</span>
+        </div>
+
+        <div class="option-row" id="overwriteRow" data-mode="overwrite">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Overwrite the original</span>
+            <span class="option-subtitle">Your changes are written into the file you opened.</span>
+          </div>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="rememberCheck">
+          Don't ask again — remember this choice
+        </label>
+      </div>
+
+      <div class="dialog-footer">
+        <span class="hint">You can change this later in Settings.</span>
+        <button class="btn btn-secondary" id="dialogCancelBtn">Cancel</button>
+        <button class="btn btn-secondary" id="dialogDiscardBtn" hidden>Don't Save</button>
+        <button class="btn" id="dialogSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/icons.js"></script>
+  <script src="../js/bridge.js"></script>
+  <script src="save-dialog.js"></script>
+  <script src="reading.js"></script>
+</body>
+</html>

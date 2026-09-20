@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <script>document.documentElement.dataset.theme = localStorage.getItem("lector-theme") || "light";</script>
+  <title>Lector — Home</title>
+  <link rel="stylesheet" href="pages/home.css">
+</head>
+<body>
+  <div class="home-view">
+    <div class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" data-icon="logo"></div>
+        <span class="brand-name">Lector</span>
+      </div>
+      <button class="nav-item active">
+        <span data-icon="recent"></span> Recent
+      </button>
+      <button class="nav-item" disabled>
+        <span data-icon="all_pdfs"></span> All PDFs
+      </button>
+      <button class="nav-item" disabled>
+        <span data-icon="favorites"></span> Favorites
+      </button>
+      <button class="nav-item" id="settingsNav">
+        <span data-icon="settings"></span> Settings
+      </button>
+      <div class="sidebar-fill"></div>
+      <div class="voice-box">
+        <div class="voice-status">
+          <span class="voice-dot"></span>
+          <span>VOICE READY</span>
+        </div>
+        <p>Hold Space and say what you want. Offline — nothing leaves this machine.</p>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="top-row">
+        <input class="search-input" type="text" placeholder="Search your library">
+        <button class="btn" id="openPdfBtn">
+          <span data-icon="open_pdf"></span>
+          Open PDF
+        </button>
+      </div>
+
+      <div class="recent-heading">
+        <h2>RECENT</h2>
+        <span id="recentCount">last 10 files</span>
+      </div>
+
+      <div id="recentArea"></div>
+    </div>
+  </div>
+
+  <script src="js/icons.js"></script>
+  <script src="js/bridge.js"></script>
+  <script src="pages/home.js"></script>
+</body>
+</html>

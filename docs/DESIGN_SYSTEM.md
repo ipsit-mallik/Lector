@@ -50,6 +50,8 @@ The final mockup file includes a theme *selector* (on the Settings screen) but o
 
 **Action item before implementation:** run the same "is this readable, is the focus/highlight distinction still clear" check against dark and sepia that the light theme already passed, since only light has actually been eyeballed across all 9 screens.
 
+**Implementation note (Milestone 4):** `shared/theme.py`'s `DARK` and `SEPIA` dicts use these 8 values as-is, then interpolate the rest of the full token set (the light theme's 19 keys — `panel_bg`, `panel_tertiary`, `input_bg`, `accent_hover`, etc. aren't covered by this table) to make the themes actually usable end-to-end. That interpolation is this implementation's own guess, not a design decision from the mockups, and still needs the readability/contrast check above before being treated as settled — the action item isn't closed by having code that compiles.
+
 ## Typography
 
 - **Reading/body text:** `Charter, Georgia, serif` — a serif face for long-form reading content.
@@ -60,6 +62,7 @@ The final mockup file includes a theme *selector* (on the Settings screen) but o
 
 - **Home/Library:** left sidebar navigation (Recent / All PDFs / Favorites / Settings) + main content area with search, a primary "Open PDF" action, and a card grid of recent files (thumbnail + filename + relative timestamp), capped at 10.
 - **Reading view:** left icon toolbar rail (highlight tool, search-in-document, zoom in/out, book/strip layout toggle, theme cycle, "What can I say?") + main reading pane. Book layout centers a bounded page card; strip layout removes the card boundary and flows continuously with a subtle page-break marker between pages.
+- **Zoom control:** the topbar's zoom percentage is a button — clicking it opens a small popover with a slider for continuous zoom, in addition to the toolbar rail's step-by-25% zoom in/out buttons. Not present in the original mockups; added after implementation when stepped-only zoom proved awkward for fine adjustment.
 - **Modals/dialogs** (save confirmation, "What can I say?" reference): centered card over a dimmed and slightly blurred background, not a full-screen takeover — keeps context visible.
 - **Settings:** single-column sections (Theme, Voice activation, Save behavior), not tabs — small enough surface area that tabs would add navigation overhead for no benefit.
 

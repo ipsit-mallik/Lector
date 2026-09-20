@@ -21,99 +21,65 @@ LIGHT = {
     "border_muted":   "#A8A6A0",
 }
 
+# Dark and Sepia: docs/DESIGN_SYSTEM.md gives only 8 rough tokens for these
+# (Background/Text/Muted text/Accent/Border/Surface/Highlight/Focus
+# indicator) and explicitly calls them provisional/unverified — "a starting
+# point to confirm, not as finalized as light". The 8 values below are taken
+# directly from that table; every other key here is this implementation's
+# own interpolation to fill out the full token set LIGHT defines, so the
+# same readability/focus-vs-highlight-contrast check the doc calls for still
+# needs to happen against these before they're treated as settled.
+DARK = {
+    "canvas_bg":      "#1C1A17",
+    "surface":        "#26231F",
+    "panel_bg":       "#211E1A",
+    "panel_tertiary": "#232019",
+    "input_bg":       "#2C2822",
+    "text_primary":   "#EDE8DF",
+    "text_body":      "#E5E0D6",
+    "text_secondary": "#B7B1A4",
+    "text_dialog":    "#C7C1B4",
+    "text_muted":     "#9C948A",
+    "text_very_muted":"#746D63",
+    "accent":         "#6FA394",
+    "accent_hover":   "#7FB3A4",
+    "accent_dark":    "#5C8B7D",
+    "voice_focus":    "#E0954F",
+    "highlight":      "#6B5A24",
+    "destructive":    "#D9695D",
+    "border_light":   "#3A362F",
+    "border_subtle":  "#332F29",
+    "border_muted":   "#4A453C",
+}
+
+SEPIA = {
+    "canvas_bg":      "#F1E7D0",
+    "surface":        "#F8F0DE",
+    "panel_bg":       "#EDE2C8",
+    "panel_tertiary": "#F3E9D2",
+    "input_bg":       "#FCF7EA",
+    "text_primary":   "#3B2F20",
+    "text_body":      "#3B2F20",
+    "text_secondary": "#5B4C38",
+    "text_dialog":    "#5B4C38",
+    "text_muted":     "#8A7859",
+    "text_very_muted":"#A4967C",
+    "accent":         "#4F6B5C",
+    "accent_hover":   "#43594D",
+    "accent_dark":    "#37483E",
+    "voice_focus":    "#B5672E",
+    "highlight":      "#E8C468",
+    "destructive":    "#B5453A",
+    "border_light":   "#DDCBA0",
+    "border_subtle":  "#E3D3AC",
+    "border_muted":   "#C9B78E",
+}
+
+THEMES = {"light": LIGHT, "dark": DARK, "sepia": SEPIA}
+THEME_ORDER = ["light", "dark", "sepia"]
+
 ACTIVE = LIGHT
 
 
-def build_stylesheet(tokens: dict) -> str:
-    t = tokens
-    return f"""
-        QWidget {{
-            background-color: {t['canvas_bg']};
-            color: {t['text_primary']};
-            font-family: "Segoe UI", system-ui, "Helvetica Neue", Helvetica, sans-serif;
-            font-size: 14px;
-        }}
-        QPushButton {{
-            background-color: {t['accent']};
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 18px;
-            font-weight: 600;
-        }}
-        QPushButton:hover {{
-            background-color: {t['accent_hover']};
-        }}
-        QPushButton:pressed {{
-            background-color: {t['accent_dark']};
-        }}
-        QPushButton:disabled {{
-            background-color: {t['border_light']};
-            color: {t['text_very_muted']};
-        }}
-        QPushButton#secondary {{
-            background-color: {t['surface']};
-            color: {t['text_primary']};
-            border: 1px solid {t['border_light']};
-            font-weight: 500;
-        }}
-        QPushButton#secondary:hover {{
-            background-color: {t['panel_bg']};
-        }}
-        QPushButton#secondary:disabled {{
-            color: {t['text_very_muted']};
-            border-color: {t['border_subtle']};
-        }}
-        QLineEdit {{
-            background-color: {t['input_bg']};
-            border: 1px solid {t['border_subtle']};
-            border-radius: 6px;
-            padding: 6px 10px;
-            color: {t['text_primary']};
-        }}
-        QSpinBox {{
-            background-color: {t['input_bg']};
-            border: 1px solid {t['border_subtle']};
-            border-radius: 4px;
-            padding: 4px 6px;
-            color: {t['text_primary']};
-        }}
-        QScrollArea {{
-            border: none;
-            background-color: {t['canvas_bg']};
-        }}
-        QScrollBar:vertical {{
-            background: {t['panel_bg']};
-            width: 8px;
-            margin: 0px;
-        }}
-        QScrollBar::handle:vertical {{
-            background: {t['border_muted']};
-            border-radius: 4px;
-            min-height: 24px;
-        }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-            height: 0px;
-        }}
-        QScrollBar:horizontal {{
-            background: {t['panel_bg']};
-            height: 8px;
-            margin: 0px;
-        }}
-        QScrollBar::handle:horizontal {{
-            background: {t['border_muted']};
-            border-radius: 4px;
-            min-width: 24px;
-        }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-            width: 0px;
-        }}
-        QToolTip {{
-            background-color: {t['text_primary']};
-            color: {t['surface']};
-            border: none;
-            border-radius: 4px;
-            padding: 4px 8px;
-            font-size: 12px;
-        }}
-    """
+def get_tokens(name: str) -> dict:
+    return THEMES.get(name, LIGHT)
