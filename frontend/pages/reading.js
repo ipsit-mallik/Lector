@@ -944,10 +944,69 @@ document.addEventListener("keydown", (ev) => {
 
 bindSelection(pageSurface, () => state.page_index);
 
-// --- Push-to-talk indicator (Milestone 5) -------------------------------- //
-// Reflects the engine's state in the footer's mic pill. Milestone 5 stops at
-// showing what was heard; acting on it is Milestone 6's job, which subscribes
-// to the `lector:command` event that js/voice.js emits.
+// --- Voice navigation ---------------------------------------------------- //
+// Python recognizes the phrase and parses it into an intent
+// (src/lector/features/voice/command_grammar.py); this end decides what that
+// intent means for this view. Both halves of that split matter: the grammar
+// has no idea there are two layouts, and this file has no idea which
+// phrasings map to NEXT_PAGE.
+
+// How far "scroll down" moves: most of a screen, but not all of it. Leaving
+// an overlap means the line you were reading when you spoke is still on
+// screen afterwards, so you never have to hunt for your place — the same
+// reason Page Down in a text editor doesn't advance by a full viewport.
+const VOICE_SCROLL_FRACTION = 0.8;
+
+function activeScrollEl() {
+  return layoutMode === "book" ? bookScroll : stripScroll;
+}
+
+// Scrolling that turns the page when it runs out of room. In book layout a
+// page that fits the window entirely cannot scroll at all, so without this
+// fallback "scroll down" would be a command that visibly does nothing on the
+// app's default layout — which reads as a broken microphone rather than as a
+// document that has no more to scroll.
+async function voiceScroll(delta) {
+  const el = activeScrollEl();
+  const before = el.scrollTop;
+  el.scrollTop = before + delta * el.clientHeight * VOICE_SCROLL_FRACTION;
+  if (el.scrollTop !== before) return;
+  if (layoutMode !== "book") return; // The strip is one continuous scroller.
+
+  const page = state.page_index;
+  await (delta > 0 ? goNext() : goPrev());
+  if (state.page_index === page) return; // Already on the first or last page.
+  // Land where reading continues from: the top of the next page going down,
+  // the bottom of the previous one going up. Keeping the old offset would
+  // drop the reader into the middle of a page they haven't read yet.
+  el.scrollTop = delta > 0 ? 0 : el.scrollHeight;
+}
+
+const VOICE_ACTIONS = {
+  NEXT_PAGE: () => goNext(),
+  PREV_PAGE: () => goPrev(),
+  GOTO_PAGE: (command) => goToPage(command.page),
+  SCROLL_DOWN: () => voiceScroll(1),
+  SCROLL_UP: () => voiceScroll(-1),
+};
+
+window.addEventListener("lector:command", (ev) => {
+  const { command } = ev.detail || {};
+  // No command means the phrase matched nothing in the grammar. That is a
+  // deliberate no-op: acting on a guess would move the reader somewhere they
+  // didn't ask to go, and the mic pill already shows what was heard so they
+  // can see why nothing happened.
+  if (!command) return;
+  const action = VOICE_ACTIONS[command.intent];
+  if (!action) return;
+  // A dialog owns the view while it is open; a page turn behind it would be
+  // invisible and would apply to a document the reader is mid-decision about.
+  if (document.querySelector(".dialog-scrim:not([hidden])")) return;
+  action(command);
+});
+
+// --- Push-to-talk indicator ---------------------------------------------- //
+// Reflects the engine's state in the footer's mic pill.
 
 const micPill = document.getElementById("micPill");
 const micLabel = document.getElementById("micLabel");
@@ -958,7 +1017,7 @@ const micHint = document.getElementById("micHint");
 const HEARD_LINGER_MS = 2500;
 let heardTimer = null;
 
-function renderMicState({ state: micState, text, error }) {
+function renderMicState({ state: micState, text, error, command }) {
   clearTimeout(heardTimer);
   micPill.classList.toggle("listening", micState === "listening");
   micPill.classList.toggle("unavailable", micState === "unavailable");
@@ -978,7 +1037,13 @@ function renderMicState({ state: micState, text, error }) {
       break;
     case "heard":
       micLabel.textContent = text ? `"${text}"` : "Didn't catch that";
-      micHint.textContent = "Hold Space to talk";
+      micPill.title = "";
+      // A phrase heard clearly but matching no command is worth naming out
+      // loud: without it, "next pages" looks identical to a dead microphone,
+      // and the reader has no way to tell that rephrasing is what's needed.
+      micHint.textContent = text && !command
+        ? "Not a command I know — try “next page”"
+        : "Hold Space to talk";
       heardTimer = setTimeout(() => renderMicState({ state: "idle" }), HEARD_LINGER_MS);
       break;
     default:

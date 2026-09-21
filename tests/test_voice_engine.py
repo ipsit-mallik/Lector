@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from lector.features.voice import command_grammar  # noqa: E402
 from lector.features.voice import engine as ve  # noqa: E402
 
 
@@ -76,15 +77,17 @@ class SubscriptionTests(unittest.TestCase):
 
 
 class VocabularyTests(unittest.TestCase):
-    def test_defaults_to_the_provisional_command_words(self):
-        self.assertEqual(ve.VoiceEngine()._vocabulary, ve.PROVISIONAL_VOCABULARY)
+    def test_defaults_to_the_navigation_grammar(self):
+        # The recognizer must be able to hear every word the grammar can
+        # match; pinning it to anything else makes commands undetectable.
+        self.assertEqual(ve.VoiceEngine()._vocabulary, command_grammar.VOCABULARY)
 
     def test_accepts_an_explicit_vocabulary(self):
         engine = ve.VoiceEngine(vocabulary=["open", "close"])
         self.assertEqual(engine._vocabulary, ["open", "close"])
 
     def test_set_vocabulary_replaces_it(self):
-        # Milestone 6 hands the real command grammar over this way.
+        # Milestone 7 widens the vocabulary for highlighting this way.
         engine = ve.VoiceEngine(vocabulary=["open"])
         engine.set_vocabulary(["next", "previous"])
         self.assertEqual(engine._vocabulary, ["next", "previous"])

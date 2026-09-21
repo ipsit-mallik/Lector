@@ -12,10 +12,11 @@ Two deliberate shapes:
   precisely because it can be pinned to a small fixed vocabulary. A
   `KaldiRecognizer` given a JSON word list will only ever return words from
   that list, which turns "did it hear me correctly" from an open-ended
-  accuracy problem into a closed-set one. Milestone 6's
-  `command_grammar.py` owns the real vocabulary; until it exists this module
-  carries a provisional list (`PROVISIONAL_VOCABULARY`) so the engine can be
-  exercised, and accepts any word list passed to the constructor.
+  accuracy problem into a closed-set one. `command_grammar.py` owns the
+  vocabulary — it is derived there from the command phrasings themselves, so
+  a synonym cannot be added without the recognizer also learning its words —
+  and this module simply pins its recognizer to that list. A different word
+  list can still be passed to the constructor, which is what the tests do.
 
 * **The model is loaded lazily and its absence is not fatal.** `docs/PRD.md`
   requires the app to stay fully usable by mouse and keyboard when voice is
@@ -28,6 +29,8 @@ import queue
 import threading
 from pathlib import Path
 
+from lector.features.voice import command_grammar
+
 # Vosk's small English model is 16 kHz mono; feeding it anything else quietly
 # degrades recognition rather than erroring, so the rate is fixed here rather
 # than taken from the device's default.
@@ -37,16 +40,11 @@ CHANNELS = 1
 # key feels immediate, large enough not to wake the reader thread constantly.
 BLOCK_SIZE = 2000
 
-# Placeholder vocabulary so the recognizer is genuinely grammar-constrained
-# from day one. Milestone 6 replaces this with `command_grammar.py`'s
-# synonym-mapped command set; it is intentionally NOT being designed here,
-# because TASKS.md puts the grammar and its synonym map in the next milestone
-# and the ordering exists to keep recognition failures separable from
-# vocabulary failures.
-PROVISIONAL_VOCABULARY = [
-    "next", "previous", "page", "back", "forward",
-    "top", "bottom", "highlight", "save", "stop",
-]
+# The words the recognizer may return, and therefore the only words any
+# command can be built from. Derived from the navigation grammar rather than
+# listed here, so the two can never drift apart. Milestone 7 extends it with
+# the highlight vocabulary; this module does not need to know when it does.
+DEFAULT_VOCABULARY = command_grammar.VOCABULARY
 
 # Vosk's convention for "anything not in the grammar" — without it, unknown
 # speech is force-fitted onto the nearest listed word, which would make every
@@ -68,7 +66,7 @@ class VoiceEngine:
     """
 
     def __init__(self, vocabulary: list[str] | None = None, model_dir: Path | None = None):
-        self._vocabulary = list(vocabulary) if vocabulary else list(PROVISIONAL_VOCABULARY)
+        self._vocabulary = list(vocabulary) if vocabulary else list(DEFAULT_VOCABULARY)
         self._model_dir = Path(model_dir) if model_dir else MODEL_DIR
         self._model = None
         self._load_error: str | None = None
@@ -146,8 +144,10 @@ class VoiceEngine:
         return recognizer
 
     def set_vocabulary(self, vocabulary: list[str]) -> None:
-        """Swap the recognized word list. Milestone 6 calls this with the real
-        command grammar; takes effect on the next `start_listening()`."""
+        """Swap the recognized word list; takes effect on the next
+        `start_listening()`. The navigation grammar is already the default —
+        this exists for Milestone 7, which widens the vocabulary once
+        highlighting can be spoken."""
         self._vocabulary = list(vocabulary)
 
     # ---------------------------------------------------------------- #

@@ -1,10 +1,14 @@
 // Push-to-talk wiring, shared by the Home and Reading views.
 //
-// Milestone 5 scope: hold a key, capture audio, get recognized text back.
-// There is no wake phrase and no always-on listening yet (Milestone 8), and
-// nothing here interprets what was said — recognized phrases are re-broadcast
-// as a `lector:command` event for Milestone 6's navigation commands and
-// Milestone 7's highlight matcher to subscribe to.
+// Hold a key, capture audio, get recognized text back. There is no wake
+// phrase and no always-on listening yet (Milestone 8).
+//
+// Nothing here interprets what was said: Python parses the phrase into an
+// intent (src/lector/features/voice/command_grammar.py) and sends it along
+// with the text. This file only re-broadcasts it as a `lector:command`
+// event that each view subscribes to — the reading view acts on navigation
+// intents, and Milestone 7's highlight matcher will subscribe alongside it
+// without either needing to know about the other.
 //
 // Python pushes results the other way, as a `lector:voice` CustomEvent
 // dispatched from src/lector/api.py's `_on_voice_result`.
@@ -40,13 +44,16 @@ function dialogIsOpen() {
  *     {state: "unavailable", error}  — no model, or no microphone
  *     {state: "idle"}                — ready, not listening
  *     {state: "listening", text}     — key held; `text` firms up as you speak
- *     {state: "heard", text}         — key released, final phrase (may be "")
+ *     {state: "heard", text, command} — key released, final phrase (may be
+ *                                       ""); `command` is the parsed intent,
+ *                                       or null if nothing matched
  */
 function initPushToTalk(onState) {
   let held = false;
   let available = false;
 
-  const report = (state, text = "", error = null) => onState({ state, text, error });
+  const report = (state, text = "", error = null, command = null) =>
+    onState({ state, text, error, command });
 
   callApi("get_voice_status")
     .then((status) => {
@@ -61,15 +68,22 @@ function initPushToTalk(onState) {
 
   // Partial and final results arriving from Python's worker thread.
   window.addEventListener("lector:voice", (ev) => {
-    const { text, final } = ev.detail || {};
+    const { text, final, command } = ev.detail || {};
     if (final) {
-      report("heard", text || "");
+      report("heard", text || "", null, command || null);
       // Re-broadcast for feature code. Deliberately a separate event from
       // `lector:voice`: that one is the raw transport, this one is the
       // "a command was spoken" signal features act on, and only final
       // results qualify.
+      //
+      // Dispatched even when `command` is null, so that a view can tell
+      // "heard something, understood nothing" apart from "heard nothing"
+      // and say so, rather than leaving the reader wondering whether the
+      // microphone worked.
       if (text) {
-        window.dispatchEvent(new CustomEvent("lector:command", { detail: { text } }));
+        window.dispatchEvent(
+          new CustomEvent("lector:command", { detail: { text, command: command || null } }),
+        );
       }
     } else {
       report("listening", text || "");

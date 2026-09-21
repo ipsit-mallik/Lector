@@ -16,6 +16,7 @@ from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
+from lector.features.voice import command_grammar
 from lector.features.voice.engine import VoiceEngine
 
 
@@ -312,6 +313,12 @@ class Api:
         Milestone 7's highlight matcher can each subscribe independently
         without this method growing a list of callees.
 
+        Final results carry a `command` key — the parsed intent, or `None`
+        when nothing in the grammar matched. Interpretation happens here, on
+        the Python side, because docs/ARCHITECTURE.md keeps command
+        interpretation in `voice/` and leaves the frontend to decide what a
+        given intent *does*: this sends `NEXT_PAGE`, not "scroll the strip".
+
         Runs on the engine's worker thread, and deliberately swallows failures:
         no window yet (results arriving during teardown) must not kill the
         audio thread.
@@ -320,6 +327,8 @@ class Api:
             window = webview.windows[0]
         except IndexError:
             return
+        if result.get("final"):
+            result = {**result, "command": command_grammar.parse(result.get("text", ""))}
         payload = json.dumps(result)
         try:
             window.evaluate_js(
