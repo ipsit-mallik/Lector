@@ -20,10 +20,12 @@ class PdfDocument:
         # wrapper on every call, and an Annot handle is silently invalidated
         # once the Page wrapper it was created from is garbage collected, so
         # the Page must be kept alive alongside its Annot. Redo entries only
-        # keep the word list, since PyMuPDF invalidates an Annot handle the
+        # keep the selected run, since PyMuPDF invalidates an Annot handle the
         # moment it's deleted — redoing re-adds a fresh annotation instead.
-        self._undo_stack: list[tuple[int, list[highlighter.Word], object, object]] = []
-        self._redo_stack: list[tuple[int, list[highlighter.Word]]] = []
+        # The run is chars for a mouse-drag highlight, words for a future
+        # voice-matched one (Milestone 7) — both satisfy highlighter.LineBounded.
+        self._undo_stack: list[tuple[int, list[highlighter.LineBounded], object, object]] = []
+        self._redo_stack: list[tuple[int, list[highlighter.LineBounded]]] = []
 
     def open(self, path: str):
         if self._doc:
@@ -113,6 +115,14 @@ class PdfDocument:
     # Annotations (Milestone 3)                                           #
     # ------------------------------------------------------------------ #
 
+    def chars_on_current_page(self) -> list[highlighter.Char]:
+        return self.chars_on_page(self._page_index)
+
+    def chars_on_page(self, page_index: int) -> list[highlighter.Char]:
+        if not self._doc:
+            return []
+        return highlighter.chars_on_page(self._doc[page_index])
+
     def words_on_current_page(self) -> list[highlighter.Word]:
         return self.words_on_page(self._page_index)
 
@@ -135,6 +145,22 @@ class PdfDocument:
         rect = self._doc[page_index].rect
         return (rect.width, rect.height)
 
+    def highlight_char_indices(self, page_index: int, start_idx: int, end_idx: int):
+        """Highlight the reading-order run between two character indices.
+
+        Indices are into this page's `chars_on_page` list — the same list the
+        frontend was handed to draw its live selection, so what gets written
+        is exactly the run the reader saw selected under the cursor.
+        """
+        chars = self.chars_on_page(page_index)
+        if not chars:
+            return None
+        last = len(chars) - 1
+        start_idx = max(0, min(int(start_idx), last))
+        end_idx = max(0, min(int(end_idx), last))
+        selected = highlighter.chars_between(chars, start_idx, end_idx)
+        return self._commit_highlight(page_index, selected)
+
     def highlight_word_indices(self, page_index: int, start_idx: int, end_idx: int):
         """Highlight the reading-order run between two word indices.
 
@@ -148,12 +174,10 @@ class PdfDocument:
         last = len(words) - 1
         start_idx = max(0, min(int(start_idx), last))
         end_idx = max(0, min(int(end_idx), last))
-        return self.highlight_word_range(page_index, words, start_idx, end_idx)
-
-    def highlight_word_range(
-        self, page_index: int, words: list[highlighter.Word], start_idx: int, end_idx: int
-    ):
         selected = highlighter.words_between(words, start_idx, end_idx)
+        return self._commit_highlight(page_index, selected)
+
+    def _commit_highlight(self, page_index: int, selected: list[highlighter.LineBounded]):
         page = self._doc[page_index]
         annot = highlighter.add_highlight(page, selected)
         if annot is not None:

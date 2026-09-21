@@ -34,8 +34,8 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 
 *The core value mechanic. Prove annotation persistence actually works before voice ever touches it.*
 
-- [x] `features/annotations/`: mouse-based text selection using PyMuPDF word/line bounding boxes
-- [x] Live selection feedback while dragging — words wash in the selection color as the cursor moves and only become a highlight on release, per `docs/DESIGN_SYSTEM.md`'s "two visible beats" note (verified by screenshotting the running app mid-drag, on release, and after a single-word click)
+- [x] `features/annotations/`: mouse-based text selection using PyMuPDF character/line bounding boxes (character granularity, not word — a drag can stop mid-word, matching Adobe Reader's selection behavior)
+- [x] Live selection feedback while dragging — text washes in the selection color as the cursor moves, following the cursor character by character, and only becomes a highlight on release, per `docs/DESIGN_SYSTEM.md`'s "two visible beats" note (verified by screenshotting the running app mid-drag, on release, and after a single-click selection)
 - [x] Write selection as a real PDF highlight annotation via PyMuPDF (not a UI overlay)
 - [x] Save-confirmation dialog: "Save a copy" / "Overwrite the original", pre-selected to copy, "Don't ask again" checkbox (unchecked by default) — generalized wording, fires only on explicit Save action
 - [x] `features/settings/`: persist the save-behavior preference via `QSettings`

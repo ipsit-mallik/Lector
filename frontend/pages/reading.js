@@ -269,48 +269,50 @@ function setHighlightMode(on) {
 // ------------------------------------------------------------------ //
 //
 // Highlighting is two distinct beats, the way Adobe Reader and every other
-// desktop annotator does it: while the mouse is held the words under the
-// drag are *selected* — washed in the selection color, snapping to whole
-// words and whole lines as the cursor moves — and only on release does that
+// desktop annotator does it: while the mouse is held the characters under
+// the drag are *selected* — washed in the selection color, following the
+// cursor character by character (a drag can stop mid-word, the same as
+// dragging over text in Adobe Reader) — and only on release does that
 // selection become a highlight. Before this, nothing at all happened until
 // the mouse came up, so there was no way to tell what was about to be
 // highlighted (or that the drag had registered) until it already had been.
 //
 // The preview is drawn entirely on the frontend: it has to follow the cursor
 // on every mousemove, which is far too often to go back across the bridge
-// for. Python still owns the word boxes (api.py's get_page_words, per
+// for. Python still owns the character boxes (api.py's get_page_chars, per
 // ARCHITECTURE.md's "bounding-box data sent to the frontend") and still owns
-// the actual annotation write — what crosses back on release is the *word
-// index range* the preview had drawn, so the highlight that gets written is
-// by construction the one the reader was looking at.
+// the actual annotation write — what crosses back on release is the
+// *character index range* the preview had drawn, so the highlight that gets
+// written is by construction the one the reader was looking at.
 
-// Word boxes per page, keyed by page index. The promise itself is cached, so
-// a second drag on the same page while the first fetch is still in flight
-// joins it rather than issuing another bridge call. No invalidation: boxes
-// are in PDF points, so zoom doesn't touch them, and highlighting adds an
-// annotation without moving any text. Opening another document reloads this
-// page, and with it the cache.
-const wordCache = new Map();
+// Character boxes per page, keyed by page index. The promise itself is
+// cached, so a second drag on the same page while the first fetch is still
+// in flight joins it rather than issuing another bridge call. No
+// invalidation: boxes are in PDF points, so zoom doesn't touch them, and
+// highlighting adds an annotation without moving any text. Opening another
+// document reloads this page, and with it the cache.
+const charCache = new Map();
 
-function getPageWords(pageIndex) {
-  if (!wordCache.has(pageIndex)) {
-    wordCache.set(pageIndex, callApi("get_page_words", pageIndex));
+function getPageChars(pageIndex) {
+  if (!charCache.has(pageIndex)) {
+    charCache.set(pageIndex, callApi("get_page_chars", pageIndex));
   }
-  return wordCache.get(pageIndex);
+  return charCache.get(pageIndex);
 }
 
-// Index of the word nearest a point given in PDF points — 0 distance for a
-// point inside a word's box, and a point out in the margin picks the nearest
-// word on the line it's level with. Used only to extend a live drag, never
-// to decide what was pressed on: it always returns *some* word, however far
-// away, which is the wrong answer for a press (see wordIndexAt below).
-function nearestWordIndex(words, x, y) {
+// Index of the character nearest a point given in PDF points — 0 distance
+// for a point inside a character's box, and a point out in the margin picks
+// the nearest character on the line it's level with. Used only to extend a
+// live drag, never to decide what was pressed on: it always returns *some*
+// character, however far away, which is the wrong answer for a press (see
+// charIndexAt below).
+function nearestCharIndex(chars, x, y) {
   let bestIdx = null;
   let bestDist = Infinity;
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    const dx = Math.max(w.x0 - x, 0, x - w.x1);
-    const dy = Math.max(w.y0 - y, 0, y - w.y1);
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    const dx = Math.max(c.x0 - x, 0, x - c.x1);
+    const dy = Math.max(c.y0 - y, 0, y - c.y1);
     const dist = dx * dx + dy * dy;
     if (dist < bestDist) {
       bestDist = dist;
@@ -320,27 +322,30 @@ function nearestWordIndex(words, x, y) {
   return bestIdx;
 }
 
-// How far outside a word's own box a press still counts as landing on it,
-// in PDF points (so it tracks the document's scale, not the zoom level).
-// Without some slack the inter-word spaces and the thin band between lines
-// would be dead zones; 3pt is roughly a space width at body size, enough to
-// forgive a press that lands in a gap without reaching the next line.
-const HIT_PAD = 3;
+// How far outside a character's own box a press still counts as landing on
+// it, in PDF points (so it tracks the document's scale, not the zoom level).
+// Characters on a line tile edge-to-edge with no horizontal gap between them
+// (even the space character gets its own box), so this pad mostly matters
+// for the margin before the first character of a line, past the last one,
+// and the thin band between lines — 1.5pt is enough to forgive a press that
+// lands just short of a line without reaching the next one.
+const HIT_PAD = 1.5;
 
-// Index of the word actually *under* a point, or null when the point is in
-// whitespace. This is a containment test, not a nearest-word one, and that
-// distinction is the whole point: pressing in the margin, between paragraphs
-// or in the empty half of a page below the last line must do nothing at all.
-// Resolving the press with nearestWordIndex() instead is what made a click
-// anywhere on the page highlight whichever word happened to be closest to
-// it, including words the reader never clicked on.
-function wordIndexAt(words, x, y) {
+// Index of the character actually *under* a point, or null when the point is
+// in whitespace outside any line. This is a containment test, not a
+// nearest-character one, and that distinction is the whole point: pressing
+// in the margin, between paragraphs or in the empty half of a page below the
+// last line must do nothing at all. Resolving the press with
+// nearestCharIndex() instead is what made a click anywhere on the page
+// highlight whichever character happened to be closest to it, including
+// text the reader never clicked on.
+function charIndexAt(chars, x, y) {
   let bestIdx = null;
   let bestDist = Infinity;
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    const dx = Math.max(w.x0 - x, 0, x - w.x1);
-    const dy = Math.max(w.y0 - y, 0, y - w.y1);
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    const dx = Math.max(c.x0 - x, 0, x - c.x1);
+    const dy = Math.max(c.y0 - y, 0, y - c.y1);
     if (dx > HIT_PAD || dy > HIT_PAD) continue;
     const dist = dx * dx + dy * dy;
     if (dist < bestDist) {
@@ -361,56 +366,58 @@ function pageScale(el, page) {
   return page.width ? rect.width / page.width : 0;
 }
 
-// The word range covered by the drag: from the word the drag is anchored to,
-// to the word under the cursor now, inclusive, in reading order.
+// The character range covered by the drag: from the character the drag is
+// anchored to, to the character under the cursor now, inclusive, in reading
+// order.
 //
 // The two ends are resolved by different rules, deliberately. The anchor has
-// to be a word the reader actually pressed on (wordIndexAt), so that a click
-// on empty page selects nothing; the far end snaps to the nearest word
-// (nearestWordIndex), so that dragging out past the end of a line — or off
-// the page altogether — keeps extending the selection the way dragging in a
-// text editor does, instead of stopping dead at the last glyph.
+// to be a character the reader actually pressed on (charIndexAt), so that a
+// click on empty page selects nothing; the far end snaps to the nearest
+// character (nearestCharIndex), so that dragging out past the end of a line
+// — or off the page altogether — keeps extending the selection the way
+// dragging in a text editor does, instead of stopping dead at the last
+// glyph.
 //
 // A drag that begins in whitespace and runs into text is still a selection:
-// the anchor is left unresolved until the cursor first touches a word, and
-// that word becomes it.
+// the anchor is left unresolved until the cursor first touches a character,
+// and that character becomes it.
 function selectionRange(sel, page, ev) {
-  if (!page || !page.words.length) return null;
+  if (!page || !page.chars.length) return null;
   const rect = sel.el.getBoundingClientRect();
   const scale = pageScale(sel.el, page);
   if (!scale) return null;
   const x = (ev.clientX - rect.left) / scale;
   const y = (ev.clientY - rect.top) / scale;
   if (sel.anchor === null) {
-    sel.anchor = wordIndexAt(page.words, sel.startOffset.x / scale, sel.startOffset.y / scale);
+    sel.anchor = charIndexAt(page.chars, sel.startOffset.x / scale, sel.startOffset.y / scale);
   }
   if (sel.anchor === null) {
-    sel.anchor = wordIndexAt(page.words, x, y);
+    sel.anchor = charIndexAt(page.chars, x, y);
   }
   if (sel.anchor === null) return null;
-  const end = nearestWordIndex(page.words, x, y);
+  const end = nearestCharIndex(page.chars, x, y);
   if (end === null) return null;
   return { lo: Math.min(sel.anchor, end), hi: Math.max(sel.anchor, end) };
 }
 
-// One box per line of text, spanning the selected words on that line —
+// One box per line of text, spanning the selected characters on that line —
 // mirrors merge_line_rects() in features/annotations/highlighter.py, which
 // composes the annotation quads the same way. They have to agree: the wash
 // the reader sees while dragging and the highlight they get on release are
-// meant to be the same shape, so neither may leave the gap at every space
-// that a box-per-word would.
-function mergeLineBoxes(words, range) {
+// meant to be the same shape, so neither may leave a gap that a
+// box-per-character would.
+function mergeLineBoxes(chars, range) {
   const boxes = [];
   for (let i = range.lo; i <= range.hi; i++) {
-    const w = words[i];
+    const c = chars[i];
     const last = boxes[boxes.length - 1];
-    if (last && last.line === w.line) {
-      last.x0 = Math.min(last.x0, w.x0);
-      last.y0 = Math.min(last.y0, w.y0);
-      last.x1 = Math.max(last.x1, w.x1);
-      last.y1 = Math.max(last.y1, w.y1);
+    if (last && last.line === c.line) {
+      last.x0 = Math.min(last.x0, c.x0);
+      last.y0 = Math.min(last.y0, c.y0);
+      last.x1 = Math.max(last.x1, c.x1);
+      last.y1 = Math.max(last.y1, c.y1);
     } else {
-      boxes.push({ line: w.line, x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 });
+      boxes.push({ line: c.line, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1 });
     }
   }
   return boxes;
@@ -427,7 +434,7 @@ function paintSelection(sel, applied) {
   const rect = sel.el.getBoundingClientRect();
   const areaRect = pageArea.getBoundingClientRect();
   const fragment = document.createDocumentFragment();
-  for (const box of mergeLineBoxes(page.words, sel.range)) {
+  for (const box of mergeLineBoxes(page.chars, sel.range)) {
     const div = document.createElement("div");
     div.className = applied ? "selection-rect applied" : "selection-rect";
     div.style.left = `${rect.left - areaRect.left + box.x0 * scale}px`;
@@ -458,16 +465,16 @@ function beginSelection(el, pageIndex, ev) {
     // scrolling mid-drag doesn't move where the selection started.
     startOffset: { x: ev.clientX - rect.left, y: ev.clientY - rect.top },
     // Resolved on the first move (or on release) rather than here, because
-    // the word list may not have arrived yet, and because a drag starting in
-    // whitespace only earns an anchor once it reaches a word.
+    // the character list may not have arrived yet, and because a drag
+    // starting in whitespace only earns an anchor once it reaches text.
     anchor: null,
     range: null,
   };
   selection = sel;
   clearSelection();
-  getPageWords(pageIndex).then((page) => {
-    // The drag can be over (or cancelled) before the word list arrives; only
-    // the drag that asked for it may adopt it.
+  getPageChars(pageIndex).then((page) => {
+    // The drag can be over (or cancelled) before the character list arrives;
+    // only the drag that asked for it may adopt it.
     if (selection === sel) sel.page = page;
   });
 }
@@ -484,11 +491,11 @@ async function endSelection(ev) {
   const sel = selection;
   selection = null;
   if (!sel) return;
-  // A drag shorter than the first word fetch still has to highlight
+  // A drag shorter than the first character fetch still has to highlight
   // something, so fall back to awaiting the list here — this is also the
   // path a plain click (no mousemove at all) takes, which highlights the one
-  // word clicked, as it did before.
-  const page = sel.page || (await getPageWords(sel.pageIndex));
+  // character clicked, as it did before.
+  const page = sel.page || (await getPageChars(sel.pageIndex));
   sel.page = page;
   sel.range = selectionRange(sel, page, ev);
   if (!sel.range) {
@@ -506,7 +513,7 @@ async function endSelection(ev) {
 // Writes the selected range as a real PDF annotation and brings the view
 // back in step with it.
 async function applyHighlight(pageIndex, range) {
-  state = await callApi("highlight_words", pageIndex, range.lo, range.hi);
+  state = await callApi("highlight_chars", pageIndex, range.lo, range.hi);
   updateChrome();
   if (layoutMode === "strip") {
     highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
