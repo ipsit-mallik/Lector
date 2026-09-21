@@ -23,7 +23,7 @@ Calm, minimal, utilitarian. A focused reading tool, not a busy productivity suit
 | Very muted text (chapter labels, timestamps) | `#9A968E` |
 | Accent (primary buttons, active nav, links) | `#3E6259` |
 | Accent hover/pressed | `#33534B` |
-| Accent darker (link hover, badge text on tinted backgrounds) | `#2C463F` |
+| Accent darker (link hover, active nav/toolbar items on tinted backgrounds) | `#2C463F` |
 | Voice-focus / "listening here" indicator | `#C97A3D` |
 | Highlight background | `#F7DE7A` |
 | Text-selection wash (drag in progress, before the highlight is applied) | `rgba(62, 98, 89, 0.42)` — the accent at 42%, blended multiply |
