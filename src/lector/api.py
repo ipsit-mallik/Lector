@@ -169,41 +169,43 @@ class Api:
     # Highlighting                                                         #
     # ------------------------------------------------------------------ #
 
-    def get_page_words(self, page_index: int) -> dict:
-        """Word boxes for one page, in PDF points, in reading order.
+    def get_page_chars(self, page_index: int) -> dict:
+        """Character boxes for one page, in PDF points, in reading order.
 
         The frontend needs these locally to paint the live selection as the
-        reader drags: hit-testing the cursor against the word list has to
-        happen on every mousemove, which is far too often to go back across
-        the bridge for. Positions are in points (not rendered pixels) so the
-        same payload stays correct at any zoom, and `line` groups words that
-        share a line of text so a selection can be drawn as one continuous
-        bar per line rather than one box per word.
+        reader drags: hit-testing the cursor against the character list has
+        to happen on every mousemove, which is far too often to go back
+        across the bridge for. Positions are in points (not rendered pixels)
+        so the same payload stays correct at any zoom, and `line` groups
+        characters that share a line of text so a selection can be drawn as
+        one continuous bar per line rather than one box per character.
 
-        Word *indices* into this list are the currency of the highlight call
-        below — the frontend sends back the range it had drawn, so what gets
-        written is what the reader saw selected.
+        Character *indices* into this list are the currency of the highlight
+        call below — the frontend sends back the range it had drawn, so what
+        gets written is what the reader saw selected. Character granularity
+        (rather than word) is what lets a drag stop mid-word, the way Adobe
+        Reader and other desktop PDF viewers select text.
         """
         if not self._doc.is_open:
-            return {"width": 0, "height": 0, "words": []}
+            return {"width": 0, "height": 0, "chars": []}
         width, height = self._doc.page_size_points(page_index)
         return {
             "width": width,
             "height": height,
-            "words": [
+            "chars": [
                 {
-                    "x0": w.rect.x0,
-                    "y0": w.rect.y0,
-                    "x1": w.rect.x1,
-                    "y1": w.rect.y1,
-                    "line": f"{w.block_no}:{w.line_no}",
+                    "x0": c.rect.x0,
+                    "y0": c.rect.y0,
+                    "x1": c.rect.x1,
+                    "y1": c.rect.y1,
+                    "line": f"{c.block_no}:{c.line_no}",
                 }
-                for w in self._doc.words_on_page(page_index)
+                for c in self._doc.chars_on_page(page_index)
             ],
         }
 
-    def highlight_words(self, page_index: int, start_idx: int, end_idx: int) -> dict:
-        self._doc.highlight_word_indices(page_index, start_idx, end_idx)
+    def highlight_chars(self, page_index: int, start_idx: int, end_idx: int) -> dict:
+        self._doc.highlight_char_indices(page_index, start_idx, end_idx)
         return self._state()
 
     def undo_highlight(self) -> dict:
