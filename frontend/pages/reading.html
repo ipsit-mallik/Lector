@@ -77,11 +77,11 @@
 
     <div class="hline"></div>
     <div class="footer">
-      <div class="mic-pill">
+      <div class="mic-pill" id="micPill">
         <span data-icon="logo"></span>
-        <span>Mic idle</span>
+        <span id="micLabel">Mic idle</span>
       </div>
-      <span class="hint">Hold Space to talk</span>
+      <span class="hint" id="micHint">Hold Space to talk</span>
       <div class="spacer"></div>
       <span class="highlight-count" id="highlightCount">0 highlights on this page</span>
       <button class="btn-secondary what-btn" disabled title="What can I say?  (Milestone 8)">What can I say?</button>
@@ -138,6 +138,7 @@
 
   <script src="../js/icons.js"></script>
   <script src="../js/bridge.js"></script>
+  <script src="../js/voice.js"></script>
   <script src="save-dialog.js"></script>
   <script src="reading.js"></script>
 </body>

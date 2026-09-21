@@ -944,6 +944,52 @@ document.addEventListener("keydown", (ev) => {
 
 bindSelection(pageSurface, () => state.page_index);
 
+// --- Push-to-talk indicator (Milestone 5) -------------------------------- //
+// Reflects the engine's state in the footer's mic pill. Milestone 5 stops at
+// showing what was heard; acting on it is Milestone 6's job, which subscribes
+// to the `lector:command` event that js/voice.js emits.
+
+const micPill = document.getElementById("micPill");
+const micLabel = document.getElementById("micLabel");
+const micHint = document.getElementById("micHint");
+
+// How long a recognized phrase stays on screen before the pill falls back to
+// idle. Long enough to read a short command, short enough not to look stuck.
+const HEARD_LINGER_MS = 2500;
+let heardTimer = null;
+
+function renderMicState({ state: micState, text, error }) {
+  clearTimeout(heardTimer);
+  micPill.classList.toggle("listening", micState === "listening");
+  micPill.classList.toggle("unavailable", micState === "unavailable");
+
+  switch (micState) {
+    case "unavailable":
+      micLabel.textContent = "Voice unavailable";
+      // The reason belongs in the tooltip, not the footer: docs/PRD.md makes
+      // voice an accelerator, so its absence is a quiet fact, not an alert.
+      micPill.title = error || "Speech model not installed";
+      micHint.textContent = "Mouse and keyboard work as usual";
+      break;
+    case "listening":
+      micLabel.textContent = text ? `"${text}"` : "Listening...";
+      micPill.title = "";
+      micHint.textContent = "Release Space when you're done";
+      break;
+    case "heard":
+      micLabel.textContent = text ? `"${text}"` : "Didn't catch that";
+      micHint.textContent = "Hold Space to talk";
+      heardTimer = setTimeout(() => renderMicState({ state: "idle" }), HEARD_LINGER_MS);
+      break;
+    default:
+      micLabel.textContent = "Mic idle";
+      micPill.title = "";
+      micHint.textContent = "Hold Space to talk";
+  }
+}
+
+initPushToTalk(renderMicState);
+
 (async function init() {
   await mountIcons();
   const theme = await callApi("get_theme");

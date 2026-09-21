@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <script>document.documentElement.dataset.theme = localStorage.getItem("lector-theme") || "light";</script>
+  <title>Lector — Welcome</title>
+  <link rel="stylesheet" href="settings.css">
+  <link rel="stylesheet" href="onboarding.css">
+</head>
+<!--
+  STUB (docs/TASKS.md, Milestone 4). Placeholder only: it names the two steps
+  Milestone 8 will actually build — microphone permission and activation mode
+  — without implementing either. Nothing here requests a real permission, and
+  neither choice is persisted yet; the controls are deliberately disabled
+  rather than fake-functional, so this cannot be mistaken for a working flow.
+
+  Reusing settings.css rather than inventing layout: docs/DESIGN_SYSTEM.md's
+  option-row pattern is what the real flow will use, and a stub that already
+  sits in it is a truer placeholder than a bespoke one.
+-->
+<body>
+  <div class="onboarding-view">
+    <main class="onboarding-card">
+      <div class="brand">
+        <div class="brand-mark" data-icon="logo"></div>
+        <span class="brand-name">Lector</span>
+      </div>
+
+      <h1 class="page-title">Welcome to Lector</h1>
+      <p class="onboarding-lede">
+        A quiet PDF reader you can talk to. Everything runs on this machine —
+        no account, no sync, nothing sent anywhere.
+      </p>
+
+      <p class="onboarding-note">
+        This is a placeholder. The steps below are built in a later milestone;
+        for now they are here to show where they will go.
+      </p>
+
+      <div class="section">
+        <h3>Microphone</h3>
+        <p class="sub">
+          Lector will ask for microphone access so it can hear voice commands.
+          Skipping is fine — every command has a mouse and keyboard equivalent.
+        </p>
+        <button class="btn" disabled>Allow microphone access</button>
+      </div>
+
+      <div class="section">
+        <h3>How you'll talk to Lector</h3>
+        <p class="sub">Both stay available whichever you pick; this only sets the default.</p>
+
+        <div class="option-row" aria-disabled="true">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Hold a key to talk</span>
+            <span class="option-subtitle">Hold Space while you speak, release when you're done.</span>
+          </div>
+        </div>
+
+        <div class="option-row" aria-disabled="true" style="margin-top:8px;">
+          <div class="option-radio"></div>
+          <div class="option-text">
+            <span class="option-title">Say a wake phrase</span>
+            <span class="option-subtitle">Start with "Hey Lector" and keep your hands free.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="onboarding-actions">
+        <button class="btn-secondary" id="skipBtn">Skip for now</button>
+        <button class="btn" id="startBtn">Start reading</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/icons.js"></script>
+  <script src="../js/bridge.js"></script>
+  <script src="onboarding.js"></script>
+</body>
+</html>

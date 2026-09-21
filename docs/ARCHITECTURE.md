@@ -58,7 +58,12 @@ lector/
 │       └── (per-page JS files, mirroring frontend/pages/)
 │
 ├── assets/
-│   └── vosk_model/              # Bundled offline speech model
+│   └── vosk_model/              # Offline speech model (~68 MB). Fetched by
+│                                 #   scripts/fetch_vosk_model.py, not committed —
+│                                 #   it is gitignored. Bundled at packaging time.
+│
+├── scripts/                     # Developer setup scripts, not shipped
+│   └── fetch_vosk_model.py      # Downloads/extracts assets/vosk_model/
 │
 ├── tests/                       # Mirrors src/lector/features/ structure
 │                                 #   (frontend has no automated tests yet —

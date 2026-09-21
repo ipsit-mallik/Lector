@@ -12,3 +12,8 @@ venv/
 .env
 .DS_Store
 Thumbs.db
+
+# Offline speech model (~68 MB extracted) - fetched, not committed.
+# Run: python scripts/fetch_vosk_model.py
+assets/vosk_model/*
+!assets/vosk_model/.gitkeep

@@ -1,0 +1,49 @@
+/* Stub onboarding layout (docs/TASKS.md, Milestone 4).
+   Deliberately thin: it only centers a column of the settings page's existing
+   sections. Milestone 8 owns the real screen's design, so anything more
+   opinionated here would be work thrown away. */
+
+.onboarding-view {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 24px;
+  background-color: var(--color-surface);
+}
+
+.onboarding-card {
+  width: 100%;
+  max-width: 560px;
+}
+
+.onboarding-card .brand { margin-bottom: 24px; }
+
+.onboarding-lede {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+/* Says out loud that this screen is a placeholder. Removed in Milestone 8
+   along with the disabled controls it is explaining. */
+.onboarding-note {
+  margin: 0 0 28px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--color-border-subtle);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* The stub's controls are inert; dimming them keeps that visible rather than
+   inviting clicks that would do nothing. */
+.onboarding-card [aria-disabled="true"] { opacity: 0.55; }
+
+.onboarding-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 28px;
+}

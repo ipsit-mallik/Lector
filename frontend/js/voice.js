@@ -1,0 +1,108 @@
+// Push-to-talk wiring, shared by the Home and Reading views.
+//
+// Milestone 5 scope: hold a key, capture audio, get recognized text back.
+// There is no wake phrase and no always-on listening yet (Milestone 8), and
+// nothing here interprets what was said — recognized phrases are re-broadcast
+// as a `lector:command` event for Milestone 6's navigation commands and
+// Milestone 7's highlight matcher to subscribe to.
+//
+// Python pushes results the other way, as a `lector:voice` CustomEvent
+// dispatched from src/lector/api.py's `_on_voice_result`.
+
+const PUSH_TO_TALK_KEY = " "; // Space, per docs/PRD.md's stated default.
+
+// Holding Space while a button or a text field has focus must not start
+// listening: Space is that control's own activation/typing key, and
+// docs/PRD.md's mouse/keyboard-parity requirement means the traditional
+// control has to keep working exactly as it did.
+const TYPING_TAGS = ["INPUT", "TEXTAREA", "SELECT"];
+
+function shouldIgnoreKey() {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (TYPING_TAGS.includes(el.tagName)) return true;
+  if (el.isContentEditable) return true;
+  if (el.tagName === "BUTTON" || el.tagName === "A") return true;
+  return false;
+}
+
+// Whether a modal is on screen. A dialog owns the keyboard while it is open,
+// so push-to-talk stands down rather than competing with it.
+function dialogIsOpen() {
+  return Boolean(document.querySelector(".dialog-scrim:not([hidden])"));
+}
+
+/**
+ * Wire push-to-talk to the document and report state changes.
+ *
+ * @param {(state: {state: string, text: string, error: ?string}) => void} onState
+ *   Called with one of:
+ *     {state: "unavailable", error}  — no model, or no microphone
+ *     {state: "idle"}                — ready, not listening
+ *     {state: "listening", text}     — key held; `text` firms up as you speak
+ *     {state: "heard", text}         — key released, final phrase (may be "")
+ */
+function initPushToTalk(onState) {
+  let held = false;
+  let available = false;
+
+  const report = (state, text = "", error = null) => onState({ state, text, error });
+
+  callApi("get_voice_status")
+    .then((status) => {
+      available = status.available;
+      if (available) {
+        report("idle");
+      } else {
+        report("unavailable", "", status.error);
+      }
+    })
+    .catch((err) => report("unavailable", "", String(err)));
+
+  // Partial and final results arriving from Python's worker thread.
+  window.addEventListener("lector:voice", (ev) => {
+    const { text, final } = ev.detail || {};
+    if (final) {
+      report("heard", text || "");
+      // Re-broadcast for feature code. Deliberately a separate event from
+      // `lector:voice`: that one is the raw transport, this one is the
+      // "a command was spoken" signal features act on, and only final
+      // results qualify.
+      if (text) {
+        window.dispatchEvent(new CustomEvent("lector:command", { detail: { text } }));
+      }
+    } else {
+      report("listening", text || "");
+    }
+  });
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== PUSH_TO_TALK_KEY) return;
+    if (!available || shouldIgnoreKey() || dialogIsOpen()) return;
+    // Space scrolls the reading view by default; holding it to talk must not
+    // also page the document down.
+    ev.preventDefault();
+    if (held) return; // Key auto-repeat, not a second press.
+    held = true;
+    report("listening", "");
+    callApi("start_listening").catch((err) => {
+      held = false;
+      report("unavailable", "", String(err));
+    });
+  });
+
+  document.addEventListener("keyup", (ev) => {
+    if (ev.key !== PUSH_TO_TALK_KEY || !held) return;
+    held = false;
+    ev.preventDefault();
+    callApi("stop_listening").catch((err) => report("unavailable", "", String(err)));
+  });
+
+  // Losing the window mid-hold never delivers the keyup, which would leave
+  // the microphone open indefinitely.
+  window.addEventListener("blur", () => {
+    if (!held) return;
+    held = false;
+    callApi("stop_listening").catch(() => {});
+  });
+}

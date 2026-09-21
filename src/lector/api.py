@@ -7,13 +7,16 @@ never touch `frontend/` files. Every method here is called from
 data — no PySide6/Qt types, no live PyMuPDF objects.
 """
 import base64
+import json
 import os
 
 import webview
 
 from lector.features.home import recent as home_recent
+from lector.features.onboarding import state as onboarding
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
+from lector.features.voice.engine import VoiceEngine
 
 
 def _pixmap_to_png_b64(pix) -> str:
@@ -34,6 +37,11 @@ class Api:
         # goto_page calls strip layout makes while scrolling — don't each cost
         # a file write.
         self._persisted_position = None
+        # Push-to-talk speech recognition (Milestone 5). Constructed eagerly
+        # but inert — the Vosk model is only loaded on the first call that
+        # needs it, so a missing model costs nothing until voice is used.
+        self._voice = VoiceEngine()
+        self._voice.subscribe(self._on_voice_result)
 
     # ------------------------------------------------------------------ #
     # Home / recent files                                                  #
@@ -270,3 +278,66 @@ class Api:
 
     def set_theme(self, name: str) -> None:
         settings.set_theme(name)
+
+    # ------------------------------------------------------------------ #
+    # Voice (Milestone 5 — push-to-talk only)                              #
+    # ------------------------------------------------------------------ #
+
+    def get_voice_status(self) -> dict:
+        """`{"available", "listening", "error"}` for the mic indicator.
+
+        `available: False` is a normal state, not a failure to report loudly:
+        docs/PRD.md requires the app to stay fully usable without voice, so
+        the frontend renders this as "Voice unavailable" and carries on.
+        """
+        return self._voice.status()
+
+    def start_listening(self) -> dict:
+        """Called on push-to-talk keydown. Safe to call repeatedly — the key
+        auto-repeats while held."""
+        return self._voice.start_listening()
+
+    def stop_listening(self) -> dict:
+        """Called on push-to-talk keyup. Returns the final recognized phrase,
+        which is `""` when nothing intelligible was heard."""
+        return self._voice.stop_listening()
+
+    def _on_voice_result(self, result: dict) -> None:
+        """Fan a recognition result out to the frontend as a DOM event.
+
+        This is the "discrete events only" bridge direction docs/TECH_STACK.md
+        describes — Python pushing to JS, where every other method on this
+        class is JS pulling from Python. Dispatching a CustomEvent rather than
+        calling one named function means Milestone 6's navigation commands and
+        Milestone 7's highlight matcher can each subscribe independently
+        without this method growing a list of callees.
+
+        Runs on the engine's worker thread, and deliberately swallows failures:
+        no window yet (results arriving during teardown) must not kill the
+        audio thread.
+        """
+        try:
+            window = webview.windows[0]
+        except IndexError:
+            return
+        payload = json.dumps(result)
+        try:
+            window.evaluate_js(
+                f"window.dispatchEvent(new CustomEvent('lector:voice', {{detail: {payload}}}))"
+            )
+        except Exception:
+            pass
+
+    def shutdown_voice(self) -> None:
+        """Release the microphone. Called when the window closes."""
+        self._voice.shutdown()
+
+    # ------------------------------------------------------------------ #
+    # Onboarding (Milestone 4 stub — real flow is Milestone 8)             #
+    # ------------------------------------------------------------------ #
+
+    def get_onboarding_seen(self) -> bool:
+        return onboarding.has_seen()
+
+    def set_onboarding_seen(self) -> None:
+        onboarding.mark_seen()

@@ -14,9 +14,9 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 
 *No voice, no PDF rendering yet — just confirm the environment works before building on it.*
 
-- [x] `pyproject.toml` with dependencies: PySide6, PyMuPDF, vosk, sounddevice
+- [x] `pyproject.toml` with dependencies: pywebview, PyMuPDF, vosk, sounddevice (originally PySide6 — replaced by pywebview during Milestone 4; see `docs/TECH_STACK.md` § Revision)
 - [x] Create `src/lector/` package skeleton matching `docs/ARCHITECTURE.md`'s folder layout exactly (empty `features/` subfolders + `shared/`)
-- [x] `__main__.py` entry point that launches a blank `QApplication` window
+- [x] `__main__.py` entry point that launches a blank window (now a `webview` window, originally a `QApplication` one)
 - [x] Manually verify the app launches on both Windows and Mac
 
 ## Milestone 2 — Core reader (mouse/keyboard only, no voice)
@@ -38,7 +38,7 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 - [x] Live selection feedback while dragging — text washes in the selection color as the cursor moves, following the cursor character by character, and only becomes a highlight on release, per `docs/DESIGN_SYSTEM.md`'s "two visible beats" note (verified by screenshotting the running app mid-drag, on release, and after a single-click selection)
 - [x] Write selection as a real PDF highlight annotation via PyMuPDF (not a UI overlay)
 - [x] Save-confirmation dialog: "Save a copy" / "Overwrite the original", pre-selected to copy, "Don't ask again" checkbox (unchecked by default) — generalized wording, fires only on explicit Save action
-- [x] `features/settings/`: persist the save-behavior preference via `QSettings`
+- [x] `features/settings/`: persist the save-behavior preference (a JSON file in the per-user app-data dir, not `QSettings` — that went with PySide6)
 - [ ] **Manual verification:** open the saved file in a different PDF viewer (not Lector) and confirm the highlight is actually there — implementation was verified by reopening both the copy and the overwritten original as fresh PyMuPDF documents and confirming the highlight annotation is structurally present in each; still needs a human check in an actual third-party viewer (e.g. Adobe Reader, Preview, browser PDF viewer) before this box is checked
 
 ## Milestone 4 — Strip layout, Settings, theme, recent files
@@ -47,19 +47,19 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 
 - [x] `features/reading/`: continuous-strip layout, toggle between book/strip
 - [x] `features/settings/`: theme picker (light/dark/sepia) wired to `shared/theme.py` tokens
-- [x] Recent files: persist last 10 opened files (path + timestamp) via `QSettings`; render as the card grid on Home
+- [x] Recent files: persist last 10 opened files (path + timestamp) in the same `settings.json` store; render as the card grid on Home
 - [x] Resume reading position: persist each document's last page + layout (book/strip) alongside its recent-files entry; restore both when it is reopened, governed by a Settings preference ("Continue where I left off" default vs. "Always start at the beginning"). Added at the developer's request after the rest of this milestone; verified by an end-to-end test over a real 20-page PDF (restore, start-at-beginning, clamping a stale page against a shortened file, corrupt stored values, recent-list order left undisturbed) and by a rendered screenshot of the new Settings section, which matches the option-row pattern of the save-behavior section above it.
 - [x] Resume reading position now also covers zoom: the last zoom level (from the toolbar's step buttons, the zoom-popover slider, or a restored session) is stored and restored alongside page/layout, using the same recent-files entry and the same "Continue where I left off" preference — no separate setting. Added at the developer's request after the above was already shipped.
 - [ ] **Manual verification:** confirm in the running app that a document reopened from Recent comes back in strip layout when that is what it was left in — the restore path itself is covered by the test above, but the reading view actually *coming up* in the restored layout was not screenshotted (the app's pywebview window can't be driven from the agent environment; only the Settings page was rendered headlessly).
-- [ ] Stub onboarding screens (placeholder only — full flow built in Milestone 8) — deferred: not started yet, no onboarding screen exists at all. Milestone 8 owns the real thing; a stub wasn't built this pass since Settings/theme/recent-files already made this a large milestone. Pick up next.
+- [x] Stub onboarding screens (placeholder only — full flow built in Milestone 8). `frontend/pages/onboarding.{html,css,js}` plus `features/onboarding/state.py`, which records an `onboarding_seen` flag in the same `settings.json` store. Home redirects to it on first run only, and both buttons ("Skip for now" / "Start reading") set the flag and continue — a screen that reappeared after being dismissed would not be skippable, which `docs/PRD.md` requires it to be. The mic button and the two activation-mode rows are deliberately inert and dimmed rather than fake-functional, and the screen says out loud that it is a placeholder. Verified by screenshot against `frontend/pages/settings.html`: it reuses that page's `.section` / `.option-row` markup, so the stub already sits in the layout the real flow will use. Neither activation mode is marked as recommended.
 
 ## Milestone 5 — Voice engine: push-to-talk only
 
 *Isolate "does speech recognition work at all" from "does always-on listening work" as separate problems.*
 
-- [ ] `features/voice/`: load Vosk model, set up grammar-constrained (not general transcription) recognizer
-- [ ] Push-to-talk key binding (default: Space) — captures audio via `sounddevice` while held
-- [ ] Emit recognized text as an event/signal other features can subscribe to
+- [x] `features/voice/`: load Vosk model, set up grammar-constrained (not general transcription) recognizer. `features/voice/engine.py` builds a `KaldiRecognizer` over an explicit word list plus `[unk]`, so anything outside the vocabulary comes back as nothing rather than as a wrong command. The model itself (~68 MB) is fetched by `scripts/fetch_vosk_model.py` into `assets/vosk_model/` and is gitignored, not committed. A missing model is a normal state, not a crash: the engine records the load error and reports `available: False`, and the UI keeps working.
+- [x] Push-to-talk key binding (default: Space) — captures audio via `sounddevice` while held. `frontend/js/voice.js` binds keydown/keyup (ignoring auto-repeat, text fields, buttons, and open dialogs) and releases on window blur so a held key can't be left stuck; `api.py` exposes `start_listening` / `stop_listening`, and the microphone is closed when the window closes.
+- [x] Emit recognized text as an event/signal other features can subscribe to. Python pushes each result to JS as a `lector:voice` CustomEvent, and final non-empty phrases are re-dispatched as `lector:command` — so Milestone 6's navigation commands and Milestone 7's matcher can each subscribe independently. Verified end to end without a microphone by synthesizing speech and feeding it through the engine's own audio worker; that pass caught a real bug where a phrase Vosk finished decoding mid-hold was dropped from the final result (`tests/test_voice_engine.py` now pins it). The push-to-talk indicator was screenshotted in all four states (idle / listening / heard / unavailable) on both Home and the reading view; listening uses `--color-voice-focus`, visibly distinct from the highlight yellow.
 
 ## Milestone 6 — Voice navigation commands
 
@@ -92,7 +92,7 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 
 *Don't consider the project "done" before this — packaging surfaces its own bugs.*
 
-- [ ] Nuitka build config with dynamically-linked Qt (LGPL compliance — see `docs/TECH_STACK.md`)
+- [ ] Nuitka build config (the LGPL/dynamically-linked-Qt requirement went away with PySide6 — see `docs/TECH_STACK.md`)
 - [ ] Build and test the installer on Windows
 - [ ] Build and test the installer on Mac
 - [ ] Sanity-check final bundle size against the project's original lightweight-vs-Adobe-Reader premise

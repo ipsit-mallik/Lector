@@ -291,6 +291,20 @@ html, body { height: 100%; }
 
 .mic-pill svg { width: 14px; height: 14px; }
 
+/* The pill widens to fit a recognized phrase; without a floor the footer's
+   other items jump sideways every time a word firms up mid-sentence. */
+.mic-pill { min-width: 132px; }
+
+/* Listening uses the amber voice-focus token, not the highlight yellow —
+   docs/DESIGN_SYSTEM.md keeps "the app is listening" and "this text is
+   highlighted" in deliberately different colors. */
+.mic-pill.listening {
+  background-color: color-mix(in srgb, var(--color-voice-focus) 16%, transparent);
+  color: var(--color-voice-focus);
+}
+
+.mic-pill.unavailable { color: var(--color-text-muted); }
+
 .footer .hint {
   color: var(--color-text-muted);
   font-size: 13px;
