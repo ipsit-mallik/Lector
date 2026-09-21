@@ -13,6 +13,7 @@ and the PyMuPDF write layer together because a match result becomes
 annotation coordinates directly, so keeping them in one feature avoids
 indirection.
 """
+import re
 from dataclasses import dataclass
 from typing import Protocol, Sequence
 
@@ -121,6 +122,43 @@ def merge_line_rects(items: Sequence[LineBounded]) -> list[fitz.Rect]:
     return [rect for _, rect in merged]
 
 
+def _set_rectangular_appearance(page: fitz.Page, annot, rects: list[fitz.Rect]) -> None:
+    """Repaint `annot` as one plain rectangle per line, replacing MuPDF's default.
+
+    MuPDF draws a /Highlight annotation marker-pen style: each quad is filled
+    as a path with bezier end-caps that bulge sideways by about a sixth of the
+    line height. Across a whole word that reads as a soft edge, but a single
+    character is narrower than the caps themselves, so the highlight becomes
+    an oval roughly twice the glyph's width that visibly washes over the
+    characters on either side — measured at +5.8pt of overspill per side,
+    independent of how much text is selected. Adobe Reader fills a tight
+    rectangle instead, which is the only shape that stays inside the glyph
+    once selection is character-level.
+
+    The quads themselves are already correct; only the appearance stream is
+    wrong, so this rewrites that stream and leaves /Subtype, /QuadPoints and
+    /C untouched — it stays a real highlight that other viewers list as one.
+    """
+    # MuPDF's own stream references an ExtGState carrying /BM /Multiply, which
+    # is what keeps the glyphs readable under the fill. Reuse whatever name it
+    # generated rather than assuming one: emitting no `gs` at all would paint
+    # an opaque block over the text.
+    gs_name = re.search(rb"/(\w+)\s+gs", annot._getAP() or b"")
+    ops = ["q"]
+    if gs_name:
+        ops.append(f"/{gs_name.group(1).decode()} gs")
+    ops.append("{:g} {:g} {:g} rg".format(*HIGHLIGHT_COLOR))
+    to_pdf_space = ~page.transformation_matrix
+    for rect in rects:
+        box = rect * to_pdf_space
+        ops.append(
+            f"{box.x0:g} {min(box.y0, box.y1):g} "
+            f"{box.x1 - box.x0:g} {abs(box.y1 - box.y0):g} re"
+        )
+    ops += ["f", "Q"]
+    annot._setAP(("\n".join(ops) + "\n").encode())
+
+
 def add_highlight(page: fitz.Page, items: Sequence[LineBounded]):
     """Write `items` as one real PDF highlight annotation (not a UI overlay).
 
@@ -130,10 +168,13 @@ def add_highlight(page: fitz.Page, items: Sequence[LineBounded]):
     """
     if not items:
         return None
-    quads = [rect.quad for rect in merge_line_rects(items)]
-    annot = page.add_highlight_annot(quads=quads)
+    rects = merge_line_rects(items)
+    annot = page.add_highlight_annot(quads=[rect.quad for rect in rects])
     annot.set_colors(stroke=HIGHLIGHT_COLOR)
+    # Must precede the appearance rewrite: update() is what generates the
+    # stream, so overwriting it any earlier would simply be undone here.
     annot.update()
+    _set_rectangular_appearance(page, annot, rects)
     return annot
 
 
