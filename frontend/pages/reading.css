@@ -263,6 +263,46 @@ html, body { height: 100%; }
 }
 
 /* ------------------------------------------------------------------ */
+/* Voice-focus wash ("listening here")                                 */
+/* ------------------------------------------------------------------ */
+
+/* Same clipped, non-interactive overlay as .selection-layer, stacked above
+ * it: the two are extremely unlikely to be visible at once (one needs a
+ * mouse drag, the other a held key), but if they ever did overlap the
+ * listening state should read as the active one. */
+.voice-focus-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.voice-focus-rect {
+  position: absolute;
+  border: 2px solid var(--color-voice-focus);
+  border-left-width: 4px;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--color-voice-focus) 6%, transparent);
+  box-sizing: border-box;
+}
+
+.voice-focus-tag {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  transform: translateY(-50%);
+  padding: 2px 8px;
+  border-radius: 3px;
+  background-color: var(--color-voice-focus);
+  color: #FFFFFF;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ */
 /* Footer                                                              */
 /* ------------------------------------------------------------------ */
 

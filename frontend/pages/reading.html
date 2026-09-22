@@ -72,6 +72,11 @@
              clipped to the page area, so it can serve whichever layout is
              active without being duplicated into each one. -->
         <div class="selection-layer" id="selectionLayer" aria-hidden="true"></div>
+        <!-- Amber "listening here" outline shown over the page regions voice
+             matching is currently scoped to (docs/DESIGN_SYSTEM.md's third
+             wash state, alongside the selection and highlight colors). Filled
+             while a push-to-talk hold is in progress; see reading.js. -->
+        <div class="voice-focus-layer" id="voiceFocusLayer" aria-hidden="true"></div>
       </div>
     </div>
 

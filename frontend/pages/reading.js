@@ -30,6 +30,7 @@ const pageSurface = document.getElementById("pageSurface");
 const stripScroll = document.getElementById("stripScroll");
 const stripContainer = document.getElementById("stripContainer");
 const selectionLayer = document.getElementById("selectionLayer");
+const voiceFocusLayer = document.getElementById("voiceFocusLayer");
 const highlightCountLbl = document.getElementById("highlightCount");
 
 let state = { is_open: false };
@@ -448,6 +449,35 @@ function paintSelection(sel, applied) {
 
 function clearSelection() {
   selectionLayer.replaceChildren();
+}
+
+// Draws the amber "listening here" outline over `rects` (screen-pixel boxes,
+// {left, top, width, height}, relative to the viewport). One tag is enough
+// even when strip layout hands back two partially-visible regions, since the
+// point is "voice can hear all of this," not "here is region N."
+function renderVoiceFocus(rects) {
+  const areaRect = pageArea.getBoundingClientRect();
+  const fragment = document.createDocumentFragment();
+  rects.forEach((r, i) => {
+    const div = document.createElement("div");
+    div.className = "voice-focus-rect";
+    div.style.left = `${r.left - areaRect.left}px`;
+    div.style.top = `${r.top - areaRect.top}px`;
+    div.style.width = `${r.width}px`;
+    div.style.height = `${r.height}px`;
+    if (i === 0) {
+      const tag = document.createElement("span");
+      tag.className = "voice-focus-tag";
+      tag.textContent = "Listening here";
+      div.appendChild(tag);
+    }
+    fragment.appendChild(div);
+  });
+  voiceFocusLayer.replaceChildren(fragment);
+}
+
+function clearVoiceFocus() {
+  voiceFocusLayer.replaceChildren();
 }
 
 function cancelSelection() {
@@ -963,32 +993,48 @@ const VOICE_SCROLL_FRACTION = 0.8;
 // {width, height, chars} for each page's PDF-point size and pageScale() for
 // the same pixels-per-point conversion the character-selection code already
 // relies on, rather than introducing a second notion of page geometry.
+// Resolves to the point-based regions (what start_listening() sends to
+// Python) and, as a side effect, paints the same regions as the on-page
+// "listening here" outline (docs/DESIGN_SYSTEM.md) — the two are measured in
+// one pass so the outline can never drift from what is actually in scope for
+// matching, which repainting them separately after a scroll could risk.
 async function computeVoiceViewport() {
-  if (!state.is_open) return [];
-  return layoutMode === "book" ? computeBookViewport() : computeStripViewport();
+  if (!state.is_open) {
+    clearVoiceFocus();
+    return [];
+  }
+  const { regions, rects } =
+    layoutMode === "book" ? await computeBookViewport() : await computeStripViewport();
+  renderVoiceFocus(rects);
+  return regions;
 }
 
 async function computeBookViewport() {
+  const empty = { regions: [], rects: [] };
   const pageIndex = state.page_index;
   const page = await getPageChars(pageIndex);
-  if (!page || !page.width) return [];
+  if (!page || !page.width) return empty;
   const scale = pageScale(pageSurface, page);
-  if (!scale) return [];
+  if (!scale) return empty;
   const pageRect = pageSurface.getBoundingClientRect();
   const scrollRect = bookScroll.getBoundingClientRect();
   const topPx = Math.max(pageRect.top, scrollRect.top);
   const bottomPx = Math.min(pageRect.bottom, scrollRect.bottom);
-  if (bottomPx <= topPx) return [];
-  return [{
-    page_index: pageIndex,
-    y0: (topPx - pageRect.top) / scale,
-    y1: (bottomPx - pageRect.top) / scale,
-  }];
+  if (bottomPx <= topPx) return empty;
+  return {
+    regions: [{
+      page_index: pageIndex,
+      y0: (topPx - pageRect.top) / scale,
+      y1: (bottomPx - pageRect.top) / scale,
+    }],
+    rects: [{ left: pageRect.left, top: topPx, width: pageRect.width, height: bottomPx - topPx }],
+  };
 }
 
 async function computeStripViewport() {
   const scrollRect = stripScroll.getBoundingClientRect();
   const regions = [];
+  const rects = [];
   for (const el of stripContainer.querySelectorAll(".strip-page")) {
     const rect = el.getBoundingClientRect();
     if (rect.bottom <= scrollRect.top || rect.top >= scrollRect.bottom) continue;
@@ -1005,8 +1051,9 @@ async function computeStripViewport() {
       y0: (topPx - rect.top) / scale,
       y1: (bottomPx - rect.top) / scale,
     });
+    rects.push({ left: rect.left, top: topPx, width: rect.width, height: bottomPx - topPx });
   }
-  return regions;
+  return { regions, rects };
 }
 
 function activeScrollEl() {
@@ -1107,6 +1154,10 @@ function renderMicState({ state: micState, text, error, command }) {
   clearTimeout(heardTimer);
   micPill.classList.toggle("listening", micState === "listening");
   micPill.classList.toggle("unavailable", micState === "unavailable");
+  // The outline is only ever painted by computeVoiceViewport() at the start
+  // of a hold; every other state (heard, unavailable, idle) means the hold
+  // is over, so this is the single place that takes it back down again.
+  if (micState !== "listening") clearVoiceFocus();
 
   switch (micState) {
     case "unavailable":
