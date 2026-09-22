@@ -43,6 +43,13 @@ class Api:
         # needs it, so a missing model costs nothing until voice is used.
         self._voice = VoiceEngine()
         self._voice.subscribe(self._on_voice_result)
+        # Load the model now, on a background thread, rather than leaving it
+        # to the first `get_voice_status()`. That call is made by every page
+        # showing the mic indicator, and a bridge call that blocks for the
+        # several seconds a load takes can be outlived by the page that made
+        # it — see `VoiceEngine.warm_up`. Costs nothing when no model is
+        # installed: the warm-up finds that out with a stat and stops.
+        self._voice.warm_up()
 
     # ------------------------------------------------------------------ #
     # Home / recent files                                                  #

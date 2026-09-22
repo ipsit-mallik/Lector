@@ -14,8 +14,11 @@ accuracy itself was verified separately by playing synthesized speech through
 """
 import json
 import queue
+import shutil
 import sys
+import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -99,6 +102,57 @@ class VocabularyTests(unittest.TestCase):
         self.assertEqual(engine._vocabulary, ["next"])
 
 
+class NonBlockingStatusTests(unittest.TestCase):
+    """Regression: `status()` used to load the ~70 MB model inline, so the
+    first `get_voice_status` bridge call blocked for about three seconds.
+
+    That is not merely slow. Every page showing the mic indicator makes that
+    call on load, and pywebview delivers a return value by invoking a JS
+    callback registered on the page that asked. A call that outlives its page
+    — trivially easy during a three-second window — comes back to a document
+    that no longer holds the callback, and pywebview's worker thread dies
+    with `JavascriptException: ... is not a function`.
+    """
+
+    def setUp(self):
+        # A directory that looks like an installed model without being one,
+        # so the cheap "is it installed" check says yes and the expensive
+        # load is never attempted.
+        self.model_dir = Path(tempfile.mkdtemp(prefix="lector-fake-model-"))
+        (self.model_dir / "placeholder").write_text("not a real model")
+        self.engine = ve.VoiceEngine(model_dir=self.model_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.model_dir, ignore_errors=True)
+
+    def test_status_reports_installed_without_loading_the_model(self):
+        status = self.engine.status()
+
+        self.assertTrue(status["available"])
+        self.assertTrue(status["loading"])
+        self.assertIsNone(self.engine._model)
+
+    def test_status_is_cheap_enough_to_call_from_the_bridge(self):
+        start = time.perf_counter()
+        self.engine.status()
+        elapsed = time.perf_counter() - start
+
+        # A real load takes seconds; the threshold is loose enough not to be
+        # flaky and tight enough that reintroducing an inline load fails it.
+        self.assertLess(elapsed, 0.5)
+
+    def test_a_load_that_failed_settles_to_unavailable(self):
+        # Whatever the reason, once the background load has given up the
+        # indicator must stop saying "still loading" and say why.
+        self.engine._load_error = "Could not load the speech model: boom"
+
+        status = self.engine.status()
+
+        self.assertFalse(status["available"])
+        self.assertFalse(status["loading"])
+        self.assertEqual(status["error"], "Could not load the speech model: boom")
+
+
 class MissingModelTests(unittest.TestCase):
     """A missing model is a supported state, not a crash: docs/PRD.md requires
     the app to stay fully usable by mouse and keyboard without voice."""
@@ -124,6 +178,15 @@ class MissingModelTests(unittest.TestCase):
 
     def test_shutdown_is_safe_when_idle(self):
         self.engine.shutdown()  # must not raise
+
+    def test_nothing_is_reported_as_loading(self):
+        # There is no model to load, so the UI must settle on "unavailable"
+        # immediately rather than waiting for a warm-up that will never come.
+        self.assertFalse(self.engine.status()["loading"])
+
+    def test_warm_up_is_safe_with_no_model_installed(self):
+        self.engine.warm_up()  # must not raise
+        self.assertFalse(self.engine.status()["available"])
 
 
 def _model_available() -> bool:
@@ -181,6 +244,25 @@ class RecognizerTests(unittest.TestCase):
         result = engine.stop_listening()
 
         self.assertEqual(result["text"], "next page")
+
+    def test_warm_up_loads_the_model_off_the_calling_thread(self):
+        engine = ve.VoiceEngine()
+
+        start = time.perf_counter()
+        engine.warm_up()
+        returned_in = time.perf_counter() - start
+
+        # The point of warm_up: it hands control straight back.
+        self.assertLess(returned_in, 0.5)
+
+        deadline = time.time() + 30
+        while engine.status()["loading"] and time.time() < deadline:
+            time.sleep(0.05)
+
+        status = engine.status()
+        self.assertTrue(status["available"])
+        self.assertFalse(status["loading"])
+        self.assertIsNone(status["error"])
 
     def test_json_grammar_round_trips(self):
         engine = ve.VoiceEngine(vocabulary=["next", "previous"])

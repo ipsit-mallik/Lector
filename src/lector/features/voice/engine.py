@@ -18,11 +18,13 @@ Two deliberate shapes:
   and this module simply pins its recognizer to that list. A different word
   list can still be passed to the constructor, which is what the tests do.
 
-* **The model is loaded lazily and its absence is not fatal.** `docs/PRD.md`
-  requires the app to stay fully usable by mouse and keyboard when voice is
-  unavailable (a skipped mic permission, a missing model). So a failure to
-  load reports itself through `status()` rather than raising out of app
-  startup.
+* **The model loads off the caller's thread and its absence is not fatal.**
+  `docs/PRD.md` requires the app to stay fully usable by mouse and keyboard
+  when voice is unavailable (a skipped mic permission, a missing model), so a
+  failure to load reports itself through `status()` rather than raising out of
+  app startup. The load itself is several seconds of work and is started by
+  `warm_up()` on a background thread, because doing it inside a bridge call
+  makes that call outlive the page that issued it.
 """
 import json
 import queue
@@ -76,6 +78,12 @@ class VoiceEngine:
         self._worker: threading.Thread | None = None
         self._listening = False
         self._lock = threading.Lock()
+        # Guards the model load specifically. Separate from `_lock` (which
+        # guards listening state) because a warm-up can hold it for seconds
+        # and must not block a status check that only wants to know whether
+        # a model exists on disk.
+        self._model_lock = threading.Lock()
+        self._warming = False
         self._subscribers: list = []
         # Utterances Vosk finished decoding *before* the key was released.
         # `Result()` consumes them, so `FinalResult()` at stop time only ever
@@ -112,9 +120,15 @@ class VoiceEngine:
     # Model                                                              #
     # ---------------------------------------------------------------- #
 
-    def _ensure_model(self) -> bool:
-        """Load the Vosk model on first use. Returns False (and records why)
-        if it cannot be loaded, rather than raising."""
+    def _model_is_installed(self) -> bool:
+        """Whether there is a model on disk to load — the cheap half of "is
+        voice available".
+
+        Split out from the load itself because the two cost wildly different
+        amounts: this is a stat, while `_ensure_model` is seconds of work.
+        `status()` needs an answer on a bridge thread and can only afford
+        this half (see `warm_up`).
+        """
         if self._model is not None:
             return True
         if self._load_error is not None:
@@ -125,15 +139,60 @@ class VoiceEngine:
                 "Run: python scripts/fetch_vosk_model.py"
             )
             return False
-        try:
-            import vosk
-
-            vosk.SetLogLevel(-1)  # Vosk logs decoding chatter to stderr by default.
-            self._model = vosk.Model(str(self._model_dir))
-        except Exception as exc:
-            self._load_error = f"Could not load the speech model: {exc}"
-            return False
         return True
+
+    def _ensure_model(self) -> bool:
+        """Load the Vosk model on first use. Returns False (and records why)
+        if it cannot be loaded, rather than raising.
+
+        Takes `_model_lock` so a warm-up already in flight is waited on
+        rather than raced: building a second `vosk.Model` would cost another
+        ~70 MB and several seconds for a result that is thrown away.
+        """
+        with self._model_lock:
+            if self._model is not None:
+                return True
+            if not self._model_is_installed():
+                return False
+            try:
+                import vosk
+
+                vosk.SetLogLevel(-1)  # Vosk logs decoding chatter to stderr by default.
+                self._model = vosk.Model(str(self._model_dir))
+            except Exception as exc:
+                self._load_error = f"Could not load the speech model: {exc}"
+                return False
+            return True
+
+    def warm_up(self) -> None:
+        """Start loading the model on a background thread. Returns at once.
+
+        Loading takes roughly three seconds. It used to happen inside the
+        first `status()` call, which is made from every page that shows the
+        mic indicator — and a bridge call that blocks for seconds is a
+        seconds-long window in which the reader can navigate to another page.
+        When they do, the JS callback pywebview is holding to deliver the
+        return value dies with the old document, and pywebview's worker
+        thread raises an unhandled `JavascriptException` against a callback
+        that "is not a function". Doing the load here instead means the
+        bridge call returns immediately and the load overlaps whatever the
+        reader does next.
+
+        Safe to call more than once; a load already finished or in flight is
+        left alone.
+        """
+        with self._model_lock:
+            if self._model is not None or self._load_error is not None or self._warming:
+                return
+            self._warming = True
+
+        def load() -> None:
+            try:
+                self._ensure_model()
+            finally:
+                self._warming = False
+
+        threading.Thread(target=load, name="voice-model-warmup", daemon=True).start()
 
     def _new_recognizer(self):
         import vosk
@@ -155,12 +214,21 @@ class VoiceEngine:
     # ---------------------------------------------------------------- #
 
     def status(self) -> dict:
-        """What the UI's mic indicator needs: is voice usable, and if not, why."""
-        available = self._ensure_model()
+        """What the UI's mic indicator needs: is voice usable, and if not, why.
+
+        Deliberately does *not* force the model to load — see `warm_up` for
+        why a slow answer here is worse than a provisional one. It reports
+        whether a model is installed, plus `loading` while the background
+        load is still running, so a caller that wants a settled answer can
+        ask again instead of committing to "ready" or "unavailable" on the
+        strength of a half-finished one.
+        """
+        installed = self._model_is_installed()
         return {
-            "available": available,
+            "available": installed,
             "listening": self._listening,
             "error": self._load_error,
+            "loading": installed and self._model is None,
         }
 
     # ---------------------------------------------------------------- #

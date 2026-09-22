@@ -21,6 +21,11 @@ const PUSH_TO_TALK_KEY = " "; // Space, per docs/PRD.md's stated default.
 // control has to keep working exactly as it did.
 const TYPING_TAGS = ["INPUT", "TEXTAREA", "SELECT"];
 
+// How long to wait before re-asking whether the speech model has finished
+// loading. Short enough that the indicator settles while the reader is still
+// looking at the page, long enough not to spin the bridge.
+const STATUS_RETRY_MS = 300;
+
 function shouldIgnoreKey() {
   const el = document.activeElement;
   if (!el) return false;
@@ -55,16 +60,28 @@ function initPushToTalk(onState) {
   const report = (state, text = "", error = null, command = null) =>
     onState({ state, text, error, command });
 
-  callApi("get_voice_status")
-    .then((status) => {
-      available = status.available;
-      if (available) {
-        report("idle");
-      } else {
-        report("unavailable", "", status.error);
-      }
-    })
-    .catch((err) => report("unavailable", "", String(err)));
+  // The speech model takes a few seconds to load and does so in the
+  // background (see `VoiceEngine.warm_up`), so the first answer can be
+  // provisional. Ask again rather than committing the indicator to "ready"
+  // or "unavailable" on it — a load that fails late would otherwise leave
+  // the pill claiming voice works right up until the reader tries it.
+  const askStatus = () => {
+    callApi("get_voice_status")
+      .then((status) => {
+        if (status.loading) {
+          setTimeout(askStatus, STATUS_RETRY_MS);
+          return;
+        }
+        available = status.available;
+        if (available) {
+          report("idle");
+        } else {
+          report("unavailable", "", status.error);
+        }
+      })
+      .catch((err) => report("unavailable", "", String(err)));
+  };
+  askStatus();
 
   // Partial and final results arriving from Python's worker thread.
   window.addEventListener("lector:voice", (ev) => {
