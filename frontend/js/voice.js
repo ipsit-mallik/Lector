@@ -7,8 +7,8 @@
 // intent (src/lector/features/voice/command_grammar.py) and sends it along
 // with the text. This file only re-broadcasts it as a `lector:command`
 // event that each view subscribes to — the reading view acts on navigation
-// intents, and Milestone 7's highlight matcher will subscribe alongside it
-// without either needing to know about the other.
+// and highlight intents alike, without either needing to know about the
+// other.
 //
 // Python pushes results the other way, as a `lector:voice` CustomEvent
 // dispatched from src/lector/api.py's `_on_voice_result`.
@@ -52,8 +52,15 @@ function dialogIsOpen() {
  *     {state: "heard", text, command} — key released, final phrase (may be
  *                                       ""); `command` is the parsed intent,
  *                                       or null if nothing matched
+ * @param {() => (Array<{page_index: number, y0: number, y1: number}> |
+ *   Promise<Array<{page_index: number, y0: number, y1: number}>>)} [getViewport]
+ *   Called on each key-down to get the currently visible page regions, in PDF
+ *   points, so Python can widen the recognizer's vocabulary to what the
+ *   reader can actually see (docs/PRD.md's viewport-scoped matching). Home
+ *   has no document open and no viewport to report, so this defaults to an
+ *   empty one rather than requiring every caller to supply it.
  */
-function initPushToTalk(onState) {
+function initPushToTalk(onState, getViewport = () => []) {
   let held = false;
   let available = false;
 
@@ -116,10 +123,12 @@ function initPushToTalk(onState) {
     if (held) return; // Key auto-repeat, not a second press.
     held = true;
     report("listening", "");
-    callApi("start_listening").catch((err) => {
-      held = false;
-      report("unavailable", "", String(err));
-    });
+    Promise.resolve(getViewport())
+      .then((viewport) => callApi("start_listening", viewport || []))
+      .catch((err) => {
+        held = false;
+        report("unavailable", "", String(err));
+      });
   });
 
   document.addEventListener("keyup", (ev) => {

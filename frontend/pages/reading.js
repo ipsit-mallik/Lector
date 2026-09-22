@@ -957,6 +957,58 @@ bindSelection(pageSurface, () => state.page_index);
 // reason Page Down in a text editor doesn't advance by a full viewport.
 const VOICE_SCROLL_FRACTION = 0.8;
 
+// The page regions actually on screen right now, in PDF points, for the
+// backend to scope voice matching to (docs/PRD.md: matching only ever looks
+// at "the currently visible viewport"). Reuses getPageChars()'s cached
+// {width, height, chars} for each page's PDF-point size and pageScale() for
+// the same pixels-per-point conversion the character-selection code already
+// relies on, rather than introducing a second notion of page geometry.
+async function computeVoiceViewport() {
+  if (!state.is_open) return [];
+  return layoutMode === "book" ? computeBookViewport() : computeStripViewport();
+}
+
+async function computeBookViewport() {
+  const pageIndex = state.page_index;
+  const page = await getPageChars(pageIndex);
+  if (!page || !page.width) return [];
+  const scale = pageScale(pageSurface, page);
+  if (!scale) return [];
+  const pageRect = pageSurface.getBoundingClientRect();
+  const scrollRect = bookScroll.getBoundingClientRect();
+  const topPx = Math.max(pageRect.top, scrollRect.top);
+  const bottomPx = Math.min(pageRect.bottom, scrollRect.bottom);
+  if (bottomPx <= topPx) return [];
+  return [{
+    page_index: pageIndex,
+    y0: (topPx - pageRect.top) / scale,
+    y1: (bottomPx - pageRect.top) / scale,
+  }];
+}
+
+async function computeStripViewport() {
+  const scrollRect = stripScroll.getBoundingClientRect();
+  const regions = [];
+  for (const el of stripContainer.querySelectorAll(".strip-page")) {
+    const rect = el.getBoundingClientRect();
+    if (rect.bottom <= scrollRect.top || rect.top >= scrollRect.bottom) continue;
+    const pageIndex = Number(el.dataset.pageIndex);
+    const page = await getPageChars(pageIndex);
+    if (!page || !page.width) continue;
+    const scale = pageScale(el, page);
+    if (!scale) continue;
+    const topPx = Math.max(rect.top, scrollRect.top);
+    const bottomPx = Math.min(rect.bottom, scrollRect.bottom);
+    if (bottomPx <= topPx) continue;
+    regions.push({
+      page_index: pageIndex,
+      y0: (topPx - rect.top) / scale,
+      y1: (bottomPx - rect.top) / scale,
+    });
+  }
+  return regions;
+}
+
 function activeScrollEl() {
   return layoutMode === "book" ? bookScroll : stripScroll;
 }
@@ -982,12 +1034,36 @@ async function voiceScroll(delta) {
   el.scrollTop = delta > 0 ? 0 : el.scrollHeight;
 }
 
+// Matches and highlights `query` against the currently visible viewport
+// (api.py's highlight_by_voice reuses the region frozen by the
+// start_listening() call that began this utterance) and reports the outcome
+// through the mic pill, the same way "heard" already does for navigation —
+// a highlight that silently fails to match would otherwise look identical to
+// a dropped command.
+async function voiceHighlight(query, sentence) {
+  state = await callApi("highlight_by_voice", query, sentence);
+  const result = state.voice_highlight || { matched: false, query };
+  if (result.matched) {
+    await afterAnnotationChange(result.affected_page);
+    setMicHint(`Highlighted “${result.text}”`);
+  } else {
+    updateChrome();
+    setMicHint(`Couldn't find “${result.query}” on this page`);
+  }
+}
+
 const VOICE_ACTIONS = {
   NEXT_PAGE: () => goNext(),
   PREV_PAGE: () => goPrev(),
   GOTO_PAGE: (command) => goToPage(command.page),
   SCROLL_DOWN: () => voiceScroll(1),
   SCROLL_UP: () => voiceScroll(-1),
+  HIGHLIGHT: (command) => voiceHighlight(command.query, false),
+  HIGHLIGHT_SENTENCE: (command) => voiceHighlight(command.query, true),
+  // Voice must never save as a side effect of anything else (docs/PRD.md):
+  // this reaches the exact same prompt-or-save flow Ctrl+S does, rather than
+  // a shortcut that skips the dialog.
+  SAVE: () => promptSaveIfDirty(false),
 };
 
 window.addEventListener("lector:command", (ev) => {
@@ -1016,6 +1092,16 @@ const micHint = document.getElementById("micHint");
 // idle. Long enough to read a short command, short enough not to look stuck.
 const HEARD_LINGER_MS = 2500;
 let heardTimer = null;
+
+// Overrides the mic pill's hint text once an async voice action (currently
+// only highlighting) resolves, restarting the same linger timeout
+// renderMicState's "heard" case uses — without this, a highlight's outcome
+// would have to wait for the *next* utterance to ever be shown.
+function setMicHint(text) {
+  clearTimeout(heardTimer);
+  micHint.textContent = text;
+  heardTimer = setTimeout(() => renderMicState({ state: "idle" }), HEARD_LINGER_MS);
+}
 
 function renderMicState({ state: micState, text, error, command }) {
   clearTimeout(heardTimer);
@@ -1053,7 +1139,7 @@ function renderMicState({ state: micState, text, error, command }) {
   }
 }
 
-initPushToTalk(renderMicState);
+initPushToTalk(renderMicState, computeVoiceViewport);
 
 (async function init() {
   await mountIcons();

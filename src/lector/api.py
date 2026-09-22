@@ -12,6 +12,8 @@ import os
 
 import webview
 
+from lector.features.annotations import highlight_matcher
+from lector.features.annotations.highlighter import words_between
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading.document import PdfDocument
@@ -43,6 +45,11 @@ class Api:
         # needs it, so a missing model costs nothing until voice is used.
         self._voice = VoiceEngine()
         self._voice.subscribe(self._on_voice_result)
+        # The viewport `start_listening` was last called with, frozen for the
+        # duration of the utterance and reused by `highlight_by_voice` — the
+        # reader hears the page they were looking at when they started
+        # talking, not whatever is on screen by the time recognition finishes.
+        self._voice_viewport: list[dict] = []
         # Load the model now, on a background thread, rather than leaving it
         # to the first `get_voice_status()`. That call is made by every page
         # showing the mic indicator, and a bridge call that blocks for the
@@ -236,6 +243,43 @@ class Api:
         state["affected_page"] = affected_page
         return state
 
+    def highlight_by_voice(self, query: str, sentence: bool = False) -> dict:
+        """Matches a spoken phrase against the viewport `start_listening` was
+        last called with, and writes the highlight if one is found.
+
+        `query` is already normalized (lowercase, no punctuation) by
+        `command_grammar.parse` — the same treatment `highlight_matcher`
+        gives every page word, so the two compare on equal footing. A miss
+        is not an error: `docs/PRD.md` treats a wrong highlight as worse than
+        no highlight, so this reports `matched: False` for the frontend to
+        show as a "didn't catch that" hint rather than guessing.
+        """
+        pages = []
+        for region in self._voice_viewport:
+            words = self._doc.words_on_page(region["page_index"])
+            visible = highlight_matcher.visible_word_indices(words, region["y0"], region["y1"])
+            pages.append((region["page_index"], words, visible))
+        match = highlight_matcher.find_word_match(pages, query)
+        state = self._state()
+        if match is None:
+            state["voice_highlight"] = {"matched": False, "query": query}
+            return state
+
+        words = self._doc.words_on_page(match.page_index)
+        start_idx, end_idx = match.start_idx, match.end_idx
+        if sentence:
+            start_idx, end_idx = highlight_matcher.extend_to_sentence(words, start_idx, end_idx)
+        self._doc.highlight_word_indices(match.page_index, start_idx, end_idx)
+
+        state = self._state()
+        state["voice_highlight"] = {
+            "matched": True,
+            "query": query,
+            "affected_page": match.page_index,
+            "text": " ".join(w.text for w in words_between(words, start_idx, end_idx)),
+        }
+        return state
+
     # ------------------------------------------------------------------ #
     # Save                                                                 #
     # ------------------------------------------------------------------ #
@@ -300,15 +344,47 @@ class Api:
         """
         return self._voice.status()
 
-    def start_listening(self) -> dict:
+    def start_listening(self, viewport: list[dict] | None = None) -> dict:
         """Called on push-to-talk keydown. Safe to call repeatedly — the key
-        auto-repeats while held."""
+        auto-repeats while held.
+
+        `viewport` is the reading view's currently visible page regions —
+        `[{"page_index", "y0", "y1"}, ...]` in PDF points — so a spoken
+        highlight phrase can be matched later. Home has no document open and
+        passes nothing, which is also what widens nothing: `set_vocabulary`
+        is only called with more than the navigation grammar when a document
+        is actually open, so Home's recognizer is unaffected by this.
+        """
+        self._voice_viewport = viewport or []
+        extra = self._viewport_vocabulary(self._voice_viewport) if self._doc.is_open else []
+        self._voice.set_vocabulary(command_grammar.VOCABULARY + extra)
         return self._voice.start_listening()
 
     def stop_listening(self) -> dict:
         """Called on push-to-talk keyup. Returns the final recognized phrase,
         which is `""` when nothing intelligible was heard."""
         return self._voice.stop_listening()
+
+    def _viewport_vocabulary(self, viewport: list[dict]) -> list[str]:
+        """Normalized words visible in `viewport`, for widening the grammar.
+
+        Grammar-constrained recognition (docs/ARCHITECTURE.md, `engine.py`)
+        can only ever return a word that was in its vocabulary when listening
+        started — so a spoken highlight phrase needs the *visible* page's
+        words added before `start_listening` begins, not looked up after the
+        fact when it's too late for Vosk to have heard them.
+        """
+        words: set[str] = set()
+        for region in viewport:
+            page_words = self._doc.words_on_page(region["page_index"])
+            visible = highlight_matcher.visible_word_indices(
+                page_words, region["y0"], region["y1"]
+            )
+            for i in visible:
+                token = highlight_matcher.normalize_word(page_words[i].text)
+                if token:
+                    words.add(token)
+        return sorted(words)
 
     def _on_voice_result(self, result: dict) -> None:
         """Fan a recognition result out to the frontend as a DOM event.
