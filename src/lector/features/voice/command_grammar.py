@@ -1,9 +1,14 @@
-"""The fixed navigation vocabulary and the spoken-phrase → intent mapping.
+"""The fixed voice vocabulary and the spoken-phrase → intent mapping.
 
-Milestone 6 scope (see `docs/TASKS.md`): navigation only. These are the
-lowest-risk voice commands — there is no ambiguity about *what* to act on
-and no matching against document text, just intent → action. Highlighting
-(Milestone 7) and the wake phrase (Milestone 8) are deliberately absent.
+Navigation (Milestone 6) and highlighting/save (Milestone 7) are both fixed,
+synonym-mapped grammar per `docs/PRD.md` — this module owns intent parsing
+for both. The wake phrase (Milestone 8) is deliberately absent.
+
+For HIGHLIGHT and HIGHLIGHT_SENTENCE, `docs/ARCHITECTURE.md` still puts only
+*interpretation* here: this module recognizes "highlight <phrase>" as an
+intent carrying a `query`, but has no idea what a page's words are — matching
+the query against visible text is `annotations/highlight_matcher.py`'s job,
+and writing the annotation is `document.py`'s, both reached through `api.py`.
 
 Three things live here, and they are connected:
 
@@ -37,6 +42,9 @@ PREV_PAGE = "PREV_PAGE"
 GOTO_PAGE = "GOTO_PAGE"
 SCROLL_UP = "SCROLL_UP"
 SCROLL_DOWN = "SCROLL_DOWN"
+SAVE = "SAVE"
+HIGHLIGHT = "HIGHLIGHT"
+HIGHLIGHT_SENTENCE = "HIGHLIGHT_SENTENCE"
 
 # Phrasings per intent, each ordered most-explicit first. Order is load
 # bearing: `fuzzy.best_match` breaks ties by taking the earliest candidate,
@@ -69,7 +77,33 @@ PHRASES: dict[str, tuple[str, ...]] = {
         "move up",
         "up",
     ),
+    SAVE: (
+        "save the file",
+        "save the document",
+        "save the pdf",
+        "save",
+    ),
 }
+
+# Leading trigger phrases for HIGHLIGHT_SENTENCE, tried before HIGHLIGHT's —
+# "highlight the sentence about foxes" must not be parsed as HIGHLIGHT with
+# query "the sentence about foxes", so the longer, more specific trigger set
+# always gets first refusal. Order is load-bearing for the same reason
+# PHRASES' order is: the earliest trigger wins a tie.
+HIGHLIGHT_SENTENCE_TRIGGERS: tuple[str, ...] = (
+    "highlight the sentence",
+    "highlight this sentence",
+    "highlight sentence",
+)
+HIGHLIGHT_TRIGGERS: tuple[str, ...] = (
+    # Deliberately a single trigger, unlike NAV's several synonyms: a
+    # 3-word variant like "highlight the word" was tried and dropped, since
+    # its fuzzy comparison window straddles the query itself — "highlight
+    # the word quick" scored above threshold against "highlight the word"
+    # with "quick" read as a mishearing of "word", silently eating the
+    # query's first word. A single, short trigger has no such window.
+    "highlight",
+)
 
 # What may precede a page number. A bare number is deliberately not a jump
 # command: "five" alone is far more likely to be a misfire than an intent,
@@ -181,8 +215,49 @@ def _parse_goto(words: list[str]) -> dict | None:
     }
 
 
+# (intent, trigger) pairs in priority order. HIGHLIGHT_SENTENCE's triggers
+# come first because they are strict extensions of HIGHLIGHT's — "highlight
+# the sentence" must not be cut short at "highlight" with "the sentence"
+# left stranded in the query.
+_HIGHLIGHT_TRIGGERS: tuple[tuple[str, str], ...] = tuple(
+    (HIGHLIGHT_SENTENCE, trigger) for trigger in HIGHLIGHT_SENTENCE_TRIGGERS
+) + tuple(
+    (HIGHLIGHT, trigger) for trigger in HIGHLIGHT_TRIGGERS
+)
+
+
+def _parse_highlight(words: list[str]) -> dict | None:
+    """Split a leading trigger phrase off the utterance; what remains is the
+    query to match against the visible page (`annotations/highlight_matcher.py`
+    does that matching — this function only recognizes that a highlight was
+    asked for and what phrase to look for).
+
+    Mirrors `_parse_goto`'s shape but for a *leading* trigger instead of a
+    *trailing* number: each candidate trigger's word count fixes how many
+    leading words to compare, since a spoken phrase carries no delimiter
+    between the trigger and the free-form query that follows it.
+    """
+    for intent, trigger in _HIGHLIGHT_TRIGGERS:
+        trigger_words = trigger.split()
+        n = len(trigger_words)
+        if len(words) <= n:
+            continue  # nothing left over to be a query
+        lead = " ".join(words[:n])
+        score = fuzzy.similarity(lead, trigger)
+        if score < fuzzy.DEFAULT_THRESHOLD:
+            continue
+        query = " ".join(words[n:])
+        return {
+            "intent": intent,
+            "query": query,
+            "matched": f"{trigger} <query>",
+            "score": score,
+        }
+    return None
+
+
 def parse(text: str) -> dict | None:
-    """Turn a recognized phrase into a navigation intent, or `None`.
+    """Turn a recognized phrase into an intent, or `None`.
 
     `None` means "nothing was recognized as a command" and callers must
     treat it as a no-op: `docs/PRD.md` makes voice an accelerator over a
@@ -191,7 +266,7 @@ def parse(text: str) -> dict | None:
     reader never gave.
 
     The returned dict is `{"intent", "phrase", "matched", "score"}`, plus
-    `"page"` for `GOTO_PAGE`.
+    `"page"` for `GOTO_PAGE` or `"query"` for `HIGHLIGHT`/`HIGHLIGHT_SENTENCE`.
     """
     words = _normalize(text)
     if not words:
@@ -205,15 +280,23 @@ def parse(text: str) -> dict | None:
         return {**goto, "phrase": phrase}
 
     match = fuzzy.best_match(phrase, _ORDERED_PHRASES)
-    if match is None:
-        return None
-    matched, score = match
-    return {
-        "intent": _PHRASE_TO_INTENT[matched],
-        "phrase": phrase,
-        "matched": matched,
-        "score": score,
-    }
+    if match is not None:
+        matched, score = match
+        return {
+            "intent": _PHRASE_TO_INTENT[matched],
+            "phrase": phrase,
+            "matched": matched,
+            "score": score,
+        }
+
+    # Highlight triggers last: they are free-form (an open-ended query
+    # follows the trigger), so a fixed phrase above should get first refusal
+    # whenever an utterance could plausibly be either.
+    highlight = _parse_highlight(words)
+    if highlight is not None:
+        return {**highlight, "phrase": phrase}
+
+    return None
 
 
 def vocabulary() -> list[str]:
@@ -225,6 +308,8 @@ def vocabulary() -> list[str]:
             words.update(phrasing.split())
     for prefix in GOTO_PREFIXES:
         words.update(prefix.split())
+    for trigger in HIGHLIGHT_SENTENCE_TRIGGERS + HIGHLIGHT_TRIGGERS:
+        words.update(trigger.split())
     words.update(_UNITS)
     words.update(_TENS)
     words.add(_HUNDRED)

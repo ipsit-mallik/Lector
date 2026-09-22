@@ -74,11 +74,11 @@ Working checklist for implementation, in build order. See `docs/ARCHITECTURE.md`
 
 *The hardest, riskiest piece — build last, once rendering, annotation writing, and recognition are each already proven independently.*
 
-- [ ] `annotations/highlight_matcher.py`: fuzzy-match spoken phrase against the word list of the currently visible viewport only
-- [ ] Disambiguation: viewport-only scope, first occurrence (reading order) wins ties
-- [ ] Word-level highlight as baseline; sentence-level extension via nearest-punctuation heuristic
-- [ ] Wire the "highlight" voice command to the matcher + annotation writer
-- [ ] Wire the "save" voice command to explicitly trigger the save dialog — confirm it never fires automatically as a side effect of highlighting
+- [X] `annotations/highlight_matcher.py`: fuzzy-match spoken phrase against the word list of the currently visible viewport only
+- [X] Disambiguation: viewport-only scope, first occurrence (reading order) wins ties
+- [X] Word-level highlight as baseline; sentence-level extension via nearest-punctuation heuristic
+- [X] Wire the "highlight" voice command to the matcher + annotation writer
+- [X] Wire the "save" voice command to explicitly trigger the save dialog — confirm it never fires automatically as a side effect of highlighting
 
 ## Milestone 8 — Wake phrase, discoverability, onboarding
 

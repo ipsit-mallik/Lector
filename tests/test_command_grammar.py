@@ -228,7 +228,7 @@ class IntentContractTests(unittest.TestCase):
         self.assertEqual(cg.SCROLL_DOWN, "SCROLL_DOWN")
 
     def test_every_phrase_intent_is_a_declared_constant(self):
-        declared = {cg.NEXT_PAGE, cg.PREV_PAGE, cg.SCROLL_UP, cg.SCROLL_DOWN}
+        declared = {cg.NEXT_PAGE, cg.PREV_PAGE, cg.SCROLL_UP, cg.SCROLL_DOWN, cg.SAVE}
         self.assertEqual(set(cg.PHRASES), declared)
 
     def test_results_carry_the_matched_phrase_and_score(self):
@@ -236,6 +236,70 @@ class IntentContractTests(unittest.TestCase):
         self.assertEqual(result["matched"], "next page")
         self.assertLess(result["score"], 1.0)
         self.assertGreaterEqual(result["score"], fuzzy.DEFAULT_THRESHOLD)
+
+
+class SaveTests(unittest.TestCase):
+    """docs/PRD.md requires save to be an explicit, spoken command — never a
+    side effect of highlighting — so these are unremarkable fixed-phrase
+    tests, deliberately kept separate from HighlightTests to make that
+    independence visible in the test layout."""
+
+    def test_save_synonyms(self):
+        for phrase in ("save", "save the file", "save the document", "save the pdf"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(cg.parse(phrase)["intent"], cg.SAVE)
+
+    def test_recovers_from_a_misheard_word(self):
+        self.assertEqual(cg.parse("save the doc")["intent"], cg.SAVE)
+
+
+class HighlightTests(unittest.TestCase):
+    def test_highlight_trigger_leaves_the_rest_as_the_query(self):
+        result = cg.parse("highlight the quick brown fox")
+        self.assertEqual(result["intent"], cg.HIGHLIGHT)
+        self.assertEqual(result["query"], "the quick brown fox")
+
+    def test_bare_highlight_trigger(self):
+        result = cg.parse("highlight fox")
+        self.assertEqual(result["intent"], cg.HIGHLIGHT)
+        self.assertEqual(result["query"], "fox")
+
+    def test_highlight_sentence_trigger(self):
+        result = cg.parse("highlight the sentence about the quick fox")
+        self.assertEqual(result["intent"], cg.HIGHLIGHT_SENTENCE)
+        self.assertEqual(result["query"], "about the quick fox")
+
+    def test_highlight_this_sentence_trigger(self):
+        result = cg.parse("highlight this sentence right here")
+        self.assertEqual(result["intent"], cg.HIGHLIGHT_SENTENCE)
+        self.assertEqual(result["query"], "right here")
+
+    def test_sentence_trigger_is_not_swallowed_by_the_shorter_highlight_trigger(self):
+        # "highlight" alone would happily consume "the sentence about foxes"
+        # as its query; the more specific trigger must win first.
+        result = cg.parse("highlight the sentence about foxes")
+        self.assertEqual(result["intent"], cg.HIGHLIGHT_SENTENCE)
+        self.assertNotIn("sentence", result["query"])
+
+    def test_bare_trigger_with_no_query_is_not_a_command(self):
+        # "highlight" alone, with nothing to highlight, is not a usable
+        # command.
+        self.assertIsNone(cg.parse("highlight"))
+
+    def test_full_sentence_trigger_with_nothing_after_it_falls_back_to_highlight(self):
+        # "highlight the sentence" has no room left for HIGHLIGHT_SENTENCE's
+        # own trigger plus a query, so it falls back to the shorter bare
+        # "highlight" trigger, treating "the sentence" itself as the text to
+        # find — not a crash, just an unlikely-to-match query in practice.
+        result = cg.parse("highlight the sentence")
+        self.assertEqual(result["intent"], cg.HIGHLIGHT)
+        self.assertEqual(result["query"], "the sentence")
+
+    def test_highlight_query_is_not_read_as_navigation(self):
+        # A page word like "back" or "up" inside the query must not make the
+        # whole utterance parse as navigation instead of a highlight.
+        result = cg.parse("highlight going back up the hill")
+        self.assertEqual(result["intent"], cg.HIGHLIGHT)
 
 
 if __name__ == "__main__":
