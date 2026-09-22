@@ -34,6 +34,20 @@ _REOPEN_BEHAVIOR_KEY = "reopen_behavior"
 _RECENT_FILES_KEY = "recent_files"
 RECENT_FILES_CAP = 10
 
+# Voice activation (docs/PRD.md: "independently toggleable"). Two separate
+# booleans rather than one three-valued mode, because the PRD's requirement
+# is precisely that they are not alternatives: both on, both off, or either
+# alone all have to be expressible, and a single "mode" key could not say
+# "both" without growing a value that means the same thing as two flags.
+_PUSH_TO_TALK_KEY = "push_to_talk_enabled"
+_WAKE_PHRASE_KEY = "wake_phrase_enabled"
+
+# What an install starts with before onboarding says otherwise: the key,
+# which opens the microphone only while it is held. Nothing is silently
+# always-on until the reader asks for it.
+_DEFAULT_PUSH_TO_TALK = True
+_DEFAULT_WAKE_PHRASE = False
+
 
 def _settings_dir() -> Path:
     if sys.platform == "win32":
@@ -104,6 +118,39 @@ def set_reopen_behavior(mode: str) -> None:
     data = _load()
     data[_REOPEN_BEHAVIOR_KEY] = mode
     _save(data)
+
+
+def get_voice_activation() -> dict:
+    """Which activation modes are enabled, as `{"push_to_talk", "wake_phrase"}`.
+
+    Returned together because they are read together everywhere — the UI's
+    hint text, the engine's idle listening, and the key handler all depend on
+    the pair, and two bridge round-trips to answer one question is worse than
+    one.
+    """
+    data = _load()
+    return {
+        "push_to_talk": _as_bool(data.get(_PUSH_TO_TALK_KEY), _DEFAULT_PUSH_TO_TALK),
+        "wake_phrase": _as_bool(data.get(_WAKE_PHRASE_KEY), _DEFAULT_WAKE_PHRASE),
+    }
+
+
+def set_voice_activation(push_to_talk: bool, wake_phrase: bool) -> None:
+    """Store both flags. Either, both, or neither may be on — docs/PRD.md
+    makes them independent, and "neither" is a supported choice, not an error
+    state: it means voice off, with the app still fully usable by mouse and
+    keyboard."""
+    data = _load()
+    data[_PUSH_TO_TALK_KEY] = bool(push_to_talk)
+    data[_WAKE_PHRASE_KEY] = bool(wake_phrase)
+    _save(data)
+
+
+def _as_bool(value, default: bool) -> bool:
+    """A stored flag, falling back to `default` when it is missing or was
+    hand-edited into something that is not a boolean — settings.json is a
+    plain file a reader can open, so it cannot be assumed well-formed."""
+    return value if isinstance(value, bool) else default
 
 
 def get_recent_files() -> list[dict]:

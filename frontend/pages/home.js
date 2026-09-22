@@ -76,19 +76,36 @@ async function loadRecent() {
 // engine state here. Home has nothing to *do* with a recognized phrase yet —
 // it echoes it so push-to-talk can be verified without opening a PDF first.
 
+// Set once voice is wired, below; `rest()` is how a lingering
+// "heard" message hands the indicator back.
+let voice = { rest: () => {} };
+
 const voiceBox = document.getElementById("voiceBox");
 const voiceState = document.getElementById("voiceState");
 const voiceDetail = document.getElementById("voiceDetail");
 
 const VOICE_IDLE_DETAIL =
   "Hold Space and say what you want. Offline — nothing leaves this machine.";
+
+// The resting copy has to name the way in that the reader actually has: a
+// reader who turned push-to-talk off and the wake phrase on is told to hold
+// Space by the old wording, which is advice that does nothing.
+function idleDetail(wake, pushToTalk) {
+  if (wake && pushToTalk) {
+    return "Hold Space, or say “Hey Lector”. Offline — nothing leaves this machine.";
+  }
+  if (wake) {
+    return "Say “Hey Lector”, then your command. Offline — nothing leaves this machine.";
+  }
+  return VOICE_IDLE_DETAIL;
+}
 const HEARD_LINGER_MS = 2500;
 let heardTimer = null;
 
-function renderVoiceBox({ state, text, error }) {
+function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
   clearTimeout(heardTimer);
   voiceBox.classList.toggle("listening", state === "listening");
-  voiceBox.classList.toggle("unavailable", state === "unavailable");
+  voiceBox.classList.toggle("unavailable", state === "unavailable" || state === "off");
 
   switch (state) {
     case "unavailable":
@@ -99,16 +116,29 @@ function renderVoiceBox({ state, text, error }) {
       break;
     case "listening":
       voiceState.textContent = "LISTENING";
-      voiceDetail.textContent = text ? `"${text}"` : "Go ahead — release Space when you're done.";
+      voiceDetail.textContent = text
+        ? `"${text}"`
+        : viaWake
+          ? "Go ahead — say your command."
+          : "Go ahead — release Space when you're done.";
       break;
     case "heard":
       voiceState.textContent = "HEARD";
       voiceDetail.textContent = text ? `"${text}"` : "Didn't catch that.";
-      heardTimer = setTimeout(() => renderVoiceBox({ state: "idle" }), HEARD_LINGER_MS);
+      // Back to rest through the engine rather than by rendering "idle"
+      // directly: only it knows whether resting means ready, off, or
+      // unavailable, and which activation modes to word the copy for.
+      heardTimer = setTimeout(() => voice.rest(), HEARD_LINGER_MS);
+      break;
+    case "off":
+      // Not a failure: docs/PRD.md makes voice an accelerator, and switching
+      // it off is a supported choice rather than something to nag about.
+      voiceState.textContent = "VOICE OFF";
+      voiceDetail.textContent = "Turn on push-to-talk or the wake phrase in Settings.";
       break;
     default:
       voiceState.textContent = "VOICE READY";
-      voiceDetail.textContent = VOICE_IDLE_DETAIL;
+      voiceDetail.textContent = idleDetail(wake, pushToTalk);
   }
 }
 
@@ -124,5 +154,5 @@ function renderVoiceBox({ state, text, error }) {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("lector-theme", theme);
   await loadRecent();
-  initPushToTalk(renderVoiceBox);
+  voice = initVoice(renderVoiceBox);
 })();

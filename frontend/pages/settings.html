@@ -34,6 +34,58 @@
         <div class="theme-cards" id="themeCards"></div>
       </div>
 
+      <!-- docs/PRD.md's dual activation, as two switches rather than a
+           three-way choice: the two modes are independent, and "both off" is
+           a supported state, not an error. The subtitle says so outright,
+           because a reader turning voice off needs to know nothing else
+           stops working. -->
+      <div class="section">
+        <h3>Voice activation</h3>
+        <p class="sub">
+          Use either, or both. With both off, voice is disabled and everything
+          still works by mouse and keyboard.
+        </p>
+        <div class="voice-cards">
+          <div class="voice-card">
+            <div class="voice-card-head">
+              <div class="voice-card-text">
+                <span class="option-title">Push-to-talk</span>
+                <span class="option-subtitle">Mic opens only while the key is held.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="pushToTalkToggle" aria-label="Push-to-talk">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <!-- The mockup shows these as editable (rebind the key, retype
+                 the phrase). Neither is built: Space is fixed in voice.js and
+                 the phrase is a grammar constant, so they are shown as facts
+                 rather than as controls that would silently do nothing. -->
+            <p class="voice-card-detail">
+              Key <kbd class="key-chip">Space</kbd>
+              <span class="voice-card-note">fixed for now</span>
+            </p>
+          </div>
+
+          <div class="voice-card">
+            <div class="voice-card-head">
+              <div class="voice-card-text">
+                <span class="option-title">Wake phrase</span>
+                <span class="option-subtitle">Always listening for one phrase, on-device.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="wakePhraseToggle" aria-label="Wake phrase">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <p class="voice-card-detail">
+              Phrase <kbd class="key-chip" id="wakePhraseLabel"></kbd>
+              <span class="voice-card-note">fixed for now</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div class="section">
         <h3>When I save highlights</h3>
         <p class="sub">Lector never changes a file until you save.</p>

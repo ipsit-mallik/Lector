@@ -29,6 +29,9 @@ const copyRow = document.getElementById("copyRow");
 const overwriteRow = document.getElementById("overwriteRow");
 const rememberCheck = document.getElementById("rememberCheck");
 const saveRows = [copyRow, overwriteRow];
+const pushToTalkToggle = document.getElementById("pushToTalkToggle");
+const wakePhraseToggle = document.getElementById("wakePhraseToggle");
+const wakePhraseLabel = document.getElementById("wakePhraseLabel");
 const continueRow = document.getElementById("continueRow");
 const startRow = document.getElementById("startRow");
 const reopenRows = [continueRow, startRow];
@@ -95,6 +98,17 @@ saveRows.forEach((row) => {
 });
 rememberCheck.addEventListener("change", persistSaveBehavior);
 
+// Voice activation. Both flags go over on every change rather than one at a
+// time, because `set_voice_activation` takes the pair — the engine has to be
+// told the whole state to decide whether a microphone should stay open.
+async function persistVoiceActivation() {
+  await callApi("set_voice_activation", pushToTalkToggle.checked, wakePhraseToggle.checked);
+}
+
+[pushToTalkToggle, wakePhraseToggle].forEach((toggle) => {
+  toggle.addEventListener("change", persistVoiceActivation);
+});
+
 // Unlike the save-behavior rows above, these are a plain either/or with no
 // "ask me" third state — the row's own data-mode is the stored value.
 reopenRows.forEach((row) => {
@@ -114,6 +128,15 @@ reopenRows.forEach((row) => {
   const behavior = await callApi("get_save_behavior");
   selectSaveRow(behavior === "overwrite" ? overwriteRow : copyRow);
   rememberCheck.checked = behavior !== "ask";
+
+  const activation = await callApi("get_voice_activation");
+  pushToTalkToggle.checked = activation.push_to_talk;
+  wakePhraseToggle.checked = activation.wake_phrase;
+  // Asked for rather than typed here, so the phrase has exactly one home
+  // (src/lector/features/voice/wake.py) and this card cannot advertise a
+  // phrase the recognizer is not listening for.
+  const reference = await callApi("get_command_reference");
+  wakePhraseLabel.textContent = `“${reference.wake_phrase_display}”`;
 
   const reopen = await callApi("get_reopen_behavior");
   const activeReopenRow = reopen === "start" ? startRow : continueRow;

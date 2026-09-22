@@ -1,7 +1,17 @@
-// Push-to-talk wiring, shared by the Home and Reading views.
+// Voice activation wiring, shared by the Home and Reading views.
 //
-// Hold a key, capture audio, get recognized text back. There is no wake
-// phrase and no always-on listening yet (Milestone 8).
+// Two ways in, per docs/PRD.md's "dual voice activation":
+//
+//   * push-to-talk — hold Space, and the microphone is open only while it is
+//     held (Milestone 5);
+//   * wake phrase — say "Hey Lector" and a short command window opens
+//     (Milestone 8).
+//
+// They are independent: either, both, or neither may be enabled, and the
+// reader's choice lives in settings.json. With neither enabled the app is
+// still completely usable, which is the point of the parity requirement.
+// Python owns the microphone in both cases, so this file never decides
+// *whether* a wake happened — it is told.
 //
 // Nothing here interprets what was said: Python parses the phrase into an
 // intent (src/lector/features/voice/command_grammar.py) and sends it along
@@ -42,16 +52,25 @@ function dialogIsOpen() {
 }
 
 /**
- * Wire push-to-talk to the document and report state changes.
+ * Wire voice activation to the document and report state changes.
  *
- * @param {(state: {state: string, text: string, error: ?string}) => void} onState
+ * @param {(state: {state: string, text: string, error: ?string,
+ *   command: ?object, wake: boolean, pushToTalk: boolean,
+ *   viaWake: boolean}) => void} onState
  *   Called with one of:
- *     {state: "unavailable", error}  — no model, or no microphone
- *     {state: "idle"}                — ready, not listening
- *     {state: "listening", text}     — key held; `text` firms up as you speak
- *     {state: "heard", text, command} — key released, final phrase (may be
- *                                       ""); `command` is the parsed intent,
- *                                       or null if nothing matched
+ *     {state: "unavailable", error}   — no model, or no microphone
+ *     {state: "off"}                  — voice works, but the reader has both
+ *                                       activation modes switched off
+ *     {state: "idle", wake, pushToTalk} — ready; `wake` says whether the
+ *                                       microphone is listening for the
+ *                                       phrase right now
+ *     {state: "listening", text, viaWake} — capturing a command; `text` firms
+ *                                       up as you speak, and `viaWake` says
+ *                                       whether a wake opened the window (no
+ *                                       key is being held) or Space did
+ *     {state: "heard", text, command} — final phrase (may be ""); `command`
+ *                                       is the parsed intent, or null if
+ *                                       nothing matched
  * @param {() => (Array<{page_index: number, y0: number, y1: number}> |
  *   Promise<Array<{page_index: number, y0: number, y1: number}>>)} [getViewport]
  *   Called on each key-down to get the currently visible page regions, in PDF
@@ -59,13 +78,41 @@ function dialogIsOpen() {
  *   reader can actually see (docs/PRD.md's viewport-scoped matching). Home
  *   has no document open and no viewport to report, so this defaults to an
  *   empty one rather than requiring every caller to supply it.
+ * @returns {{rest: () => void}} `rest()` settles the indicator back to its
+ *   resting state without the caller having to know which of "idle", "off"
+ *   or "unavailable" currently applies.
  */
-function initPushToTalk(onState, getViewport = () => []) {
+function initVoice(onState, getViewport = () => []) {
   let held = false;
   let available = false;
+  let viaWake = false;
+  // Assumed until settings answer. Optimistic on purpose: the alternative is
+  // a moment in which a held Space does nothing, which reads as a broken
+  // microphone rather than as a value still loading.
+  let activation = { push_to_talk: true, wake_phrase: false };
 
-  const report = (state, text = "", error = null, command = null) =>
-    onState({ state, text, error, command });
+  const report = (state, extra = {}) =>
+    onState({
+      state,
+      text: "",
+      error: null,
+      command: null,
+      wake: activation.wake_phrase,
+      pushToTalk: activation.push_to_talk,
+      viaWake: false,
+      ...extra,
+    });
+
+  // Ready, off, or unavailable — the resting state, which depends both on
+  // whether voice *can* work and on whether the reader wants it to.
+  const reportResting = () => {
+    if (!available) return;
+    if (!activation.push_to_talk && !activation.wake_phrase) {
+      report("off");
+      return;
+    }
+    report("idle");
+  };
 
   // The speech model takes a few seconds to load and does so in the
   // background (see `VoiceEngine.warm_up`), so the first answer can be
@@ -81,20 +128,37 @@ function initPushToTalk(onState, getViewport = () => []) {
         }
         available = status.available;
         if (available) {
-          report("idle");
+          reportResting();
         } else {
-          report("unavailable", "", status.error);
+          report("unavailable", { error: status.error });
         }
       })
-      .catch((err) => report("unavailable", "", String(err)));
+      .catch((err) => report("unavailable", { error: String(err) }));
   };
-  askStatus();
+
+  // Which modes the reader has enabled. Asked for before the status so that
+  // the first resting state is already worded correctly, rather than
+  // announcing "Hold Space to talk" to someone who turned that off.
+  callApi("get_voice_activation")
+    .then((modes) => {
+      activation = modes;
+    })
+    .catch(() => {
+      // Keep the optimistic default: a settings read that failed is no
+      // reason to take voice away from someone who has it.
+    })
+    .finally(askStatus);
 
   // Partial and final results arriving from Python's worker thread.
   window.addEventListener("lector:voice", (ev) => {
-    const { text, final, command } = ev.detail || {};
+    const { text, final, command, wake } = ev.detail || {};
+    // A wake carries no text — it is the moment the phrase was recognized
+    // and the command window opened. Everything after it, up to the final,
+    // belongs to that window.
+    if (wake) viaWake = true;
     if (final) {
-      report("heard", text || "", null, command || null);
+      report("heard", { text: text || "", command: command || null, viaWake });
+      viaWake = false;
       // Re-broadcast for feature code. Deliberately a separate event from
       // `lector:voice`: that one is the raw transport, this one is the
       // "a command was spoken" signal features act on, and only final
@@ -110,24 +174,26 @@ function initPushToTalk(onState, getViewport = () => []) {
         );
       }
     } else {
-      report("listening", text || "");
+      report("listening", { text: text || "", viaWake });
     }
   });
 
   document.addEventListener("keydown", (ev) => {
     if (ev.key !== PUSH_TO_TALK_KEY) return;
-    if (!available || shouldIgnoreKey() || dialogIsOpen()) return;
+    if (!available || !activation.push_to_talk) return;
+    if (shouldIgnoreKey() || dialogIsOpen()) return;
     // Space scrolls the reading view by default; holding it to talk must not
     // also page the document down.
     ev.preventDefault();
     if (held) return; // Key auto-repeat, not a second press.
     held = true;
-    report("listening", "");
+    viaWake = false; // A key in hand outranks any window a wake left open.
+    report("listening", { text: "" });
     Promise.resolve(getViewport())
       .then((viewport) => callApi("start_listening", viewport || []))
       .catch((err) => {
         held = false;
-        report("unavailable", "", String(err));
+        report("unavailable", { error: String(err) });
       });
   });
 
@@ -135,7 +201,7 @@ function initPushToTalk(onState, getViewport = () => []) {
     if (ev.key !== PUSH_TO_TALK_KEY || !held) return;
     held = false;
     ev.preventDefault();
-    callApi("stop_listening").catch((err) => report("unavailable", "", String(err)));
+    callApi("stop_listening").catch((err) => report("unavailable", { error: String(err) }));
   });
 
   // Losing the window mid-hold never delivers the keyup, which would leave
@@ -145,4 +211,6 @@ function initPushToTalk(onState, getViewport = () => []) {
     held = false;
     callApi("stop_listening").catch(() => {});
   });
+
+  return { rest: reportResting };
 }

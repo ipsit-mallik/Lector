@@ -22,7 +22,8 @@ import time
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# voice_support puts `src` on the path; import it before the package.
+import voice_support
 
 from lector.features.voice import command_grammar  # noqa: E402
 from lector.features.voice import engine as ve  # noqa: E402
@@ -59,8 +60,8 @@ class SubscriptionTests(unittest.TestCase):
         engine._emit("next page", final=True)
 
         # Assert
-        self.assertEqual(first, [{"text": "next page", "final": True}])
-        self.assertEqual(second, [{"text": "next page", "final": True}])
+        self.assertEqual(first, [{"text": "next page", "final": True, "wake": False}])
+        self.assertEqual(second, [{"text": "next page", "final": True, "wake": False}])
 
     def test_a_broken_subscriber_does_not_block_the_others(self):
         # Voice is an accelerator (docs/PRD.md); one bad listener must not
@@ -76,7 +77,7 @@ class SubscriptionTests(unittest.TestCase):
 
         engine._emit("save", final=True)
 
-        self.assertEqual(received, [{"text": "save", "final": True}])
+        self.assertEqual(received, [{"text": "save", "final": True, "wake": False}])
 
 
 class VocabularyTests(unittest.TestCase):
@@ -189,19 +190,12 @@ class MissingModelTests(unittest.TestCase):
         self.assertFalse(self.engine.status()["available"])
 
 
-def _model_available() -> bool:
-    return ve.VoiceEngine().status()["available"]
-
-
-@unittest.skipUnless(
-    _model_available(),
-    "speech model not installed - run: python scripts/fetch_vosk_model.py",
-)
+@unittest.skipUnless(voice_support.model_available(), voice_support.SKIP_REASON)
 class RecognizerTests(unittest.TestCase):
     """Exercises the real Vosk recognizer, without a microphone."""
 
     def test_grammar_is_constrained_to_the_vocabulary_plus_unknown(self):
-        engine = ve.VoiceEngine(vocabulary=["next", "page"])
+        engine = voice_support.engine(vocabulary=["next", "page"])
         engine._ensure_model()
         recognizer = engine._new_recognizer()
         self.assertIsNotNone(recognizer)
@@ -209,7 +203,7 @@ class RecognizerTests(unittest.TestCase):
     def test_silence_yields_no_command(self):
         # Arrange: half a second of digital silence fed through the engine's
         # own worker, exactly as the audio callback would deliver it.
-        engine = ve.VoiceEngine()
+        engine = voice_support.engine()
         engine._ensure_model()
         engine._recognizer = engine._new_recognizer()
         engine._utterances = []
@@ -233,7 +227,7 @@ class RecognizerTests(unittest.TestCase):
         """Regression: `Result()` consumes a finished utterance, so a phrase
         Vosk closed out mid-hold used to vanish from `FinalResult()` and
         `stop_listening()` returned an empty string."""
-        engine = ve.VoiceEngine()
+        engine = voice_support.engine()
         engine._ensure_model()
         engine._recognizer = engine._new_recognizer()
         engine._utterances = ["next page"]
@@ -246,7 +240,7 @@ class RecognizerTests(unittest.TestCase):
         self.assertEqual(result["text"], "next page")
 
     def test_warm_up_loads_the_model_off_the_calling_thread(self):
-        engine = ve.VoiceEngine()
+        engine = voice_support.engine()
 
         start = time.perf_counter()
         engine.warm_up()

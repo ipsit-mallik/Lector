@@ -9,6 +9,7 @@ data — no PySide6/Qt types, no live PyMuPDF objects.
 import base64
 import json
 import os
+import threading
 
 import webview
 
@@ -18,7 +19,8 @@ from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
-from lector.features.voice import command_grammar
+from lector.features.voice import command_grammar, reference
+from lector.features.voice import engine as engine_module
 from lector.features.voice.engine import VoiceEngine
 
 
@@ -57,6 +59,11 @@ class Api:
         # it — see `VoiceEngine.warm_up`. Costs nothing when no model is
         # installed: the warm-up finds that out with a stat and stops.
         self._voice.warm_up()
+        # Idle wake listening, if the reader has it on. Started here rather
+        # than from the frontend so it survives navigation between pages —
+        # the microphone should not close and reopen every time the reader
+        # goes from Home into a document.
+        self._apply_wake_activation(settings.get_voice_activation()["wake_phrase"])
 
     # ------------------------------------------------------------------ #
     # Home / recent files                                                  #
@@ -332,7 +339,85 @@ class Api:
         settings.set_theme(name)
 
     # ------------------------------------------------------------------ #
-    # Voice (Milestone 5 — push-to-talk only)                              #
+    # Voice activation modes (Milestone 8)                                 #
+    # ------------------------------------------------------------------ #
+
+    def get_voice_activation(self) -> dict:
+        """`{"push_to_talk": bool, "wake_phrase": bool}` — docs/PRD.md's two
+        independently toggleable activation modes."""
+        return settings.get_voice_activation()
+
+    def set_voice_activation(self, push_to_talk: bool, wake_phrase: bool) -> dict:
+        """Store both flags and bring the engine in line with them.
+
+        Returns the stored pair rather than nothing, so the caller renders
+        what was actually saved instead of what it optimistically sent.
+        """
+        settings.set_voice_activation(push_to_talk, wake_phrase)
+        self._apply_wake_activation(wake_phrase)
+        return settings.get_voice_activation()
+
+    def _apply_wake_activation(self, enabled: bool) -> None:
+        """Start or stop idle wake listening, off the calling thread.
+
+        Off-thread because starting it can need the speech model, and a load
+        takes seconds — the same reason `VoiceEngine.warm_up` exists. Blocking
+        a bridge call for that long risks the page that made it navigating
+        away before the reply lands, which kills pywebview's callback.
+        """
+        if not enabled:
+            self._voice.stop_wake_listening()
+            return
+        threading.Thread(
+            target=self._voice.start_wake_listening,
+            name="voice-wake-start",
+            daemon=True,
+        ).start()
+
+    def request_microphone(self) -> dict:
+        """Open and immediately close the microphone, to make the OS ask.
+
+        Neither Windows nor macOS has an API for "request microphone access"
+        that is separate from *using* the microphone: the permission prompt
+        is raised by the first capture attempt. So onboarding's "Allow
+        microphone" button does the smallest real capture there is, and
+        reports what happened.
+
+        Returns `{"granted": bool, "error": str | None}`. A refusal is a
+        normal outcome, not an exception — docs/PRD.md requires the app to
+        stay fully usable when the reader says no.
+        """
+        try:
+            import sounddevice
+
+            stream = sounddevice.RawInputStream(
+                samplerate=engine_module.SAMPLE_RATE,
+                blocksize=engine_module.BLOCK_SIZE,
+                dtype="int16",
+                channels=engine_module.CHANNELS,
+            )
+            stream.start()
+            stream.stop()
+            stream.close()
+        except Exception as exc:
+            return {"granted": False, "error": str(exc)}
+        return {"granted": True, "error": None}
+
+    # ------------------------------------------------------------------ #
+    # Command reference ("What can I say?")                                #
+    # ------------------------------------------------------------------ #
+
+    def get_command_reference(self) -> dict:
+        """The categorized command list the discoverability panel renders.
+
+        Assembled from the grammar itself (`voice/reference.py`) rather than
+        written out in the frontend, so the panel cannot offer a phrasing the
+        recognizer would not accept.
+        """
+        return reference.panel()
+
+    # ------------------------------------------------------------------ #
+    # Voice (Milestone 5 — push-to-talk; Milestone 8 — wake phrase)        #
     # ------------------------------------------------------------------ #
 
     def get_voice_status(self) -> dict:
@@ -364,6 +449,26 @@ class Api:
         """Called on push-to-talk keyup. Returns the final recognized phrase,
         which is `""` when nothing intelligible was heard."""
         return self._voice.stop_listening()
+
+    def update_voice_viewport(self, viewport: list[dict] | None = None) -> None:
+        """Keep the wake-phrase path's idea of what is on screen current.
+
+        Push-to-talk can gather the viewport at the moment the key goes down,
+        because the reader's keypress is what starts the utterance. A wake
+        phrase has no such moment: by the time "Hey Lector" has been heard,
+        the recognizer for the command that follows is already being built,
+        and a grammar-constrained recognizer can only ever return words that
+        were in its vocabulary when it was built (see `engine.py`). So the
+        reading view pushes the visible region here as it scrolls, and a wake
+        simply uses the latest one.
+
+        Cheap to call redundantly — it only recomputes the word list — but
+        the frontend still debounces it, because on a fast scroll "latest"
+        arrives many times a second.
+        """
+        self._voice_viewport = viewport or []
+        extra = self._viewport_vocabulary(self._voice_viewport) if self._doc.is_open else []
+        self._voice.set_vocabulary(command_grammar.VOCABULARY + extra)
 
     def _viewport_vocabulary(self, viewport: list[dict]) -> list[str]:
         """Normalized words visible in `viewport`, for widening the grammar.

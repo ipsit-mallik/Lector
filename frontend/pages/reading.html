@@ -50,7 +50,8 @@
 
         <button class="icon-btn active" id="layoutBtn" data-icon="book_layout" title="Book layout — one page at a time"></button>
         <button class="icon-btn" id="themeBtn" data-icon="theme" title="Cycle theme  (light / dark / sepia)"></button>
-        <button class="icon-btn" data-icon="help" title="What can I say?  (Milestone 8)" disabled></button>
+        <button class="icon-btn" id="referenceRailBtn" data-icon="help"
+                title="What can I say?  (?)"></button>
 
         <div class="rail-fill"></div>
         <div class="offline-label">OFF<br>LINE</div>
@@ -89,7 +90,8 @@
       <span class="hint" id="micHint">Hold Space to talk</span>
       <div class="spacer"></div>
       <span class="highlight-count" id="highlightCount">0 highlights on this page</span>
-      <button class="btn-secondary what-btn" disabled title="What can I say?  (Milestone 8)">What can I say?</button>
+      <button class="btn-secondary what-btn" id="referenceFooterBtn"
+              title="What can I say?  (?)">What can I say?</button>
     </div>
   </div>
 
@@ -141,10 +143,51 @@
     </div>
   </div>
 
+  <!-- "What can I say?" — the command reference (docs/PRD.md's
+       discoverability requirement). Its contents are not written here: they
+       are built at open time from the grammar itself, via
+       src/lector/features/voice/reference.py, so the panel cannot offer a
+       phrasing the recognizer would reject. -->
+  <div class="dialog-scrim reference-scrim" id="referenceDialog" hidden>
+    <div class="dialog-card reference-card" role="dialog" aria-modal="true"
+         aria-labelledby="referenceTitle">
+      <div class="dialog-header reference-header">
+        <div class="dialog-badge" data-icon="logo"></div>
+        <div>
+          <p class="dialog-title" id="referenceTitle">What can I say?</p>
+          <p class="dialog-desc">
+            Say it however feels natural — these are examples, not magic
+            words. Every command here also has a button or shortcut.
+          </p>
+        </div>
+        <button class="reference-close" id="referenceCloseBtn" title="Close  (Esc)"
+                aria-label="Close">&times;</button>
+      </div>
+
+      <div class="reference-body">
+        <div class="reference-search">
+          <span class="reference-search-icon" data-icon="search"></span>
+          <input type="search" id="referenceSearch" autocomplete="off"
+                 placeholder="Search commands" aria-label="Search commands">
+        </div>
+        <div class="reference-grid" id="referenceGrid"></div>
+        <p class="reference-empty" id="referenceEmpty" hidden>
+          Nothing here matches that.
+        </p>
+      </div>
+
+      <div class="dialog-footer reference-footer">
+        <span class="hint" id="referenceActivation"></span>
+        <button class="btn" id="referenceGotItBtn">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../js/icons.js"></script>
   <script src="../js/bridge.js"></script>
   <script src="../js/voice.js"></script>
   <script src="save-dialog.js"></script>
+  <script src="command-reference.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>

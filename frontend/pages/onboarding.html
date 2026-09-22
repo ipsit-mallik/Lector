@@ -8,70 +8,92 @@
   <link rel="stylesheet" href="onboarding.css">
 </head>
 <!--
-  STUB (docs/TASKS.md, Milestone 4). Placeholder only: it names the two steps
-  Milestone 8 will actually build — microphone permission and activation mode
-  — without implementing either. Nothing here requests a real permission, and
-  neither choice is persisted yet; the controls are deliberately disabled
-  rather than fake-functional, so this cannot be mistaken for a working flow.
+  First-run onboarding (docs/TASKS.md, Milestone 8), replacing the Milestone 4
+  stub. Two steps, per docs/mockups/07a and 07b: the microphone ask, then the
+  activation mode.
 
-  Reusing settings.css rather than inventing layout: docs/DESIGN_SYSTEM.md's
-  option-row pattern is what the real flow will use, and a stub that already
-  sits in it is a truer placeholder than a bespoke one.
+  Both are skippable, and skipping is not a degraded path — docs/PRD.md makes
+  mouse and keyboard parity a hard requirement, so a reader who declines the
+  microphone gets an app missing nothing except voice. That is why the
+  permission step states the benefit and the privacy fact *before* the OS
+  dialog appears, rather than leaving the system prompt to do the explaining.
 -->
 <body>
   <div class="onboarding-view">
-    <main class="onboarding-card">
-      <div class="brand">
-        <div class="brand-mark" data-icon="logo"></div>
-        <span class="brand-name">Lector</span>
-      </div>
-
-      <h1 class="page-title">Welcome to Lector</h1>
-      <p class="onboarding-lede">
-        A quiet PDF reader you can talk to. Everything runs on this machine —
-        no account, no sync, nothing sent anywhere.
-      </p>
-
-      <p class="onboarding-note">
-        This is a placeholder. The steps below are built in a later milestone;
-        for now they are here to show where they will go.
-      </p>
-
-      <div class="section">
-        <h3>Microphone</h3>
-        <p class="sub">
-          Lector will ask for microphone access so it can hear voice commands.
-          Skipping is fine — every command has a mouse and keyboard equivalent.
+    <main class="onboarding-stage">
+      <!-- Step 1: microphone permission -->
+      <section class="onboarding-step" id="micStep">
+        <div class="onboarding-badge" data-icon="logo"></div>
+        <h1 class="onboarding-title">Let Lector hear you</h1>
+        <p class="onboarding-lede">
+          Voice lets you turn pages and highlight without touching the
+          keyboard. Speech is recognised on this computer — no audio is
+          recorded, stored, or sent anywhere.
         </p>
-        <button class="btn" disabled>Allow microphone access</button>
-      </div>
+        <p class="onboarding-aside">
+          You can skip this and use Lector entirely with mouse and keyboard.
+        </p>
 
-      <div class="section">
-        <h3>How you'll talk to Lector</h3>
-        <p class="sub">Both stay available whichever you pick; this only sets the default.</p>
-
-        <div class="option-row" aria-disabled="true">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Hold a key to talk</span>
-            <span class="option-subtitle">Hold Space while you speak, release when you're done.</span>
-          </div>
+        <div class="onboarding-choices">
+          <button class="btn" id="allowMicBtn">Allow microphone</button>
+          <button class="btn btn-secondary" id="skipMicBtn">Skip for now</button>
         </div>
 
-        <div class="option-row" aria-disabled="true" style="margin-top:8px;">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Say a wake phrase</span>
-            <span class="option-subtitle">Start with "Hey Lector" and keep your hands free.</span>
-          </div>
-        </div>
-      </div>
+        <!-- Filled in once the OS has answered. A refusal is reported plainly
+             and the flow carries on: it is an answer, not an error. -->
+        <p class="onboarding-result" id="micResult" hidden></p>
+      </section>
 
-      <div class="onboarding-actions">
-        <button class="btn-secondary" id="skipBtn">Skip for now</button>
-        <button class="btn" id="startBtn">Start reading</button>
-      </div>
+      <!-- Step 2: activation mode -->
+      <section class="onboarding-step" id="modeStep" hidden>
+        <h1 class="onboarding-title">How should Lector start listening?</h1>
+        <p class="onboarding-aside">
+          You can change this any time in Settings, or turn both on.
+        </p>
+
+        <div class="mode-cards">
+          <button class="mode-card selected" id="pushToTalkCard" data-mode="push_to_talk"
+                  aria-pressed="true">
+            <span class="mode-card-badge" data-icon="keyboard"></span>
+            <span class="mode-card-title">Hold a key to talk</span>
+            <span class="mode-card-desc">
+              The mic is closed until you hold <strong>Space</strong>. Most
+              private, and nothing is misheard while you read aloud.
+            </span>
+            <span class="mode-card-state">Selected</span>
+          </button>
+
+          <button class="mode-card" id="wakePhraseCard" data-mode="wake_phrase"
+                  aria-pressed="false">
+            <span class="mode-card-badge" data-icon="logo"></span>
+            <span class="mode-card-title">Say a wake phrase</span>
+            <span class="mode-card-desc">
+              Start with <strong id="wakePhraseName"></strong> and it listens
+              for the rest. Truly hands-free; the phrase is matched on-device.
+            </span>
+            <span class="mode-card-note">Uses a little more battery</span>
+            <span class="mode-card-state">Selected</span>
+          </button>
+        </div>
+
+        <p class="onboarding-parity">
+          Whichever you pick, every voice command also has a button and a
+          keyboard shortcut.
+        </p>
+      </section>
     </main>
+
+    <footer class="onboarding-footer">
+      <div class="step-dots">
+        <span class="step-dot filled"></span>
+        <span class="step-dot" id="stepDotTwo"></span>
+      </div>
+      <span class="step-label" id="stepLabel">Step 1 of 2</span>
+      <div class="onboarding-fill"></div>
+      <span class="step-aside" id="stepAside">Takes about 20 seconds</span>
+      <button class="btn-secondary" id="backBtn" hidden>Back</button>
+      <button class="btn" id="startBtn" hidden>Start reading</button>
+    </footer>
   </div>
 
   <script src="../js/icons.js"></script>
