@@ -19,7 +19,7 @@ from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
-from lector.features.voice import command_grammar, reference
+from lector.features.voice import reference, router
 from lector.features.voice import engine as engine_module
 from lector.features.voice.engine import VoiceEngine
 
@@ -52,6 +52,13 @@ class Api:
         # reader hears the page they were looking at when they started
         # talking, not whatever is on screen by the time recognition finishes.
         self._voice_viewport: list[dict] = []
+        # Which screen/dialog is currently listening (Milestone 8.4). Starts
+        # at `router.DEFAULT_CONTEXT` (`reading`) rather than `home` so a
+        # caller that never makes a `set_voice_context` call — every test in
+        # this codebase today, and any future one that doesn't need this —
+        # keeps hearing exactly the grammar it did before this router
+        # existed. Pages narrow this explicitly once they load.
+        self._voice_context = router.DEFAULT_CONTEXT
         # Load the model now, on a background thread, rather than leaving it
         # to the first `get_voice_status()`. That call is made by every page
         # showing the mic indicator, and a bridge call that blocks for the
@@ -444,8 +451,7 @@ class Api:
         is actually open, so Home's recognizer is unaffected by this.
         """
         self._voice_viewport = viewport or []
-        extra = self._viewport_vocabulary(self._voice_viewport) if self._doc.is_open else []
-        self._voice.set_vocabulary(command_grammar.VOCABULARY + extra)
+        self._refresh_voice_vocabulary()
         return self._voice.start_listening()
 
     def stop_listening(self) -> dict:
@@ -470,8 +476,41 @@ class Api:
         arrives many times a second.
         """
         self._voice_viewport = viewport or []
+        self._refresh_voice_vocabulary()
+
+    def set_voice_context(self, context: str) -> dict:
+        """Told by a page or dialog when it gains focus (Milestone 8.4).
+
+        Swaps the recognizer's active grammar to `context`'s own scoped
+        commands plus the always-on global ones (undo/redo/help/go home) —
+        the same grammar-swap `wake.py` already does between its idle and
+        full vocabularies, generalized here to more than two grammars.
+        `router.CONTEXTS` is the fixed set of names a caller may pass;
+        anything else is rejected rather than silently accepted, since a
+        typo'd context name would otherwise leave the reader talking to
+        whatever grammar happened to be active before, with no signal that
+        their intended context was never applied.
+
+        Returns `{"context": ...}` — the context actually applied, so the
+        caller can confirm it rather than assume its own request landed.
+        """
+        if context not in router.CONTEXTS:
+            raise ValueError(f"unknown voice context: {context!r}")
+        self._voice_context = context
+        self._refresh_voice_vocabulary()
+        return {"context": self._voice_context}
+
+    def _refresh_voice_vocabulary(self) -> None:
+        """Recompute and apply the recognizer's active grammar.
+
+        The single seam `start_listening`, `update_voice_viewport`, and
+        `set_voice_context` all call through whenever something that affects
+        the grammar changes — the active context or the visible viewport —
+        so the fixed-vocabulary and viewport-vocabulary computation can't
+        drift apart the way duplicating it at each call site would risk.
+        """
         extra = self._viewport_vocabulary(self._voice_viewport) if self._doc.is_open else []
-        self._voice.set_vocabulary(command_grammar.VOCABULARY + extra)
+        self._voice.set_vocabulary(router.vocabulary_for(self._voice_context) + extra)
 
     def _viewport_vocabulary(self, viewport: list[dict]) -> list[str]:
         """Normalized words visible in `viewport`, for widening the grammar.
@@ -511,7 +550,11 @@ class Api:
         Interpretation happens here, on the Python side, because
         docs/ARCHITECTURE.md keeps command interpretation in `voice/` and
         leaves the frontend to decide what a given intent *does*: this sends
-        `NEXT_PAGE`, not "scroll the strip".
+        `NEXT_PAGE`, not "scroll the strip". Resolution goes through
+        `router.resolve` (Milestone 8.4) rather than `command_grammar`
+        directly, so which commands a phrase can match depends on
+        `self._voice_context` — global commands always, plus whatever the
+        active context's own scoped grammar adds.
 
         Runs on the engine's worker thread, and deliberately swallows failures:
         no window yet (results arriving during teardown) must not kill the
@@ -522,7 +565,9 @@ class Api:
         except IndexError:
             return
         if result.get("final"):
-            resolved = command_grammar.resolve(result.get("text", ""), result.get("alternatives"))
+            resolved = router.resolve(
+                self._voice_context, result.get("text", ""), result.get("alternatives")
+            )
             result = {**result, "command": resolved["command"], "clarify": resolved["clarify"]}
         payload = json.dumps(result)
         try:

@@ -113,6 +113,8 @@ Two new UI patterns fall out of this, both frontend-only (no new architectural b
 
 The native Open/Save-As file dialogs (`api.py`'s `open_pdf_dialog()`, the "Save a copy" path) are replaced with in-app `open_dialog`/`save_dialog` screens for the same reason `annotations/`'s save-confirmation dialog is already a `frontend/` concern rather than an OS-native one: the router can only see and control the app's own UI, not OS chrome.
 
+**Implemented (Milestone 8.4):** `features/voice/router.py` holds `resolve(context, text, alternatives)` and `vocabulary_for(context)`, and `api.py` holds the context itself (`self._voice_context`, defaulting to `reading` so a caller that never calls the new `set_voice_context()` — every pre-8.4 test and any future one that doesn't need this — keeps behaving as it did before the router existed). Only `home` and `reading` claim a context so far, from `home.js`/`reading.js`'s `init()`; `settings` and the dialog/picker/dictation contexts are named in `router.CONTEXTS` but have no scoped grammar or caller yet, pending 8.5–8.8. The global set built in 8.4 is `undo`/`redo`/`help`/`go home` only — **"close app" is deliberately not among them**, held for 8.11 once 8.1's close gatekeeper (above) is what it needs to invoke, rather than being included here ahead of that dependency existing.
+
 ## Naming convention
 
 Python side: ecosystem standard — `snake_case` for files, modules, functions, and variables; `PascalCase` for classes. Frontend side: `kebab-case` for HTML/CSS file names and CSS classes (e.g. `save-dialog.css`, `.recent-card`), `camelCase` for JS variables and functions — the respective ecosystem standards for each, not a project-specific choice.

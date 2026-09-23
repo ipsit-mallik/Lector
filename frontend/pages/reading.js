@@ -903,11 +903,16 @@ async function promptSaveIfDirty(allowDiscard) {
 // Wiring                                                               //
 // ------------------------------------------------------------------ //
 
-backBtn.addEventListener("click", async () => {
+// Shared by the back button and the voice "go home" command (Milestone 8.4)
+// so the two ways of leaving the reading view go through the identical dirty
+// check rather than voice getting its own, easier-to-drift copy of it.
+async function goHome() {
   if (await promptSaveIfDirty(true)) {
     window.location.href = "../index.html";
   }
-});
+}
+
+backBtn.addEventListener("click", goHome);
 
 prevBtn.addEventListener("click", goPrev);
 nextBtn.addEventListener("click", goNext);
@@ -1160,6 +1165,12 @@ const VOICE_ACTIONS = {
   // this reaches the exact same prompt-or-save flow Ctrl+S does, rather than
   // a shortcut that skips the dialog.
   SAVE: () => promptSaveIfDirty(false),
+  // Global commands (Milestone 8.4) — available from every context, so they
+  // reach the same functions their toolbar buttons do.
+  UNDO: () => undo(),
+  REDO: () => redo(),
+  HELP: () => openCommandReference(),
+  GO_HOME: () => goHome(),
 };
 
 window.addEventListener("lector:command", (ev) => {
@@ -1295,6 +1306,13 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
     window.location.href = "../index.html";
     return;
   }
+  // Claim the reading context (Milestone 8.4) so the recognizer's grammar
+  // includes this page's navigation/highlight commands. Nothing changes
+  // here in practice yet, since `reading` is also the router's default —
+  // but this is what stops that from being an accident once Home (or any
+  // future screen) narrows itself to a different context and later
+  // navigates back here.
+  await callApi("set_voice_context", "reading");
   // The backend has already resolved the reopen preference by this point, so
   // state.page_index/layout_mode are either the restored ones or the
   // start-at-the-beginning defaults; this view just renders what it is given.

@@ -153,6 +153,12 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("lector-theme", theme);
+  // Narrow the recognizer to Home's context (Milestone 8.4). Home has no
+  // scoped commands of its own yet (Milestone 8.5), so in practice this only
+  // takes the reading grammar *out* of earshot here — global commands
+  // (undo/redo/help/go home) still work, but "next page" no longer does on
+  // a screen with no document open to turn a page in.
+  await callApi("set_voice_context", "home");
   await loadRecent();
   voice = initVoice(renderVoiceBox);
 })();
