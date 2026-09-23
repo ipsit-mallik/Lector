@@ -299,6 +299,67 @@ def parse(text: str) -> dict | None:
     return None
 
 
+def resolve(text: str, alternatives: list[str] | None = None) -> dict:
+    """Interpret a recognized phrase the way `parse` does, but never fall
+    silent on a phrase that was close to a real command.
+
+    `parse` alone returns `None` for anything under `fuzzy.DEFAULT_THRESHOLD`
+    and callers have always treated that as "do nothing" — the right call
+    for genuinely unrelated speech, since a wrong action costs the reader
+    more than repeating themselves. But Milestone 8.3 adds a middle ground:
+    Vosk's own best guess is not always its best *available* hypothesis, and
+    a near-miss on the top one is not the same as noise. This tries, in
+    order:
+
+    1. `text` itself, exactly as `parse` would.
+    2. Each of `alternatives` — Vosk's other n-best hypotheses for the same
+       utterance — against the full grammar, so a command Vosk *did* hear
+       correctly in its second guess is not thrown away because its first
+       guess was a misfire.
+    3. Only once none of those confidently match anything, the closest
+       near-miss across `text` and every alternative, so the reader gets
+       "did you mean '<candidate>'?" instead of silence.
+
+    Returns `{"command": ..., "clarify": ...}`; at most one of the two is not
+    `None`. `command` is `parse`'s own return shape. `clarify` is
+    `{"intent", "matched", "score", "phrase"}` — `matched` is the phrasing to
+    show in "did you mean", `phrase` is what was actually heard.
+
+    Near-miss clarification is scoped to `_ORDERED_PHRASES` — the fixed,
+    no-argument commands (next/previous page, scroll, save) — deliberately
+    excluding GOTO_PAGE and the highlight triggers: both need a query or a
+    number alongside the trigger word to mean anything, so "did you mean
+    'go to page'?" with no number to jump to would be a question the reader
+    cannot usefully answer "yes" to.
+    """
+    for candidate_text in (text, *(alternatives or ())):
+        command = parse(candidate_text)
+        if command is not None:
+            return {"command": command, "clarify": None}
+
+    best = None
+    for candidate_text in (text, *(alternatives or ())):
+        words = _normalize(candidate_text)
+        if not words:
+            continue
+        near = fuzzy.best_near_miss(" ".join(words), _ORDERED_PHRASES)
+        if near is not None and (best is None or near[1] > best[1]):
+            best = near
+    if best is None:
+        return {"command": None, "clarify": None}
+
+    matched, score = best
+    return {
+        "command": None,
+        "clarify": {
+            "intent": _PHRASE_TO_INTENT[matched],
+            "matched": matched,
+            "score": score,
+            "phrase": " ".join(_normalize(text)),
+        },
+    }
+
+
 def vocabulary() -> list[str]:
     """Every word the recognizer needs to hear this grammar, de-duplicated
     and sorted. `engine.py` pins its recognizer to exactly this list."""

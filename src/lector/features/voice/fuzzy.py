@@ -24,6 +24,16 @@ string-level primitive is shared.)
 # well under 0.5 — so the gap is wide and the exact cut-off is not delicate.
 DEFAULT_THRESHOLD = 0.72
 
+# Below DEFAULT_THRESHOLD, most of the score range is genuinely unrelated
+# speech — the tuning note above already puts a different command well under
+# 0.5. But the band just under the confident cutoff is real middle ground: a
+# two-error hearing of a short command ("next page" heard as "nest pah")
+# lands around 0.55-0.7, close enough that guessing at random would be
+# insulting but not close enough to act on unasked. Milestone 8.3's
+# clarification tier in `command_grammar.resolve` uses this band to offer
+# "did you mean '<candidate>'?" instead of the silence a miss got before.
+NEAR_MISS_THRESHOLD = 0.55
+
 
 def levenshtein(a: str, b: str) -> int:
     """Minimum single-character insertions, deletions, and substitutions
@@ -86,5 +96,31 @@ def best_match(needle: str, candidates, threshold: float = DEFAULT_THRESHOLD):
             best = candidate
             best_score = score
     if best is None or best_score < threshold:
+        return None
+    return best, best_score
+
+
+def best_near_miss(
+    needle: str,
+    candidates,
+    near_miss_threshold: float = NEAR_MISS_THRESHOLD,
+    confident_threshold: float = DEFAULT_THRESHOLD,
+):
+    """The closest candidate in the band below `confident_threshold` but at
+    least `near_miss_threshold`, or `None`.
+
+    Companion to `best_match`, not a replacement: call `best_match` first,
+    and only reach for this once it has returned `None`, so a confident
+    match is never second-guessed by a near-miss found here. Ties go to the
+    earliest candidate, for the same reason `best_match`'s do.
+    """
+    best = None
+    best_score = 0.0
+    for candidate in candidates:
+        score = similarity(needle, candidate)
+        if score > best_score:
+            best = candidate
+            best_score = score
+    if best is None or best_score < near_miss_threshold or best_score >= confident_threshold:
         return None
     return best, best_score
