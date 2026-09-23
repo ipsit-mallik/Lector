@@ -64,6 +64,9 @@ class Api:
         # the microphone should not close and reopen every time the reader
         # goes from Home into a document.
         self._apply_wake_activation(settings.get_voice_activation()["wake_phrase"])
+        # Set once `handle_window_closing` has let a close through, so the
+        # `window.destroy()` it issues doesn't re-run the dirty check.
+        self._closing_confirmed = False
 
     # ------------------------------------------------------------------ #
     # Home / recent files                                                  #
@@ -528,6 +531,43 @@ class Api:
     def shutdown_voice(self) -> None:
         """Release the microphone. Called when the window closes."""
         self._voice.shutdown()
+
+    def handle_window_closing(self) -> bool | None:
+        """Gatekeeper bound to `window.events.closing` (see `__main__.py`).
+
+        pywebview registers this event with `should_lock=True`, so it runs
+        synchronously on the platform's own UI thread, and a literal `False`
+        return is pywebview's signal to cancel the close. There is no safe
+        way to block that call waiting on `promptSaveIfDirty` — it's an async
+        JS confirmation, and blocking the UI thread for it risks deadlocking
+        against the very message loop that would deliver its result. So a
+        dirty document always cancels the *first* close attempt, kicks off
+        the save-or-discard prompt in the frontend, and — once that resolves
+        — reissues the close with `window.destroy()`, which pywebview itself
+        marshals back onto the UI thread (see `platforms/winforms.py`'s
+        `destroy_window`, which wraps it in `Control.Invoke`). Only when a
+        document is both open and dirty does any of this run; otherwise the
+        close proceeds immediately, same as before this method existed.
+        """
+        if self._closing_confirmed or not self._doc.is_open or not self._doc.is_dirty:
+            self.shutdown_voice()
+            return None
+
+        try:
+            window = webview.windows[0]
+        except IndexError:
+            self.shutdown_voice()
+            return None
+
+        def _on_resolved(should_close) -> None:
+            if not should_close:
+                return
+            self._closing_confirmed = True
+            self.shutdown_voice()
+            window.destroy()
+
+        window.evaluate_js("promptSaveIfDirty(true)", callback=_on_resolved)
+        return False
 
     # ------------------------------------------------------------------ #
     # Onboarding (Milestone 4 stub — real flow is Milestone 8)             #

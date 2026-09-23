@@ -17,10 +17,14 @@ def main():
         height=820,
         min_size=(960, 640),
     )
-    # The push-to-talk engine holds an open PortAudio stream while a key is
-    # held; closing the window mid-hold would otherwise leave the microphone
-    # claimed until the process is killed.
-    window.events.closing += api.shutdown_voice
+    # Gatekeeper for the close button/Alt+F4: releases the microphone (the
+    # push-to-talk engine holds an open PortAudio stream while a key is held,
+    # which would otherwise stay claimed until the process is killed) and, if
+    # a document has unsaved highlights, defers the close behind the same
+    # save-or-discard prompt the Library back button uses. See
+    # `Api.handle_window_closing` and docs/ARCHITECTURE.md's "Voice context
+    # router" notes on why this can't just check-and-block synchronously.
+    window.events.closing += api.handle_window_closing
     webview.start()
 
 

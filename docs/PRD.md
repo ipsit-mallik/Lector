@@ -25,6 +25,10 @@ Adobe Reader's ~10GB install footprint is unjustified for the actual use case: r
 - Themes: light, dark, sepia.
 - First-run onboarding: microphone permission request (skippable — app remains fully usable via mouse/keyboard if skipped) and voice activation mode selection (also changeable later in Settings).
 
+## Post-v1: full in-app voice control
+
+Every function of the app, once open, should be operable by voice — not just navigation and highlighting. App *launch* stays manual (the user opens Lector normally); voice control begins once the app is running, and closing the app is one of the voice commands. Requires: voice commands on Home and Settings (today only the reading view has any); a numbered-overlay picker for list items with no natural spoken name (e.g. a specific Recent card); in-app replacements for the native Open/Save-As file dialogs, since a native OS dialog can't be voice-driven; a dictation mode for free-text entry; and confirmation gating on any voice-triggered destructive action. See `docs/TASKS.md` Milestone 8.1–8.11 and `docs/ARCHITECTURE.md`'s voice context router section.
+
 ## Explicitly out of scope for v1
 
 - Full PDF editing: modifying text, repositioning images/tables, or any PDF↔Word round-trip conversion pipeline.
