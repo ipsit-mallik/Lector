@@ -197,6 +197,38 @@ class WakeRecognizerTests(unittest.TestCase):
         # The reader saw the indicator light up, so they are owed an answer.
         self.assertTrue(any(r["final"] for r in self.results))
 
+    def test_trailing_silence_after_real_speech_closes_the_window_early(self):
+        """The VAD-based endpoint (`_check_command_endpoint`) must be able to
+        close the command window well before the fixed deadline - that is its
+        whole reason to exist alongside it. The deadline here is set far
+        enough out that only the VAD endpoint could plausibly fire first, so
+        a pass here cannot be the fixed deadline doing the work instead."""
+        audio = _read_wav(FIXTURES / "hey_lector.wav") + b"\x00\x00" * (ve.SAMPLE_RATE * 3 // 2)
+        self.engine._recognizer = self.engine._new_recognizer()
+        self.engine._mode = ve.MODE_COMMAND
+        self.engine._listening = True
+        self.engine._utterances = []
+        self.engine._command_heard_speech = False
+        self.engine._command_silence_since = None
+        self.engine._command_deadline = time.monotonic() + 30
+        self.engine._audio = queue.Queue()
+        self.engine._worker = threading.Thread(target=self.engine._consume, daemon=True)
+        self.engine._worker.start()
+
+        step = ve.BLOCK_SIZE * 2  # bytes per block, 16-bit mono
+        interval = ve.BLOCK_SIZE / ve.SAMPLE_RATE
+        for offset in range(0, len(audio), step):
+            if self.engine._mode != ve.MODE_COMMAND:
+                break
+            self.engine._audio.put(audio[offset:offset + step])
+            time.sleep(interval)
+
+        deadline = time.time() + 5
+        while self.engine._mode == ve.MODE_COMMAND and time.time() < deadline:
+            time.sleep(0.05)
+
+        self.assertEqual(self.engine._mode, ve.MODE_WAKE)
+
     def test_the_wake_recognizer_is_rebuilt_for_the_next_wake(self):
         self.engine._recognizer = self.engine._new_recognizer()
         self.engine._mode = ve.MODE_COMMAND

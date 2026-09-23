@@ -11,6 +11,8 @@ dependencies = [
     "PyMuPDF",
     "vosk",
     "sounddevice",
+    "numpy",
+    "onnxruntime",
 ]
 
 [project.scripts]

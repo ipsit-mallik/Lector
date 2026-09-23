@@ -33,7 +33,8 @@ lector/
 │       │   ├── reading/         # PDF page rendering (PyMuPDF → image),
 │       │   │                    #   book/strip page-slicing logic
 │       │   ├── voice/           # Vosk engine, command grammar, activation
-│       │   │                    #   (push-to-talk + wake phrase)
+│       │   │                    #   (push-to-talk + wake phrase), audio
+│       │   │                    #   preprocessing (VAD, noise/gain)
 │       │   ├── annotations/     # Speech-to-match highlighting,
 │       │   │                    #   PyMuPDF annotation writing
 │       │   ├── settings/        # Theme, voice mode, save-behavior prefs,
@@ -58,12 +59,16 @@ lector/
 │       └── (per-page JS files, mirroring frontend/pages/)
 │
 ├── assets/
-│   └── vosk_model/              # Offline speech model (~68 MB). Fetched by
-│                                 #   scripts/fetch_vosk_model.py, not committed —
+│   ├── vosk_model/              # Offline speech model (~68 MB). Fetched by
+│   │                             #   scripts/fetch_vosk_model.py, not committed —
+│   │                             #   it is gitignored. Bundled at packaging time.
+│   └── silero_vad.onnx          # Offline VAD model (~2 MB). Fetched by
+│                                 #   scripts/fetch_vad_model.py, not committed —
 │                                 #   it is gitignored. Bundled at packaging time.
 │
 ├── scripts/                     # Developer setup scripts, not shipped
-│   └── fetch_vosk_model.py      # Downloads/extracts assets/vosk_model/
+│   ├── fetch_vosk_model.py      # Downloads/extracts assets/vosk_model/
+│   └── fetch_vad_model.py       # Downloads/extracts assets/silero_vad.onnx
 │
 ├── tests/                       # Mirrors src/lector/features/ structure
 │                                 #   (frontend has no automated tests yet —

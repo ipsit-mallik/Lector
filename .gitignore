@@ -17,3 +17,7 @@ Thumbs.db
 # Run: python scripts/fetch_vosk_model.py
 assets/vosk_model/*
 !assets/vosk_model/.gitkeep
+
+# Offline VAD model (~2 MB) - fetched, not committed.
+# Run: python scripts/fetch_vad_model.py
+assets/silero_vad.onnx

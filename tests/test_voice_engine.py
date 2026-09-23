@@ -21,6 +21,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # voice_support puts `src` on the path; import it before the package.
 import voice_support
@@ -101,6 +102,53 @@ class VocabularyTests(unittest.TestCase):
         engine = ve.VoiceEngine(vocabulary=words)
         words.append("previous")
         self.assertEqual(engine._vocabulary, ["next"])
+
+
+class CommandEndpointTests(unittest.TestCase):
+    """`_check_command_endpoint` decides whether trailing silence should
+    close the post-wake command window early (Milestone 8.2). `time.monotonic`
+    is mocked so the `ENDPOINT_TRAILING_SILENCE_SECONDS` threshold does not
+    have to be waited out in real time - the real-audio, real-time path is
+    covered separately in `test_wake.py`."""
+
+    def setUp(self):
+        self.engine = ve.VoiceEngine()
+
+    def test_silence_before_any_speech_never_triggers(self):
+        # The reader has not started talking yet; this is not a trailing
+        # pause, so it must never be read as "they finished".
+        self.assertFalse(self.engine._check_command_endpoint(False))
+        self.assertFalse(self.engine._check_command_endpoint(False))
+        self.assertFalse(self.engine._command_heard_speech)
+
+    def test_speech_is_recorded_as_heard_and_clears_pending_silence(self):
+        self.engine._command_silence_since = 12.0
+        self.engine._check_command_endpoint(True)
+        self.assertTrue(self.engine._command_heard_speech)
+        self.assertIsNone(self.engine._command_silence_since)
+
+    def test_trailing_silence_under_the_threshold_does_not_trigger(self):
+        with mock.patch.object(ve.time, "monotonic", side_effect=[100.0, 100.0, 100.3]):
+            self.assertFalse(self.engine._check_command_endpoint(True))    # speech at t=100.0
+            self.assertFalse(self.engine._check_command_endpoint(False))   # silence starts at t=100.0
+            self.assertFalse(self.engine._check_command_endpoint(False))   # t=100.3, only 0.3s of silence
+
+    def test_trailing_silence_at_or_past_the_threshold_triggers(self):
+        with mock.patch.object(ve.time, "monotonic", side_effect=[100.0, 100.0, 100.61]):
+            self.assertFalse(self.engine._check_command_endpoint(True))
+            self.assertFalse(self.engine._check_command_endpoint(False))
+            self.assertTrue(self.engine._check_command_endpoint(False))    # t=100.61, past the threshold
+
+    def test_a_word_of_speech_resets_the_silence_clock(self):
+        # A pause mid-command (a reader thinking between words) must not
+        # count toward the threshold as if it were the end of the command.
+        with mock.patch.object(ve.time, "monotonic", side_effect=[100.0, 100.4, 100.4, 100.8]):
+            self.engine._check_command_endpoint(True)    # speech at t=100.0
+            self.engine._check_command_endpoint(False)   # silence starts at t=100.4
+            self.engine._check_command_endpoint(True)    # more speech at t=100.4 - resets
+            # Only 0.4s of silence has elapsed since the reset, not 0.8s
+            # since the very first pause.
+            self.assertFalse(self.engine._check_command_endpoint(False))
 
 
 class NonBlockingStatusTests(unittest.TestCase):
