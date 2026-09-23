@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from lector.features.voice import audio_frontend as af  # noqa: E402
 from lector.features.voice import engine as ve  # noqa: E402
 
 # `engine.MODEL_DIR` is derived from the installed package's own location,
@@ -22,6 +23,16 @@ MODEL_DIR = Path(os.environ.get("LECTOR_VOSK_MODEL") or ve.MODEL_DIR)
 SKIP_REASON = (
     "no loadable speech model - run: python scripts/fetch_vosk_model.py, or "
     "set LECTOR_VOSK_MODEL to an existing one"
+)
+
+# Same idea as MODEL_DIR above, for the (much smaller) VAD model: a checkout
+# that has not run `scripts/fetch_vad_model.py` can still point
+# LECTOR_VAD_MODEL at one it already has.
+VAD_MODEL_PATH = Path(os.environ.get("LECTOR_VAD_MODEL") or af.VAD_MODEL_PATH)
+
+VAD_SKIP_REASON = (
+    "no loadable VAD model - run: python scripts/fetch_vad_model.py, or "
+    "set LECTOR_VAD_MODEL to an existing one"
 )
 
 
@@ -40,3 +51,12 @@ def model_available() -> bool:
     skip into a confusing pile of errors.
     """
     return engine()._ensure_model()
+
+
+def vad_model_available() -> bool:
+    """Whether the Silero VAD ONNX model can actually be loaded.
+
+    Mirrors `model_available()`'s reasoning: a directory or file existing is
+    not the same as `onnxruntime` being able to load it.
+    """
+    return af.SileroVAD(model_path=VAD_MODEL_PATH)._ensure_session()

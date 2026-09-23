@@ -41,7 +41,7 @@ import threading
 import time
 from pathlib import Path
 
-from lector.features.voice import command_grammar, wake
+from lector.features.voice import audio_frontend, command_grammar, wake
 
 # Vosk's small English model is 16 kHz mono; feeding it anything else quietly
 # degrades recognition rather than erroring, so the rate is fixed here rather
@@ -62,6 +62,14 @@ DEFAULT_VOCABULARY = command_grammar.VOCABULARY
 # speech is force-fitted onto the nearest listed word, which would make every
 # stray cough look like a command.
 UNKNOWN_TOKEN = "[unk]"
+
+# How much trailing silence, once the post-wake command window has heard
+# speech, closes that window early rather than waiting out the rest of
+# `wake.COMMAND_WINDOW_SECONDS`. Complements the window's two other closures
+# (a completed Vosk utterance, and the fixed deadline): this one catches
+# speech that trails off without Vosk ever considering it grammatically
+# complete, which would otherwise sit open for the rest of the window.
+ENDPOINT_TRAILING_SILENCE_SECONDS = 0.6
 
 # .../<repo>/src/lector/features/voice/engine.py -> .../<repo>/assets/vosk_model
 MODEL_DIR = Path(__file__).resolve().parents[4] / "assets" / "vosk_model"
@@ -104,6 +112,16 @@ class VoiceEngine:
         # When the post-wake command window closes. Only meaningful in
         # MODE_COMMAND; read and written on the worker thread.
         self._command_deadline = 0.0
+        # VAD-based trailing-silence endpointing for MODE_COMMAND — see
+        # `_check_command_endpoint`. Both only meaningful in that mode; read
+        # and written on the worker thread.
+        self._command_heard_speech = False
+        self._command_silence_since: float | None = None
+        # Preprocesses every captured chunk (noise suppression, gain
+        # normalization, VAD) before it reaches the recognizer. One instance
+        # per engine rather than per session: its own `reset()` is what
+        # clears session-specific state (see `_begin_session`).
+        self._frontend = audio_frontend.AudioFrontend()
         self._lock = threading.Lock()
         # Guards the model load specifically. Separate from `_lock` (which
         # guards listening state) because a warm-up can hold it for seconds
@@ -320,6 +338,7 @@ class VoiceEngine:
             self._recognizer = make_recognizer()
             self._utterances = []
             self._audio = queue.Queue()
+            self._frontend.reset()
             self._stream = sounddevice.RawInputStream(
                 samplerate=SAMPLE_RATE,
                 blocksize=BLOCK_SIZE,
@@ -479,15 +498,21 @@ class VoiceEngine:
             if recognizer is None:
                 return
             try:
+                chunk, is_speech = self._frontend.process(chunk)
                 if self._mode == MODE_WAKE:
                     last_partial = ""
                     self._consume_wake_chunk(recognizer, chunk)
                     continue
-                if self._mode == MODE_COMMAND and time.monotonic() > self._command_deadline:
-                    # Nothing (or nothing more) was said in the window the
-                    # wake opened. Close it out as a final result so the UI
-                    # settles back to idle instead of implying an open
-                    # microphone that is no longer listening for a command.
+                if self._mode == MODE_COMMAND and (
+                    self._check_command_endpoint(is_speech)
+                    or time.monotonic() > self._command_deadline
+                ):
+                    # Either the reader fell silent after speaking (VAD
+                    # endpointing) or nothing (more) was said in the window
+                    # the wake opened (the fixed deadline). Close it out as a
+                    # final result so the UI settles back to idle instead of
+                    # implying an open microphone that is no longer listening
+                    # for a command.
                     self._finish_command_window(recognizer)
                     last_partial = ""
                     continue
@@ -516,6 +541,29 @@ class VoiceEngine:
                 # A malformed frame is not worth ending the listening session
                 # over; the next chunk usually decodes fine.
                 continue
+
+    def _check_command_endpoint(self, is_speech: bool) -> bool:
+        """Whether trailing silence should close the command window early.
+
+        Only counts silence *after* speech has been heard: silence before the
+        reader has said anything yet is them not having started, not them
+        having finished, so it must not trip the same closure. Once speech
+        has been heard, `ENDPOINT_TRAILING_SILENCE_SECONDS` of continuous
+        silence ends the window — this is what lets a short command close out
+        well before the fixed `_command_deadline` if the reader trails off
+        without Vosk itself considering the phrase complete.
+        """
+        now = time.monotonic()
+        if is_speech:
+            self._command_heard_speech = True
+            self._command_silence_since = None
+            return False
+        if not self._command_heard_speech:
+            return False
+        if self._command_silence_since is None:
+            self._command_silence_since = now
+            return False
+        return now - self._command_silence_since >= ENDPOINT_TRAILING_SILENCE_SECONDS
 
     def _consume_wake_chunk(self, recognizer, chunk) -> None:
         """Listen for the wake phrase in one chunk, and switch modes if it is
@@ -551,6 +599,8 @@ class VoiceEngine:
         self._mode = MODE_COMMAND
         self._listening = True
         self._command_deadline = time.monotonic() + wake.COMMAND_WINDOW_SECONDS
+        self._command_heard_speech = False
+        self._command_silence_since = None
         self._emit("", final=False, wake=True)
 
     def _finish_command_window(self, recognizer) -> None:
