@@ -63,6 +63,15 @@ DEFAULT_VOCABULARY = command_grammar.VOCABULARY
 # stray cough look like a command.
 UNKNOWN_TOKEN = "[unk]"
 
+# How many of Vosk's n-best hypotheses to ask for on a command-capable
+# recognizer (push-to-talk and the post-wake command window — the idle wake
+# recognizer never needs this, it only ever checks for one phrase). Milestone
+# 8.3's clarification loop checks these against the grammar before a
+# misheard top guess falls back to "did you mean": a small fixed vocabulary
+# rarely has more than a couple of plausible confusions, so asking for more
+# than a handful buys nothing.
+COMMAND_ALTERNATIVES = 5
+
 # How much trailing silence, once the post-wake command window has heard
 # speech, closes that window early rather than waiting out the rest of
 # `wake.COMMAND_WINDOW_SECONDS`. Complements the window's two other closures
@@ -136,6 +145,13 @@ class VoiceEngine:
         # phrase that Vosk considered complete mid-hold would be silently
         # dropped from the result handed back to the caller.
         self._utterances: list[str] = []
+        # The n-best alternatives (`COMMAND_ALTERNATIVES`) attached to the
+        # most recent non-empty Result()/FinalResult(), for the final event's
+        # clarification check. "Most recent" rather than accumulated across
+        # every utterance: a multi-utterance push-to-talk hold has no single
+        # coherent n-best list spanning all of them, so only the last
+        # completed utterance's alternatives are worth offering.
+        self._pending_alternatives: list[str] = []
 
     # ---------------------------------------------------------------- #
     # Subscription                                                       #
@@ -156,8 +172,14 @@ class VoiceEngine:
         """
         self._subscribers.append(callback)
 
-    def _emit(self, text: str, final: bool, wake: bool = False) -> None:
-        payload = {"text": text, "final": final, "wake": wake}
+    def _emit(
+        self, text: str, final: bool, wake: bool = False, alternatives: list[str] | None = None
+    ) -> None:
+        # `alternatives` is only ever meaningful on a final result — partials
+        # are still being revised and are not worth running through the
+        # clarification check — but it is always present as a list so
+        # subscribers can read it unconditionally rather than null-checking.
+        payload = {"text": text, "final": final, "wake": wake, "alternatives": alternatives or []}
         for callback in list(self._subscribers):
             try:
                 callback(payload)
@@ -244,13 +266,17 @@ class VoiceEngine:
 
         threading.Thread(target=load, name="voice-model-warmup", daemon=True).start()
 
-    def _new_recognizer(self, vocabulary: list[str] | None = None):
+    def _new_recognizer(self, vocabulary: list[str] | None = None, alternatives: int = 0):
         """A recognizer pinned to `vocabulary`, defaulting to the command one.
 
-        The argument exists for wake listening, which pins a recognizer to
-        `wake.WAKE_GRAMMAR` instead — a separate, far smaller word list that
-        must not disturb the command vocabulary the next push-to-talk hold
-        will use.
+        The `vocabulary` argument exists for wake listening, which pins a
+        recognizer to `wake.WAKE_GRAMMAR` instead — a separate, far smaller
+        word list that must not disturb the command vocabulary the next
+        push-to-talk hold will use. `alternatives`, when non-zero, asks Vosk
+        for that many n-best hypotheses instead of just its top guess —
+        callers building a command-capable recognizer pass
+        `COMMAND_ALTERNATIVES`; the wake recognizer, which only ever checks
+        for one phrase, leaves it at 0.
         """
         import vosk
 
@@ -258,6 +284,8 @@ class VoiceEngine:
         grammar = json.dumps(list(words) + [UNKNOWN_TOKEN])
         recognizer = vosk.KaldiRecognizer(self._model, SAMPLE_RATE, grammar)
         recognizer.SetWords(False)
+        if alternatives:
+            recognizer.SetMaxAlternatives(alternatives)
         return recognizer
 
     def set_vocabulary(self, vocabulary: list[str]) -> None:
@@ -317,7 +345,9 @@ class VoiceEngine:
                 self._end_session()
             if not self._ensure_model():
                 return self.status()
-            started = self._begin_session(MODE_PUSH_TO_TALK, self._new_recognizer)
+            started = self._begin_session(
+                MODE_PUSH_TO_TALK, lambda: self._new_recognizer(alternatives=COMMAND_ALTERNATIVES)
+            )
             if started is not None:
                 return started
             self._listening = True
@@ -337,6 +367,7 @@ class VoiceEngine:
 
             self._recognizer = make_recognizer()
             self._utterances = []
+            self._pending_alternatives = []
             self._audio = queue.Queue()
             self._frontend.reset()
             self._stream = sounddevice.RawInputStream(
@@ -389,7 +420,8 @@ class VoiceEngine:
         tail = ""
         if self._recognizer is not None:
             try:
-                tail = _clean(json.loads(self._recognizer.FinalResult()).get("text", ""))
+                tail, tail_alternatives = _parse_result(self._recognizer.FinalResult())
+                self._capture_alternatives(tail, tail_alternatives)
             except (ValueError, AttributeError):
                 tail = ""
         self._recognizer = None
@@ -400,7 +432,8 @@ class VoiceEngine:
         self._utterances = []
         text = " ".join(parts)
 
-        self._emit(text, final=True)
+        alternatives, self._pending_alternatives = self._pending_alternatives, []
+        self._emit(text, final=True, alternatives=alternatives)
         # Hand the microphone back to idle wake listening if that is what the
         # reader asked for; push-to-talk only ever borrowed it.
         if self._wake_requested:
@@ -467,6 +500,19 @@ class VoiceEngine:
     # Internals                                                          #
     # ---------------------------------------------------------------- #
 
+    def _capture_alternatives(self, text: str, alternatives: list[str]) -> None:
+        """Remember `alternatives` as the pending set for the next final
+        event, but only when `text` is non-empty.
+
+        An empty `Result()`/`FinalResult()` (silence, or a call made with
+        nothing new to decode) carries no alternatives worth keeping, and
+        overwriting `_pending_alternatives` with an empty list here would
+        erase a real utterance's n-best list the moment `_finish_command_window`
+        or `stop_listening` makes its own, usually-empty, trailing call.
+        """
+        if text:
+            self._pending_alternatives = alternatives
+
     def _teardown_stream(self) -> None:
         if self._stream is not None:
             try:
@@ -517,7 +563,8 @@ class VoiceEngine:
                     last_partial = ""
                     continue
                 if recognizer.AcceptWaveform(chunk):
-                    text = _clean(json.loads(recognizer.Result()).get("text", ""))
+                    text, alternatives = _parse_result(recognizer.Result())
+                    self._capture_alternatives(text, alternatives)
                     if text:
                         self._utterances.append(text)
                         # Still not `final` under push-to-talk: the key is
@@ -595,7 +642,8 @@ class VoiceEngine:
             return
 
         self._utterances = []
-        self._recognizer = self._new_recognizer()
+        self._pending_alternatives = []
+        self._recognizer = self._new_recognizer(alternatives=COMMAND_ALTERNATIVES)
         self._mode = MODE_COMMAND
         self._listening = True
         self._command_deadline = time.monotonic() + wake.COMMAND_WINDOW_SECONDS
@@ -611,15 +659,17 @@ class VoiceEngine:
         "didn't catch that" — instead of an indicator that quietly goes dark.
         """
         try:
-            tail = _clean(json.loads(recognizer.FinalResult()).get("text", ""))
+            tail, tail_alternatives = _parse_result(recognizer.FinalResult())
         except (ValueError, AttributeError):
-            tail = ""
+            tail, tail_alternatives = "", []
+        self._capture_alternatives(tail, tail_alternatives)
         text = " ".join(p for p in [*self._utterances, tail] if p)
         self._utterances = []
         self._listening = False
         self._mode = MODE_WAKE
         self._recognizer = self._new_recognizer(wake.WAKE_GRAMMAR)
-        self._emit(text, final=True)
+        alternatives, self._pending_alternatives = self._pending_alternatives, []
+        self._emit(text, final=True, alternatives=alternatives)
 
 
 def _clean(text: str) -> str:
@@ -630,3 +680,25 @@ def _clean(text: str) -> str:
     """
     words = [w for w in (text or "").split() if w != UNKNOWN_TOKEN]
     return " ".join(words)
+
+
+def _parse_result(raw: str) -> tuple[str, list[str]]:
+    """Extract the primary text and any n-best alternatives from a
+    `Result()`/`FinalResult()` payload.
+
+    `SetMaxAlternatives` (see `COMMAND_ALTERNATIVES`) changes the JSON shape
+    from `{"text": ...}` to `{"alternatives": [{"text": ..., "confidence":
+    ...}, ...]}`, with the first entry the same best guess `"text"` would
+    have held. The wake recognizer never enables alternatives, so both
+    shapes have to be handled here rather than assuming one.
+    """
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return "", []
+    alternatives = data.get("alternatives")
+    if alternatives:
+        texts = [_clean(alt.get("text", "")) for alt in alternatives]
+        primary, rest = texts[0], [t for t in texts[1:] if t]
+        return primary, rest
+    return _clean(data.get("text", "")), []

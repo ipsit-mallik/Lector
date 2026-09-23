@@ -505,10 +505,13 @@ class Api:
         without this method growing a list of callees.
 
         Final results carry a `command` key — the parsed intent, or `None`
-        when nothing in the grammar matched. Interpretation happens here, on
-        the Python side, because docs/ARCHITECTURE.md keeps command
-        interpretation in `voice/` and leaves the frontend to decide what a
-        given intent *does*: this sends `NEXT_PAGE`, not "scroll the strip".
+        when nothing in the grammar matched — and a `clarify` key, non-`None`
+        only when Milestone 8.3's near-miss tier has a candidate worth
+        surfacing as "did you mean '<candidate>'?" instead of staying silent.
+        Interpretation happens here, on the Python side, because
+        docs/ARCHITECTURE.md keeps command interpretation in `voice/` and
+        leaves the frontend to decide what a given intent *does*: this sends
+        `NEXT_PAGE`, not "scroll the strip".
 
         Runs on the engine's worker thread, and deliberately swallows failures:
         no window yet (results arriving during teardown) must not kill the
@@ -519,7 +522,8 @@ class Api:
         except IndexError:
             return
         if result.get("final"):
-            result = {**result, "command": command_grammar.parse(result.get("text", ""))}
+            resolved = command_grammar.resolve(result.get("text", ""), result.get("alternatives"))
+            result = {**result, "command": resolved["command"], "clarify": resolved["clarify"]}
         payload = json.dumps(result)
         try:
             window.evaluate_js(

@@ -61,8 +61,9 @@ class SubscriptionTests(unittest.TestCase):
         engine._emit("next page", final=True)
 
         # Assert
-        self.assertEqual(first, [{"text": "next page", "final": True, "wake": False}])
-        self.assertEqual(second, [{"text": "next page", "final": True, "wake": False}])
+        expected = [{"text": "next page", "final": True, "wake": False, "alternatives": []}]
+        self.assertEqual(first, expected)
+        self.assertEqual(second, expected)
 
     def test_a_broken_subscriber_does_not_block_the_others(self):
         # Voice is an accelerator (docs/PRD.md); one bad listener must not
@@ -78,7 +79,65 @@ class SubscriptionTests(unittest.TestCase):
 
         engine._emit("save", final=True)
 
-        self.assertEqual(received, [{"text": "save", "final": True, "wake": False}])
+        self.assertEqual(
+            received, [{"text": "save", "final": True, "wake": False, "alternatives": []}]
+        )
+
+
+class ParseResultTests(unittest.TestCase):
+    """`_parse_result` is what lets Milestone 8.3's clarification loop see
+    Vosk's n-best hypotheses instead of just its top guess."""
+
+    def test_plain_result_with_no_alternatives_requested(self):
+        text, alternatives = ve._parse_result('{"text": "next page"}')
+        self.assertEqual(text, "next page")
+        self.assertEqual(alternatives, [])
+
+    def test_alternatives_shape_splits_primary_from_the_rest(self):
+        raw = json.dumps({
+            "alternatives": [
+                {"text": "next page", "confidence": 42.0},
+                {"text": "previous page", "confidence": 10.0},
+                {"text": "next", "confidence": 5.0},
+            ]
+        })
+        text, alternatives = ve._parse_result(raw)
+        self.assertEqual(text, "next page")
+        self.assertEqual(alternatives, ["previous page", "next"])
+
+    def test_unknown_word_markers_are_cleaned_from_every_hypothesis(self):
+        raw = json.dumps({"alternatives": [{"text": "[unk] next page", "confidence": 1.0}]})
+        text, alternatives = ve._parse_result(raw)
+        self.assertEqual(text, "next page")
+
+    def test_empty_alternatives_list_falls_back_to_no_text(self):
+        text, alternatives = ve._parse_result(json.dumps({"alternatives": []}))
+        self.assertEqual(text, "")
+        self.assertEqual(alternatives, [])
+
+    def test_malformed_json_yields_empty_results_rather_than_raising(self):
+        text, alternatives = ve._parse_result("not json")
+        self.assertEqual(text, "")
+        self.assertEqual(alternatives, [])
+
+
+class CaptureAlternativesTests(unittest.TestCase):
+    """`_capture_alternatives` decides what the *next* final event's
+    `alternatives` field will hold."""
+
+    def setUp(self):
+        self.engine = ve.VoiceEngine()
+
+    def test_a_non_empty_utterance_is_remembered(self):
+        self.engine._capture_alternatives("next page", ["previous page"])
+        self.assertEqual(self.engine._pending_alternatives, ["previous page"])
+
+    def test_an_empty_utterance_does_not_erase_a_prior_one(self):
+        # The trailing, usually-empty `FinalResult()` call every closure path
+        # makes must not wipe out a real utterance's n-best list.
+        self.engine._capture_alternatives("next page", ["previous page"])
+        self.engine._capture_alternatives("", [])
+        self.assertEqual(self.engine._pending_alternatives, ["previous page"])
 
 
 class VocabularyTests(unittest.TestCase):

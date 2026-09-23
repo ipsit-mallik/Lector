@@ -81,6 +81,35 @@ class BestMatchTests(unittest.TestCase):
         self.assertIsNone(fuzzy.best_match("next page", []))
 
 
+class BestNearMissTests(unittest.TestCase):
+    """`best_near_miss` backs Milestone 8.3's clarification tier: the band
+    just under `best_match`'s confident cutoff, where a candidate is worth
+    naming out loud instead of staying silent."""
+
+    def test_finds_a_candidate_in_the_near_miss_band(self):
+        match = fuzzy.best_near_miss("nest pah", ["previous page", "next page"])
+        self.assertIsNotNone(match)
+        self.assertEqual(match[0], "next page")
+        self.assertGreaterEqual(match[1], fuzzy.NEAR_MISS_THRESHOLD)
+        self.assertLess(match[1], fuzzy.DEFAULT_THRESHOLD)
+
+    def test_returns_none_for_a_confident_match(self):
+        # A phrase good enough for `best_match` is `best_match`'s to return —
+        # `best_near_miss` must not second-guess it with a "did you mean"
+        # for something already understood.
+        self.assertIsNone(fuzzy.best_near_miss("next page", ["next page"]))
+
+    def test_returns_none_when_nothing_is_even_a_near_miss(self):
+        self.assertIsNone(fuzzy.best_near_miss("bananas", ["next page", "scroll up"]))
+
+    def test_ties_go_to_the_earliest_candidate(self):
+        match = fuzzy.best_near_miss("nest pah", ["next page", "next page"])
+        self.assertEqual(match, ("next page", fuzzy.similarity("nest pah", "next page")))
+
+    def test_empty_candidates_match_nothing(self):
+        self.assertIsNone(fuzzy.best_near_miss("nest pah", []))
+
+
 class ExactPhraseTests(unittest.TestCase):
     """Every phrasing the grammar advertises has to actually work — a synonym
     listed in PHRASES but not parsing is a command the docs promise and the
@@ -300,6 +329,57 @@ class HighlightTests(unittest.TestCase):
         # whole utterance parse as navigation instead of a highlight.
         result = cg.parse("highlight going back up the hill")
         self.assertEqual(result["intent"], cg.HIGHLIGHT)
+
+
+class ResolveTests(unittest.TestCase):
+    """`resolve` is Milestone 8.3's clarification loop: it never falls silent
+    on a phrase that was close to a real command, checking n-best
+    alternatives against the grammar before offering a near-miss guess."""
+
+    def test_a_confident_phrase_resolves_exactly_like_parse(self):
+        result = cg.resolve("next page")
+        self.assertEqual(result["command"]["intent"], cg.NEXT_PAGE)
+        self.assertIsNone(result["clarify"])
+
+    def test_unrelated_speech_resolves_to_neither(self):
+        result = cg.resolve("bananas")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+    def test_a_near_miss_top_guess_offers_clarification(self):
+        result = cg.resolve("nest pah")
+        self.assertIsNone(result["command"])
+        self.assertEqual(result["clarify"]["intent"], cg.NEXT_PAGE)
+        self.assertEqual(result["clarify"]["matched"], "next page")
+        self.assertEqual(result["clarify"]["phrase"], "nest pah")
+
+    def test_an_alternative_that_matches_is_used_over_a_near_miss_top_guess(self):
+        # Vosk's top guess missed, but its second-best hypothesis is an exact
+        # phrasing — that must win over treating the top guess as a near-miss.
+        result = cg.resolve("nest pah", alternatives=["next page"])
+        self.assertEqual(result["command"]["intent"], cg.NEXT_PAGE)
+        self.assertIsNone(result["clarify"])
+
+    def test_a_near_miss_alternative_is_considered_when_the_top_guess_is_not(self):
+        # Nothing in "bananas" itself is close to anything; a near-miss
+        # buried in the alternatives must still surface.
+        result = cg.resolve("bananas", alternatives=["nest pah"])
+        self.assertEqual(result["clarify"]["matched"], "next page")
+
+    def test_goto_page_never_offers_clarification(self):
+        # A jump with no number to jump to is not a question the reader can
+        # usefully answer "yes" to.
+        result = cg.resolve("go pa five")
+        self.assertIsNone(result["clarify"])
+
+    def test_highlight_never_offers_clarification(self):
+        result = cg.resolve("hilite the fox")
+        self.assertIsNone(result["clarify"])
+
+    def test_empty_text_resolves_to_neither(self):
+        result = cg.resolve("")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
 
 
 if __name__ == "__main__":

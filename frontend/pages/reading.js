@@ -1209,7 +1209,7 @@ function idleHint(wake, pushToTalk) {
   return "Hold Space to talk";
 }
 
-function renderMicState({ state: micState, text, error, command, wake, pushToTalk, viaWake }) {
+function renderMicState({ state: micState, text, error, command, clarify, wake, pushToTalk, viaWake }) {
   clearTimeout(heardTimer);
   micPill.classList.toggle("listening", micState === "listening");
   micPill.classList.toggle("unavailable", micState === "unavailable" || micState === "off");
@@ -1247,12 +1247,23 @@ function renderMicState({ state: micState, text, error, command, wake, pushToTal
     case "heard":
       micLabel.textContent = text ? `"${text}"` : "Didn't catch that";
       micPill.title = "";
-      // A phrase heard clearly but matching no command is worth naming out
-      // loud: without it, "next pages" looks identical to a dead microphone,
-      // and the reader has no way to tell that rephrasing is what's needed.
-      micHint.textContent = text && !command
-        ? "Not a command I know — try “next page”"
-        : idleHint(wake, pushToTalk);
+      // A near-miss (Milestone 8.3) gets its own hint, ahead of the generic
+      // "not a command I know" — a phrase close enough to guess at deserves
+      // a named guess, not the same catch-all a totally unrelated one gets.
+      // It is informational only: saying the phrase again is what confirms
+      // it, through the same recognition path as any other command, rather
+      // than this reaching for a dedicated yes/no voice reply here.
+      if (clarify) {
+        micHint.textContent = `Did you mean “${clarify.matched}”? Say it again to confirm.`;
+      } else if (text && !command) {
+        // A phrase heard clearly but matching no command is worth naming out
+        // loud: without it, "next pages" looks identical to a dead
+        // microphone, and the reader has no way to tell that rephrasing is
+        // what's needed.
+        micHint.textContent = "Not a command I know — try “next page”";
+      } else {
+        micHint.textContent = idleHint(wake, pushToTalk);
+      }
       // Back to rest through the engine rather than by rendering "idle"
       // directly: only it knows whether resting means ready, off, or
       // unavailable, and which activation modes to word the hint for.

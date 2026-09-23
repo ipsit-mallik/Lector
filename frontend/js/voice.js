@@ -55,7 +55,7 @@ function dialogIsOpen() {
  * Wire voice activation to the document and report state changes.
  *
  * @param {(state: {state: string, text: string, error: ?string,
- *   command: ?object, wake: boolean, pushToTalk: boolean,
+ *   command: ?object, clarify: ?object, wake: boolean, pushToTalk: boolean,
  *   viaWake: boolean}) => void} onState
  *   Called with one of:
  *     {state: "unavailable", error}   — no model, or no microphone
@@ -68,9 +68,12 @@ function dialogIsOpen() {
  *                                       up as you speak, and `viaWake` says
  *                                       whether a wake opened the window (no
  *                                       key is being held) or Space did
- *     {state: "heard", text, command} — final phrase (may be ""); `command`
- *                                       is the parsed intent, or null if
- *                                       nothing matched
+ *     {state: "heard", text, command, clarify} — final phrase (may be "");
+ *                                       `command` is the parsed intent, or
+ *                                       null if nothing matched; `clarify`,
+ *                                       when non-null, is a near-miss worth
+ *                                       asking "did you mean '<candidate>'?"
+ *                                       about instead (Milestone 8.3)
  * @param {() => (Array<{page_index: number, y0: number, y1: number}> |
  *   Promise<Array<{page_index: number, y0: number, y1: number}>>)} [getViewport]
  *   Called on each key-down to get the currently visible page regions, in PDF
@@ -97,6 +100,7 @@ function initVoice(onState, getViewport = () => []) {
       text: "",
       error: null,
       command: null,
+      clarify: null,
       wake: activation.wake_phrase,
       pushToTalk: activation.push_to_talk,
       viaWake: false,
@@ -151,13 +155,13 @@ function initVoice(onState, getViewport = () => []) {
 
   // Partial and final results arriving from Python's worker thread.
   window.addEventListener("lector:voice", (ev) => {
-    const { text, final, command, wake } = ev.detail || {};
+    const { text, final, command, clarify, wake } = ev.detail || {};
     // A wake carries no text — it is the moment the phrase was recognized
     // and the command window opened. Everything after it, up to the final,
     // belongs to that window.
     if (wake) viaWake = true;
     if (final) {
-      report("heard", { text: text || "", command: command || null, viaWake });
+      report("heard", { text: text || "", command: command || null, clarify: clarify || null, viaWake });
       viaWake = false;
       // Re-broadcast for feature code. Deliberately a separate event from
       // `lector:voice`: that one is the raw transport, this one is the
