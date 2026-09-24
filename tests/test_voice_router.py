@@ -57,9 +57,9 @@ class GlobalCommandTests(unittest.TestCase):
         self.assertEqual(result["command"]["intent"], router.UNDO)
 
     def test_unrelated_speech_resolves_to_nothing_in_a_context_with_no_grammar(self):
-        # `home` has no scoped grammar yet (Milestone 8.5), so once no global
-        # command matches there is nothing left to try.
-        result = router.resolve(router.HOME, "banana")
+        # `picker` has no scoped grammar yet (Milestones 8.6-8.8), so once no
+        # global command matches there is nothing left to try.
+        result = router.resolve(router.PICKER, "banana")
         self.assertIsNone(result["command"])
         self.assertIsNone(result["clarify"])
 
@@ -92,9 +92,78 @@ class ReadingContextDelegationTests(unittest.TestCase):
 
     def test_non_reading_contexts_do_not_fall_back_to_the_reading_grammar(self):
         # "next page" is only meaningful once a document is open; a context
-        # with no scoped grammar of its own must not accidentally inherit
-        # reading's, or Home would silently gain reading commands.
+        # with its own scoped grammar (Home's, here) must not additionally
+        # inherit reading's, or Home would silently gain reading commands on
+        # top of its own.
         result = router.resolve(router.HOME, "next page")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+
+class HomeContextTests(unittest.TestCase):
+    def test_open_settings_resolves_from_its_one_phrasing(self):
+        result = router.resolve(router.HOME, "open settings")
+        self.assertEqual(result["command"]["intent"], router.OPEN_SETTINGS)
+        self.assertIsNone(result["clarify"])
+
+    def test_open_recent_resolves_via_either_of_its_two_phrasings(self):
+        self.assertEqual(
+            router.resolve(router.HOME, "open recent")["command"]["intent"],
+            router.OPEN_RECENT,
+        )
+        self.assertEqual(
+            router.resolve(router.HOME, "resume reading")["command"]["intent"],
+            router.OPEN_RECENT,
+        )
+
+    def test_home_matching_has_no_near_miss_clarification_tier(self):
+        result = router.resolve(router.HOME, "open settins")
+        self.assertIsNone(result["clarify"])
+
+    def test_settings_only_phrases_do_not_resolve_in_home(self):
+        result = router.resolve(router.HOME, "light theme")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+
+class SettingsContextTests(unittest.TestCase):
+    def test_each_theme_phrase_resolves_to_its_own_intent(self):
+        cases = {
+            "light theme": router.THEME_LIGHT,
+            "dark theme": router.THEME_DARK,
+            "sepia theme": router.THEME_SEPIA,
+        }
+        for phrase, intent in cases.items():
+            result = router.resolve(router.SETTINGS, phrase)
+            self.assertEqual(result["command"]["intent"], intent, msg=phrase)
+            self.assertIsNone(result["clarify"])
+
+    def test_save_behavior_phrases_resolve_to_their_intents(self):
+        self.assertEqual(
+            router.resolve(router.SETTINGS, "save a copy")["command"]["intent"],
+            router.SAVE_COPY,
+        )
+        self.assertEqual(
+            router.resolve(router.SETTINGS, "overwrite the original")["command"]["intent"],
+            router.SAVE_OVERWRITE,
+        )
+
+    def test_reopen_behavior_phrases_resolve_to_their_intents(self):
+        self.assertEqual(
+            router.resolve(router.SETTINGS, "continue where i left off")["command"]["intent"],
+            router.REOPEN_CONTINUE,
+        )
+        self.assertEqual(
+            router.resolve(router.SETTINGS, "start at the beginning")["command"]["intent"],
+            router.REOPEN_START,
+        )
+
+    def test_settings_matching_has_no_near_miss_clarification_tier(self):
+        result = router.resolve(router.SETTINGS, "dork theme")
+        self.assertIsNone(result["clarify"])
+
+    def test_home_only_phrases_do_not_resolve_in_settings(self):
+        result = router.resolve(router.SETTINGS, "open recent")
         self.assertIsNone(result["command"])
         self.assertIsNone(result["clarify"])
 
@@ -107,7 +176,21 @@ class VocabularyTests(unittest.TestCase):
 
     def test_a_context_with_no_scoped_grammar_gets_only_global_vocabulary(self):
         self.assertEqual(
-            set(router.vocabulary_for(router.HOME)), set(router.GLOBAL_VOCABULARY)
+            set(router.vocabulary_for(router.PICKER)), set(router.GLOBAL_VOCABULARY)
+        )
+
+    def test_home_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):
+        vocab = set(router.vocabulary_for(router.HOME))
+        self.assertTrue(set(router.GLOBAL_VOCABULARY).issubset(vocab))
+        self.assertTrue(
+            set(router._vocabulary_from_phrases(router.HOME_PHRASES)).issubset(vocab)
+        )
+
+    def test_settings_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):
+        vocab = set(router.vocabulary_for(router.SETTINGS))
+        self.assertTrue(set(router.GLOBAL_VOCABULARY).issubset(vocab))
+        self.assertTrue(
+            set(router._vocabulary_from_phrases(router.SETTINGS_PHRASES)).issubset(vocab)
         )
 
     def test_default_context_is_reading_to_preserve_pre_router_behavior(self):

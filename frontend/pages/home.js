@@ -13,9 +13,22 @@ openPdfBtn.addEventListener("click", async () => {
   if (path) await openPath(path);
 });
 
-settingsNav.addEventListener("click", () => {
+// Shared by the sidebar click and the voice OPEN_SETTINGS command
+// (Milestone 8.5) so both ways into Settings go through one function.
+function openSettings() {
   window.location.href = "pages/settings.html";
-});
+}
+
+settingsNav.addEventListener("click", openSettings);
+
+// Opens the single most-recent entry — the only Recent card with a natural
+// spoken label ("recent" already means "most recent" per docs/PRD.md).
+// Picking a specific other card by voice needs the numbered-overlay picker
+// (Milestone 8.6); until then this is the only one voice can reach.
+async function openMostRecent() {
+  const entries = await callApi("get_recent_files");
+  if (entries.length) await openPath(entries[0].path);
+}
 
 function buildEmptyState() {
   const el = document.createElement("div");
@@ -153,12 +166,28 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("lector-theme", theme);
-  // Narrow the recognizer to Home's context (Milestone 8.4). Home has no
-  // scoped commands of its own yet (Milestone 8.5), so in practice this only
-  // takes the reading grammar *out* of earshot here — global commands
-  // (undo/redo/help/go home) still work, but "next page" no longer does on
-  // a screen with no document open to turn a page in.
+  // Narrow the recognizer to Home's context (Milestone 8.4), which now
+  // (Milestone 8.5) carries its own scoped commands — see VOICE_ACTIONS
+  // below — on top of the always-on global ones (undo/redo/help/go home).
   await callApi("set_voice_context", "home");
   await loadRecent();
   voice = initVoice(renderVoiceBox);
 })();
+
+// --- Voice commands (Milestone 8.5) --------------------------------------- //
+// Each intent calls the exact function its equivalent click handler already
+// calls, mirroring reading.js's VOICE_ACTIONS. GO_HOME/UNDO/REDO/HELP are
+// global (Milestone 8.4) but not wired here: "go home" is a no-op on the
+// screen that already is Home, and undo/redo/help have nothing to act on
+// with no document open and no command-reference button on this screen.
+const VOICE_ACTIONS = {
+  OPEN_SETTINGS: () => openSettings(),
+  OPEN_RECENT: () => openMostRecent(),
+};
+
+window.addEventListener("lector:command", (ev) => {
+  const { command } = ev.detail || {};
+  if (!command) return;
+  const action = VOICE_ACTIONS[command.intent];
+  if (action) action();
+});

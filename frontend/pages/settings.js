@@ -36,9 +36,24 @@ const continueRow = document.getElementById("continueRow");
 const startRow = document.getElementById("startRow");
 const reopenRows = [continueRow, startRow];
 
-recentNav.addEventListener("click", () => {
+// Shared by the sidebar click and the voice GO_HOME command (Milestone 8.5).
+function goHome() {
   window.location.href = "../index.html";
-});
+}
+
+recentNav.addEventListener("click", goHome);
+
+// Shared by a theme card's click and the voice THEME_* commands (Milestone
+// 8.5). Reads the active theme from the DOM rather than taking it as a
+// parameter, since the voice path has no closured `current` the way a card's
+// own click handler does.
+async function selectTheme(name) {
+  if (document.documentElement.dataset.theme === name) return;
+  document.documentElement.dataset.theme = name;
+  localStorage.setItem("lector-theme", name);
+  await callApi("set_theme", name);
+  await renderThemeCards();
+}
 
 function buildThemeCard(name, current) {
   const t = readThemeTokens(name);
@@ -58,13 +73,7 @@ function buildThemeCard(name, current) {
       ${name === current ? '<span class="theme-card-check" data-icon="check"></span>' : ""}
     </div>
   `;
-  card.addEventListener("click", async () => {
-    if (name === current) return;
-    document.documentElement.dataset.theme = name;
-    localStorage.setItem("lector-theme", name);
-    await callApi("set_theme", name);
-    await renderThemeCards();
-  });
+  card.addEventListener("click", () => selectTheme(name));
   return card;
 }
 
@@ -90,10 +99,16 @@ async function persistSaveBehavior() {
   }
 }
 
+// Shared by a save row's click and the voice SAVE_COPY/SAVE_OVERWRITE
+// commands (Milestone 8.5).
+function chooseSaveMode(mode) {
+  selectSaveRow(mode === "overwrite" ? overwriteRow : copyRow);
+  persistSaveBehavior();
+}
+
 saveRows.forEach((row) => {
   row.addEventListener("click", () => {
-    selectSaveRow(row);
-    persistSaveBehavior();
+    chooseSaveMode(row === overwriteRow ? "overwrite" : "copy");
   });
 });
 rememberCheck.addEventListener("change", persistSaveBehavior);
@@ -111,11 +126,16 @@ async function persistVoiceActivation() {
 
 // Unlike the save-behavior rows above, these are a plain either/or with no
 // "ask me" third state — the row's own data-mode is the stored value.
+// Shared by a reopen row's click and the voice REOPEN_CONTINUE/REOPEN_START
+// commands (Milestone 8.5).
+async function chooseReopenMode(mode) {
+  const row = mode === "start" ? startRow : continueRow;
+  reopenRows.forEach((r) => r.classList.toggle("selected", r === row));
+  await callApi("set_reopen_behavior", mode);
+}
+
 reopenRows.forEach((row) => {
-  row.addEventListener("click", async () => {
-    reopenRows.forEach((r) => r.classList.toggle("selected", r === row));
-    await callApi("set_reopen_behavior", row.dataset.mode);
-  });
+  row.addEventListener("click", () => chooseReopenMode(row.dataset.mode));
 });
 
 (async function init() {
@@ -141,4 +161,37 @@ reopenRows.forEach((row) => {
   const reopen = await callApi("get_reopen_behavior");
   const activeReopenRow = reopen === "start" ? startRow : continueRow;
   reopenRows.forEach((r) => r.classList.toggle("selected", r === activeReopenRow));
+
+  // Narrow the recognizer to Settings' context (Milestone 8.4), which now
+  // (Milestone 8.5) carries its own scoped commands — see VOICE_ACTIONS
+  // below — on top of the always-on global ones (undo/redo/help/go home).
+  await callApi("set_voice_context", "settings");
+  // No mic-status element exists in this screen's design (docs/mockups/06
+  // Settings.png), unlike Home's voiceBox, so there is nothing for onState
+  // to render here — the mockup gives push-to-talk/wake feedback nowhere on
+  // this page, and 8.5 doesn't add one.
+  initVoice(() => {});
 })();
+
+// --- Voice commands (Milestone 8.5) --------------------------------------- //
+// Each intent calls the exact function its equivalent click handler already
+// calls, mirroring reading.js's and home.js's VOICE_ACTIONS. Unlike home.js,
+// GO_HOME is wired here: Settings already has a natural action for it
+// (return to the Home screen), where Home itself does not.
+const VOICE_ACTIONS = {
+  GO_HOME: () => goHome(),
+  THEME_LIGHT: () => selectTheme("light"),
+  THEME_DARK: () => selectTheme("dark"),
+  THEME_SEPIA: () => selectTheme("sepia"),
+  SAVE_COPY: () => chooseSaveMode("copy"),
+  SAVE_OVERWRITE: () => chooseSaveMode("overwrite"),
+  REOPEN_CONTINUE: () => chooseReopenMode("continue"),
+  REOPEN_START: () => chooseReopenMode("start"),
+};
+
+window.addEventListener("lector:command", (ev) => {
+  const { command } = ev.detail || {};
+  if (!command) return;
+  const action = VOICE_ACTIONS[command.intent];
+  if (action) action();
+});

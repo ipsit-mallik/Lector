@@ -36,14 +36,21 @@ Two things are deliberately kept apart:
   short, low-collision phrases where guessing at one has not been shown to
   help.
 
-Only `READING` has a scoped command set today (migrated from
-`command_grammar`). `HOME` and `SETTINGS` gain their own in Milestone 8.5;
-the dialog/picker/dictation contexts in 8.6-8.8. Until a context has one, it
-hears nothing but the global commands — a screen with no voice commands of
-its own must not still be listening for a different screen's grammar, which
-is the accidental behavior this router replaces (before it, every recognizer
-was built from the reading grammar regardless of which screen was open,
-because there was only ever one grammar to reach for).
+`READING`'s scoped set is migrated from `command_grammar`, unchanged.
+`HOME` and `SETTINGS` gain their own fixed-phrase tables here in Milestone
+8.5 — `HOME_PHRASES`/`SETTINGS_PHRASES`, matched the same way
+`GLOBAL_PHRASES` is (a single `fuzzy.best_match` against that context's own
+ordered phrase list, confident-only — no near-miss tier, for the same
+"not enough observed ambiguity to justify guessing" reason global commands
+have none). Each intent calls the exact function its equivalent click
+handler already calls (`home.js`/`settings.js`), so voice never grows a
+second copy of what a click does. The dialog/picker/dictation contexts still
+have none, pending 8.6-8.8. Until a context has one, it hears nothing but the
+global commands — a screen with no voice commands of its own must not still
+be listening for a different screen's grammar, which is the accidental
+behavior this router replaces (before it, every recognizer was built from
+the reading grammar regardless of which screen was open, because there was
+only ever one grammar to reach for).
 """
 from lector.features.voice import command_grammar, fuzzy
 
@@ -94,34 +101,88 @@ GLOBAL_PHRASES: dict[str, tuple[str, ...]] = {
     GO_HOME: ("go home",),
 }
 
-# Flattened once at import, mirroring `command_grammar`'s own
-# `_ORDERED_PHRASES`/`_PHRASE_TO_INTENT` — built once since `resolve` runs
-# per utterance.
-_GLOBAL_ORDERED_PHRASES: tuple[str, ...] = tuple(
-    phrasing for phrasings in GLOBAL_PHRASES.values() for phrasing in phrasings
-)
-_GLOBAL_PHRASE_TO_INTENT: dict[str, str] = {
-    phrasing: intent
-    for intent, phrasings in GLOBAL_PHRASES.items()
-    for phrasing in phrasings
+# Home context (Milestone 8.5): sidebar navigation and opening a PDF from
+# Recent. "Which specific card" has no natural spoken label and is 8.6's
+# numbered-overlay picker to solve (see docs/ARCHITECTURE.md); "the most
+# recent one" does have one — "recent" already means "most recent" in
+# `docs/PRD.md`'s own Recent-list language — so only that single card is
+# reachable by voice until 8.6 lands.
+OPEN_SETTINGS = "OPEN_SETTINGS"
+OPEN_RECENT = "OPEN_RECENT"
+
+HOME_PHRASES: dict[str, tuple[str, ...]] = {
+    OPEN_SETTINGS: ("open settings",),
+    OPEN_RECENT: ("open recent", "resume reading"),
+}
+
+# Settings context (Milestone 8.5): theme switching and the existing
+# save/reopen preference toggles, per docs/TASKS.md. Three single-phrase
+# theme intents rather than one intent with a parsed "which theme" argument
+# (the way GOTO_PAGE parses a number) — three fixed words don't earn a
+# second parsing mechanism when `command_grammar`'s fixed-phrase pattern
+# already covers it exactly.
+THEME_LIGHT = "THEME_LIGHT"
+THEME_DARK = "THEME_DARK"
+THEME_SEPIA = "THEME_SEPIA"
+SAVE_COPY = "SAVE_COPY"
+SAVE_OVERWRITE = "SAVE_OVERWRITE"
+REOPEN_CONTINUE = "REOPEN_CONTINUE"
+REOPEN_START = "REOPEN_START"
+
+SETTINGS_PHRASES: dict[str, tuple[str, ...]] = {
+    THEME_LIGHT: ("light theme",),
+    THEME_DARK: ("dark theme",),
+    THEME_SEPIA: ("sepia theme",),
+    SAVE_COPY: ("save a copy",),
+    SAVE_OVERWRITE: ("overwrite the original",),
+    REOPEN_CONTINUE: ("continue where i left off",),
+    REOPEN_START: ("start at the beginning",),
 }
 
 
-def _global_vocabulary() -> list[str]:
+def _flatten_phrases(phrases: dict[str, tuple[str, ...]]) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Shared by every fixed-phrase table here (global, home, settings):
+    the ordered candidate list `fuzzy.best_match` compares against, and the
+    matched-phrasing → intent lookup, both built once at import since
+    `resolve` runs per utterance."""
+    ordered = tuple(phrasing for phrasings in phrases.values() for phrasing in phrasings)
+    mapping = {
+        phrasing: intent for intent, phrasings in phrases.items() for phrasing in phrasings
+    }
+    return ordered, mapping
+
+
+_GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT = _flatten_phrases(GLOBAL_PHRASES)
+_HOME_ORDERED_PHRASES, _HOME_PHRASE_TO_INTENT = _flatten_phrases(HOME_PHRASES)
+_SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT = _flatten_phrases(SETTINGS_PHRASES)
+
+# Per-context lookup for `resolve`'s fixed-phrase contexts — every context
+# except `READING` (which delegates to `command_grammar` instead) and the
+# dialog/picker/dictation contexts (which have no scoped grammar yet).
+_CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
+    HOME: (_HOME_ORDERED_PHRASES, _HOME_PHRASE_TO_INTENT),
+    SETTINGS: (_SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT),
+}
+
+
+def _vocabulary_from_phrases(phrases: dict[str, tuple[str, ...]]) -> list[str]:
     words: set[str] = set()
-    for phrasings in GLOBAL_PHRASES.values():
+    for phrasings in phrases.values():
         for phrasing in phrasings:
             words.update(phrasing.split())
     return sorted(words)
 
 
-GLOBAL_VOCABULARY: list[str] = _global_vocabulary()
+GLOBAL_VOCABULARY: list[str] = _vocabulary_from_phrases(GLOBAL_PHRASES)
 
 # Per-context scoped vocabulary, on top of the globals every context gets.
-# Only `READING` has one so far — see the module docstring for why the
-# others are deliberately empty until 8.5-8.8 give them their own.
+# The dialog/picker/dictation contexts are deliberately absent — see the
+# module docstring for why they stay global-only until 8.6-8.8 give them
+# their own.
 _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     READING: command_grammar.VOCABULARY,
+    HOME: _vocabulary_from_phrases(HOME_PHRASES),
+    SETTINGS: _vocabulary_from_phrases(SETTINGS_PHRASES),
 }
 
 
@@ -137,8 +198,10 @@ def vocabulary_for(context: str) -> list[str]:
     return sorted(set(GLOBAL_VOCABULARY) | set(scoped))
 
 
-def _match_global(text: str) -> dict | None:
-    """`command_grammar.parse`'s shape, for the global fixed-phrase table."""
+def _match_phrases(
+    text: str, ordered_phrases: tuple[str, ...], phrase_to_intent: dict[str, str]
+) -> dict | None:
+    """`command_grammar.parse`'s shape, for any fixed-phrase table here."""
     # Reuses `command_grammar`'s own normalization rather than a second copy
     # of the same character-filtering rules, which could otherwise drift
     # from what the reading grammar treats as equivalent.
@@ -146,16 +209,20 @@ def _match_global(text: str) -> dict | None:
     if not words:
         return None
     phrase = " ".join(words)
-    match = fuzzy.best_match(phrase, _GLOBAL_ORDERED_PHRASES)
+    match = fuzzy.best_match(phrase, ordered_phrases)
     if match is None:
         return None
     matched, score = match
     return {
-        "intent": _GLOBAL_PHRASE_TO_INTENT[matched],
+        "intent": phrase_to_intent[matched],
         "phrase": phrase,
         "matched": matched,
         "score": score,
     }
+
+
+def _match_global(text: str) -> dict | None:
+    return _match_phrases(text, _GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT)
 
 
 def resolve(context: str, text: str, alternatives: list[str] | None = None) -> dict:
@@ -171,8 +238,12 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
     global command misheard as the top guess should not be lost because a
     context grammar happened to have its own opinion about the same
     alternative. Only once no global command confidently matches does a
-    context with its own scoped grammar get a turn; today that is `READING`
-    alone, delegated to unchanged, existing `command_grammar.resolve`.
+    context with its own scoped grammar get a turn: `READING` delegates to
+    unchanged, existing `command_grammar.resolve` (with its own near-miss
+    clarification tier); `HOME` and `SETTINGS` (Milestone 8.5) try their own
+    fixed-phrase table the same confident-only way global commands are
+    matched — no clarification tier, for the reason `GLOBAL_PHRASES`
+    doesn't have one either.
     """
     for candidate in (text, *(alternatives or ())):
         command = _match_global(candidate)
@@ -181,5 +252,13 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
 
     if context == READING:
         return command_grammar.resolve(text, alternatives)
+
+    table = _CONTEXT_PHRASE_TABLES.get(context)
+    if table is not None:
+        ordered_phrases, phrase_to_intent = table
+        for candidate in (text, *(alternatives or ())):
+            command = _match_phrases(candidate, ordered_phrases, phrase_to_intent)
+            if command is not None:
+                return {"command": command, "clarify": None}
 
     return {"command": None, "clarify": None}
