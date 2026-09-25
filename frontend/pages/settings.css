@@ -113,4 +113,4 @@ h1.page-title {
   color: var(--color-text-primary);
 }
 
-.voice-card-note { font-size: 11.5px; color: var(--color-text-very-muted); }
+.voice-card-note { font-size: 11.5px; color: var(--color-text-muted); }

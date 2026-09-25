@@ -87,6 +87,14 @@ Mockup: `docs/mockups/09 Numbered picker overlay.png` (composited directly on th
 
 Every interactive element is a real `<button>`/`<a>`/`<input>`, never a clickable `div` — required for keyboard focus and screen-reader compatibility, and a direct consequence of the "voice is an accelerator, not a replacement UI" requirement: the app must be fully operable by keyboard and mouse alone.
 
+## Contrast & token-usage clarifications (resolved during implementation)
+
+These resolve specific ambiguities found when verifying implementation against this doc and the mockup file. Documented here so the same judgment call doesn't need re-litigating on the next similar component.
+
+- **Status pills (e.g. the "Listening" indicator) decouple color-identity from text-legibility.** The amber voice-focus color (`#C97A3D`) stays as the pill's fill/border/dot — its "this is the listening state" signal — but the label text itself uses the same high-contrast color already used for the idle "VOICE READY" state, not amber-on-amber. Measured: no single amber-text/amber-background pairing clears WCAG AA (4.5:1) across all three themes, so the pill's identity color and its text color are intentionally independent values, not one derived from the other. Apply this same pattern to any future status pill/badge.
+- **Informational/explanatory captions use `--color-text-muted`, not `--color-text-very-muted`**, even where the mockup's pixels sample as the very-muted token. Very-muted (`#9A968E`) is reserved for genuinely decorative or low-priority metadata (timestamps, chapter labels). Text that explains something to the user — onboarding step-asides, mode-card notes, any copy serving the PRD's "usable by someone without technical knowledge" requirement — uses the muted token instead, which passes AA. If a future caption's informational value is genuinely low (truly decorative), very-muted is still fine — judge by function, not by which token the mockup happened to sample at.
+- **All focus indicators use 2px outline + outline-offset**, including text inputs. No exceptions for a lighter-weight treatment (e.g. a border-color swap on focus) — consistency of the focus pattern across every control matters more than any single component's visual weight.
+
 ## Design rationale notes
 
 Each mockup screen carries inline captions naming the UX heuristic behind specific choices (Hick's Law, Von Restorff's Law, Miller's Law, Fitts's Law, Jakob's Law, Postel's Law / error prevention, Peak-End Rule, Aesthetic-Usability effect). Worth preserving as inline code comments near the relevant UI logic when implementing, not just in this doc — e.g. the save-dialog default is intentionally the non-destructive option specifically so "don't ask again" can never silently arm a destructive default.
