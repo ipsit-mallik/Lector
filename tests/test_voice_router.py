@@ -57,9 +57,11 @@ class GlobalCommandTests(unittest.TestCase):
         self.assertEqual(result["command"]["intent"], router.UNDO)
 
     def test_unrelated_speech_resolves_to_nothing_in_a_context_with_no_grammar(self):
-        # `picker` has no scoped grammar yet (Milestones 8.6-8.8), so once no
-        # global command matches there is nothing left to try.
-        result = router.resolve(router.PICKER, "banana")
+        # `save_dialog` has no scoped grammar yet (Milestones 8.7-8.8), so
+        # once no global command matches there is nothing left to try.
+        # `picker` gained its own scoped grammar in Milestone 8.6 — see
+        # PickerContextTests.test_unrelated_speech_still_resolves_to_nothing.
+        result = router.resolve(router.SAVE_DIALOG, "banana")
         self.assertIsNone(result["command"])
         self.assertIsNone(result["clarify"])
 
@@ -168,6 +170,47 @@ class SettingsContextTests(unittest.TestCase):
         self.assertIsNone(result["clarify"])
 
 
+class PickerContextTests(unittest.TestCase):
+    def test_a_spoken_number_resolves_to_pick_with_its_index(self):
+        result = router.resolve(router.PICKER, "three")
+        self.assertEqual(result["command"]["intent"], router.PICK)
+        self.assertEqual(result["command"]["index"], 3)
+        self.assertIsNone(result["clarify"])
+
+    def test_a_multi_word_spoken_number_resolves_to_its_value(self):
+        result = router.resolve(router.PICKER, "twenty one")
+        self.assertEqual(result["command"]["intent"], router.PICK)
+        self.assertEqual(result["command"]["index"], 21)
+
+    def test_a_digit_resolves_the_same_as_its_spoken_form(self):
+        result = router.resolve(router.PICKER, "3")
+        self.assertEqual(result["command"]["intent"], router.PICK)
+        self.assertEqual(result["command"]["index"], 3)
+
+    def test_zero_does_not_resolve_since_badges_are_1_indexed(self):
+        result = router.resolve(router.PICKER, "zero")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+    def test_cancel_resolves_via_either_of_its_two_phrasings(self):
+        self.assertEqual(
+            router.resolve(router.PICKER, "cancel")["command"]["intent"], router.CANCEL
+        )
+        self.assertEqual(
+            router.resolve(router.PICKER, "never mind")["command"]["intent"], router.CANCEL
+        )
+
+    def test_a_number_is_found_among_alternatives(self):
+        result = router.resolve(router.PICKER, "free", alternatives=["three"])
+        self.assertEqual(result["command"]["intent"], router.PICK)
+        self.assertEqual(result["command"]["index"], 3)
+
+    def test_unrelated_speech_still_resolves_to_nothing(self):
+        result = router.resolve(router.PICKER, "banana")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+
 class VocabularyTests(unittest.TestCase):
     def test_reading_vocabulary_is_a_superset_of_global_and_command_grammar(self):
         vocab = set(router.vocabulary_for(router.READING))
@@ -175,8 +218,11 @@ class VocabularyTests(unittest.TestCase):
         self.assertTrue(set(command_grammar.VOCABULARY).issubset(vocab))
 
     def test_a_context_with_no_scoped_grammar_gets_only_global_vocabulary(self):
+        # PICKER gained its own scoped grammar in Milestone 8.6 (see
+        # PickerContextTests below); SAVE_DIALOG is still one of the contexts
+        # with none, pending 8.7.
         self.assertEqual(
-            set(router.vocabulary_for(router.PICKER)), set(router.GLOBAL_VOCABULARY)
+            set(router.vocabulary_for(router.SAVE_DIALOG)), set(router.GLOBAL_VOCABULARY)
         )
 
     def test_home_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):
