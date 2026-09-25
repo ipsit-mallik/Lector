@@ -145,12 +145,42 @@ html, body { height: 100%; }
 }
 
 .recent-card {
+  position: relative;
   width: 268px;
   padding: 10px;
   border-radius: 9px;
   background-color: var(--color-input-bg);
   border: 1px solid var(--color-border-light);
   cursor: pointer;
+}
+
+/* Numbered-overlay picker (Milestone 8.6, docs/DESIGN_SYSTEM.md). Only
+   present while the `picker` voice context is active — see
+   showPicker()/hidePicker() in home.js — a small circular badge per card,
+   overlapping its top-left corner like a notification count. A plain
+   circle rather than the card's own 9px corner radius: a numeral reads
+   better in a circle than a rounded square at this size. `pointer-events:
+   none` keeps it purely decorative, so a click always lands on the card
+   underneath exactly as it does with the picker inactive — the mouse/
+   keyboard parity requirement means this overlay must never become a mode
+   that changes how clicking a card behaves. */
+.picker-badge {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--color-voice-focus);
+  color: var(--color-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .recent-thumb {

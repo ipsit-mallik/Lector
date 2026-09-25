@@ -22,9 +22,9 @@ function openSettings() {
 settingsNav.addEventListener("click", openSettings);
 
 // Opens the single most-recent entry — the only Recent card with a natural
-// spoken label ("recent" already means "most recent" per docs/PRD.md).
-// Picking a specific other card by voice needs the numbered-overlay picker
-// (Milestone 8.6); until then this is the only one voice can reach.
+// spoken label ("recent" already means "most recent" per docs/PRD.md). A
+// specific other card is reached instead by the numbered-overlay picker
+// below (Milestone 8.6).
 async function openMostRecent() {
   const entries = await callApi("get_recent_files");
   if (entries.length) await openPath(entries[0].path);
@@ -70,8 +70,13 @@ function buildCard(entry) {
   return card;
 }
 
+// Populated by loadRecent(), read by the picker below to map a spoken
+// index back to the entry it stands for.
+let recentEntries = [];
+
 async function loadRecent() {
   const entries = await callApi("get_recent_files");
+  recentEntries = entries;
   recentCount.textContent = entries.length ? `${entries.length} of last 10 files` : "no files yet";
   recentArea.innerHTML = "";
   if (!entries.length) {
@@ -83,6 +88,57 @@ async function loadRecent() {
   entries.forEach((entry) => grid.appendChild(buildCard(entry)));
   recentArea.appendChild(grid);
 }
+
+// --- Numbered-overlay picker (Milestone 8.6) ------------------------------ //
+// docs/ARCHITECTURE.md's "Numbered-overlay picker": a card with no natural
+// spoken label gets a number instead, and saying it does what clicking the
+// card already does. The badges are purely decorative (see .picker-badge's
+// `pointer-events: none` in home.css) — mouse/keyboard parity holds simply
+// because clicking a card behaves identically whether or not this is
+// showing, never a separate mode to click through.
+let pickerActive = false;
+
+function showPicker() {
+  if (pickerActive || !recentEntries.length) return;
+  const cards = recentArea.querySelectorAll(".recent-card");
+  cards.forEach((card, i) => {
+    const badge = document.createElement("div");
+    badge.className = "picker-badge";
+    badge.textContent = String(i + 1);
+    card.appendChild(badge);
+  });
+  pickerActive = true;
+  callApi("set_voice_context", "picker");
+}
+
+function hidePicker() {
+  if (!pickerActive) return;
+  recentArea.querySelectorAll(".picker-badge").forEach((badge) => badge.remove());
+  pickerActive = false;
+  callApi("set_voice_context", "home");
+}
+
+// PICK/CANCEL only ever arrive while the picker is active (router.py scopes
+// them to the `picker` context), so this is tried before VOICE_ACTIONS
+// rather than added to it — that table is Home's own commands, and these
+// two are not among them.
+async function handlePickerCommand(command) {
+  if (command.intent === "PICK") {
+    const entry = recentEntries[command.index - 1];
+    hidePicker();
+    if (entry) await openPath(entry.path);
+    return;
+  }
+  if (command.intent === "CANCEL") {
+    hidePicker();
+  }
+}
+
+// Keyboard equivalent for CANCEL, the same "Escape backs out of an
+// in-progress mode" convention reading.js's cancelSelection() already uses.
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && pickerActive) hidePicker();
+});
 
 // --- Push-to-talk indicator (Milestone 5) -------------------------------- //
 // The sidebar's voice box was static copy until now; it reports the real
@@ -174,7 +230,7 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
   voice = initVoice(renderVoiceBox);
 })();
 
-// --- Voice commands (Milestone 8.5) --------------------------------------- //
+// --- Voice commands (Milestone 8.5, OPEN_PICKER added in 8.6) ------------- //
 // Each intent calls the exact function its equivalent click handler already
 // calls, mirroring reading.js's VOICE_ACTIONS. GO_HOME/UNDO/REDO/HELP are
 // global (Milestone 8.4) but not wired here: "go home" is a no-op on the
@@ -183,11 +239,19 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
 const VOICE_ACTIONS = {
   OPEN_SETTINGS: () => openSettings(),
   OPEN_RECENT: () => openMostRecent(),
+  OPEN_PICKER: () => showPicker(),
 };
 
 window.addEventListener("lector:command", (ev) => {
   const { command } = ev.detail || {};
   if (!command) return;
+  // Picker commands (PICK/CANCEL) are not in VOICE_ACTIONS above — they are
+  // scoped to the `picker` context rather than Home's, so they only ever
+  // arrive while pickerActive is true, and are handled separately from it.
+  if (pickerActive) {
+    handlePickerCommand(command);
+    return;
+  }
   const action = VOICE_ACTIONS[command.intent];
   if (action) action();
 });

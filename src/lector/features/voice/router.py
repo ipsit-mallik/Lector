@@ -139,6 +139,40 @@ SETTINGS_PHRASES: dict[str, tuple[str, ...]] = {
     REOPEN_START: ("start at the beginning",),
 }
 
+# Home context, continued (Milestone 8.6): the way into the numbered-overlay
+# picker itself. Kept in HOME_PHRASES rather than a new table, the same way
+# OPEN_SETTINGS/OPEN_RECENT already live there — Home is what currently has a
+# list worth picking from; a future screen with its own list gains its own
+# equivalent entry rather than this being generalized ahead of a second
+# caller existing.
+OPEN_PICKER = "OPEN_PICKER"
+HOME_PHRASES[OPEN_PICKER] = ("pick a file", "choose a file")
+
+# Picker context (Milestone 8.6): docs/ARCHITECTURE.md's "Numbered-overlay
+# picker" — a list item with no natural single-word voice label (a specific
+# Recent card, say) gets a numbered badge instead, and saying the number
+# performs the same action a click on it would. The number itself is not a
+# fixed phrase — `_parse_picker_number` below reads it as a spoken number the
+# same way `command_grammar._parse_goto` does for GOTO_PAGE — so this table
+# only needs the one fixed phrase that isn't a number: a way out without
+# picking anything.
+PICK = "PICK"
+CANCEL = "CANCEL"
+
+PICKER_PHRASES: dict[str, tuple[str, ...]] = {
+    CANCEL: ("cancel", "never mind"),
+}
+
+# Every word `_parse_picker_number` can read as part of a spoken number,
+# reusing `command_grammar`'s own number vocabulary (`_UNITS`/`_TENS`/
+# `_HUNDRED`) rather than a second copy of it — Recent is capped at 10
+# (`docs/DESIGN_SYSTEM.md`'s Miller's Law note), but nothing here hardcodes
+# that cap, so a future, larger list is not silently unreachable past ten.
+_PICKER_NUMBER_WORDS: tuple[str, ...] = tuple(sorted(
+    set(command_grammar._UNITS) | set(command_grammar._TENS)
+    | {command_grammar._HUNDRED, command_grammar._FILLER}
+))
+
 
 def _flatten_phrases(phrases: dict[str, tuple[str, ...]]) -> tuple[tuple[str, ...], dict[str, str]]:
     """Shared by every fixed-phrase table here (global, home, settings):
@@ -155,13 +189,17 @@ def _flatten_phrases(phrases: dict[str, tuple[str, ...]]) -> tuple[tuple[str, ..
 _GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT = _flatten_phrases(GLOBAL_PHRASES)
 _HOME_ORDERED_PHRASES, _HOME_PHRASE_TO_INTENT = _flatten_phrases(HOME_PHRASES)
 _SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT = _flatten_phrases(SETTINGS_PHRASES)
+_PICKER_ORDERED_PHRASES, _PICKER_PHRASE_TO_INTENT = _flatten_phrases(PICKER_PHRASES)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
 # except `READING` (which delegates to `command_grammar` instead) and the
-# dialog/picker/dictation contexts (which have no scoped grammar yet).
+# dialog/dictation contexts (which have no scoped grammar yet, pending
+# 8.7-8.8). `PICKER`'s table only ever matches `CANCEL` here — its numbers
+# are read by `_parse_picker_number` instead, tried first in `resolve`.
 _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     HOME: (_HOME_ORDERED_PHRASES, _HOME_PHRASE_TO_INTENT),
     SETTINGS: (_SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT),
+    PICKER: (_PICKER_ORDERED_PHRASES, _PICKER_PHRASE_TO_INTENT),
 }
 
 
@@ -176,13 +214,13 @@ def _vocabulary_from_phrases(phrases: dict[str, tuple[str, ...]]) -> list[str]:
 GLOBAL_VOCABULARY: list[str] = _vocabulary_from_phrases(GLOBAL_PHRASES)
 
 # Per-context scoped vocabulary, on top of the globals every context gets.
-# The dialog/picker/dictation contexts are deliberately absent — see the
-# module docstring for why they stay global-only until 8.6-8.8 give them
-# their own.
+# The dialog/dictation contexts are deliberately absent — see the module
+# docstring for why they stay global-only until 8.7-8.8 give them their own.
 _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     READING: command_grammar.VOCABULARY,
     HOME: _vocabulary_from_phrases(HOME_PHRASES),
     SETTINGS: _vocabulary_from_phrases(SETTINGS_PHRASES),
+    PICKER: sorted(set(_vocabulary_from_phrases(PICKER_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
 }
 
 
@@ -225,6 +263,37 @@ def _match_global(text: str) -> dict | None:
     return _match_phrases(text, _GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT)
 
 
+def _parse_picker_number(text: str) -> dict | None:
+    """A bare spoken number ("three", "twenty one", "3") selects that badge.
+
+    Unlike `command_grammar._parse_goto`, no lead phrase is required before
+    the number: `GOTO_PAGE` treats a bare number cautiously because it could
+    be heard anywhere, mid-conversation, but `picker` is only ever active
+    while numbered badges are already on screen (`docs/ARCHITECTURE.md`'s
+    "Numbered-overlay picker"), so a bare number here is unambiguous — it can
+    only mean "pick that one." Reuses `command_grammar`'s own
+    normalization/number-reading helpers rather than a second copy of them.
+    """
+    words = command_grammar._normalize(text)
+    # "and" is swept in alongside the digits, the same as `_parse_goto`: "one
+    # hundred and five" is one spoken number, and rejecting it here over a
+    # filler word would make a page count above a hundred unreachable.
+    if not words or not all(
+        command_grammar._is_number_word(w) or w == command_grammar._FILLER for w in words
+    ):
+        return None
+    index = command_grammar._words_to_number(words)
+    if index is None or index < 1:
+        return None
+    return {
+        "intent": PICK,
+        "index": index,
+        "phrase": " ".join(words),
+        "matched": "<number>",
+        "score": 1.0,
+    }
+
+
 def resolve(context: str, text: str, alternatives: list[str] | None = None) -> dict:
     """Interpret a recognized phrase for whichever `context` is active.
 
@@ -243,7 +312,10 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
     clarification tier); `HOME` and `SETTINGS` (Milestone 8.5) try their own
     fixed-phrase table the same confident-only way global commands are
     matched — no clarification tier, for the reason `GLOBAL_PHRASES`
-    doesn't have one either.
+    doesn't have one either. `PICKER` (Milestone 8.6) additionally tries
+    `_parse_picker_number` before its own fixed-phrase table, so a spoken
+    number picks a badge and "cancel"/"never mind" still falls through to
+    `PICKER_PHRASES`.
     """
     for candidate in (text, *(alternatives or ())):
         command = _match_global(candidate)
@@ -252,6 +324,12 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
 
     if context == READING:
         return command_grammar.resolve(text, alternatives)
+
+    if context == PICKER:
+        for candidate in (text, *(alternatives or ())):
+            command = _parse_picker_number(candidate)
+            if command is not None:
+                return {"command": command, "clarify": None}
 
     table = _CONTEXT_PHRASE_TABLES.get(context)
     if table is not None:
