@@ -337,9 +337,18 @@ html, body { height: 100%; }
 
 /* Listening uses the amber voice-focus token, not the highlight yellow —
    docs/DESIGN_SYSTEM.md keeps "the app is listening" and "this text is
-   highlighted" in deliberately different colors. */
+   highlighted" in deliberately different colors. The label text is a
+   separate, higher-contrast color from the fill/icon: no amber-text/amber-
+   background pairing clears WCAG AA, so the pill's amber identity and its
+   text legibility are intentionally independent values (per
+   docs/DESIGN_SYSTEM.md's contrast clarifications) — the text reuses the
+   same color as the idle "VOICE READY" state on Home. */
 .mic-pill.listening {
   background-color: color-mix(in srgb, var(--color-voice-focus) 16%, transparent);
+  color: var(--color-accent-dark);
+}
+
+.mic-pill.listening svg {
   color: var(--color-voice-focus);
 }
 
@@ -437,7 +446,10 @@ html, body { height: 100%; }
   background-color: var(--color-input-bg);
 }
 
-.reference-search:focus-within { border-color: var(--color-accent); }
+.reference-search:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 
 .reference-search-icon { display: flex; color: var(--color-text-very-muted); }
 .reference-search-icon svg { width: 15px; height: 15px; }

@@ -15,12 +15,12 @@
       </button>
       <div class="doc-title" id="docTitle"></div>
       <div class="spacer"></div>
-      <button class="icon-btn nav-btn" id="prevBtn" title="Previous page  (←)">
+      <button class="icon-btn nav-btn" id="prevBtn" title="Previous page  (←)" aria-label="Previous page">
         <span data-icon="chevron_left"></span>
       </button>
       <input class="page-input" id="pageInput" type="number" min="1" value="1">
       <span class="page-suffix" id="pageSuffix">of 1</span>
-      <button class="icon-btn nav-btn" id="nextBtn" title="Next page  (→)">
+      <button class="icon-btn nav-btn" id="nextBtn" title="Next page  (→)" aria-label="Next page">
         <span data-icon="chevron_right"></span>
       </button>
       <span style="width:10px"></span>
@@ -36,22 +36,22 @@
 
     <div class="body-row">
       <div class="rail">
-        <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)"></button>
-        <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" disabled></button>
-        <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" disabled></button>
-        <button class="icon-btn" data-icon="search" title="Find in document  (Milestone 4)" disabled></button>
+        <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)" aria-label="Highlight tool"></button>
+        <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" aria-label="Undo highlight" disabled></button>
+        <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" aria-label="Redo highlight" disabled></button>
+        <button class="icon-btn" data-icon="search" title="Find in document  (Milestone 4)" aria-label="Find in document" disabled></button>
 
         <div class="rail-sep"></div>
 
-        <button class="icon-btn" id="zoomInBtn" data-icon="zoom_in" title="Zoom in  (=)"></button>
-        <button class="icon-btn" id="zoomOutBtn" data-icon="zoom_out" title="Zoom out  (−)"></button>
+        <button class="icon-btn" id="zoomInBtn" data-icon="zoom_in" title="Zoom in  (=)" aria-label="Zoom in"></button>
+        <button class="icon-btn" id="zoomOutBtn" data-icon="zoom_out" title="Zoom out  (−)" aria-label="Zoom out"></button>
 
         <div class="rail-sep"></div>
 
-        <button class="icon-btn active" id="layoutBtn" data-icon="book_layout" title="Book layout — one page at a time"></button>
-        <button class="icon-btn" id="themeBtn" data-icon="theme" title="Cycle theme  (light / dark / sepia)"></button>
+        <button class="icon-btn active" id="layoutBtn" data-icon="book_layout" title="Book layout — one page at a time" aria-label="Book layout"></button>
+        <button class="icon-btn" id="themeBtn" data-icon="theme" title="Cycle theme  (light / dark / sepia)" aria-label="Cycle theme"></button>
         <button class="icon-btn" id="referenceRailBtn" data-icon="help"
-                title="What can I say?  (?)"></button>
+                title="What can I say?  (?)" aria-label="What can I say?"></button>
 
         <div class="rail-fill"></div>
         <div class="offline-label">OFF<br>LINE</div>

@@ -73,9 +73,27 @@ The final mockup file includes a theme *selector* (on the Settings screen) but o
 - **Modals/dialogs** (save confirmation, "What can I say?" reference): centered card over a dimmed and slightly blurred background, not a full-screen takeover — keeps context visible.
 - **Settings:** single-column sections (Theme, Voice activation, Save behavior), not tabs — small enough surface area that tabs would add navigation overhead for no benefit.
 
+## Numbered-overlay picker (Milestone 8.6)
+
+Mockup: `docs/mockups/09 Numbered picker overlay.png` (composited directly on the real Screen 01 export for pixel-accurate color/spacing, not a fresh drawing). This postdates the original 9-screen set, but follows a pattern the app already established rather than inventing a new one:
+
+- Same rule as the reading view's "Listening here" outline (Milestone 6): a marker that exists only while voice attention is actually scoped to that content, drawn in `--color-voice-focus` (`#C97A3D`) — never the highlight yellow or the accent green, per this doc's existing rule that those three stay visually distinct. This is a "the app is pointing here" state, not a highlight or a selection.
+- Each pickable card (starting with the Recent grid's `.recent-card`) gets a small circular badge in its top-left corner, overlapping the corner slightly like a notification count — ~24px diameter, `--color-voice-focus` fill, `--color-surface` numeral text, centered, `font-weight: 600`. A plain circle, not the card's own 9px corner radius — a numeral reads better in a circle than a rounded square at this size.
+- Badges render only while the `picker` context (Milestone 8.4's router) is active — e.g. after a voice command that needs disambiguation among more than one match — and disappear the instant a number is spoken/clicked or the picker is cancelled. No persistent chrome, exactly like the amber outline only existing for the duration of a push-to-talk hold.
+- No dimmed/blurred backdrop behind the grid — that treatment is reserved for modal dialogs (see Layout patterns above). The picker overlays in place on the still-fully-visible, still-clickable grid; voice and mouse/keyboard must stay simultaneously usable per the parity requirement.
+- Mouse/keyboard parity: clicking a card, or tabbing to it and pressing Enter, works identically whether or not the picker overlay happens to be showing. The badges are an additional voice affordance layered on top of existing behavior, never a mode that disables it.
+
 ## Accessibility baseline
 
 Every interactive element is a real `<button>`/`<a>`/`<input>`, never a clickable `div` — required for keyboard focus and screen-reader compatibility, and a direct consequence of the "voice is an accelerator, not a replacement UI" requirement: the app must be fully operable by keyboard and mouse alone.
+
+## Contrast & token-usage clarifications (resolved during implementation)
+
+These resolve specific ambiguities found when verifying implementation against this doc and the mockup file. Documented here so the same judgment call doesn't need re-litigating on the next similar component.
+
+- **Status pills (e.g. the "Listening" indicator) decouple color-identity from text-legibility.** The amber voice-focus color (`#C97A3D`) stays as the pill's fill/border/dot — its "this is the listening state" signal — but the label text itself uses the same high-contrast color already used for the idle "VOICE READY" state, not amber-on-amber. Measured: no single amber-text/amber-background pairing clears WCAG AA (4.5:1) across all three themes, so the pill's identity color and its text color are intentionally independent values, not one derived from the other. Apply this same pattern to any future status pill/badge.
+- **Informational/explanatory captions use `--color-text-muted`, not `--color-text-very-muted`**, even where the mockup's pixels sample as the very-muted token. Very-muted (`#9A968E`) is reserved for genuinely decorative or low-priority metadata (timestamps, chapter labels). Text that explains something to the user — onboarding step-asides, mode-card notes, any copy serving the PRD's "usable by someone without technical knowledge" requirement — uses the muted token instead, which passes AA. If a future caption's informational value is genuinely low (truly decorative), very-muted is still fine — judge by function, not by which token the mockup happened to sample at.
+- **All focus indicators use 2px outline + outline-offset**, including text inputs. No exceptions for a lighter-weight treatment (e.g. a border-color swap on focus) — consistency of the focus pattern across every control matters more than any single component's visual weight.
 
 ## Design rationale notes
 
