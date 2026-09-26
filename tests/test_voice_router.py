@@ -57,11 +57,12 @@ class GlobalCommandTests(unittest.TestCase):
         self.assertEqual(result["command"]["intent"], router.UNDO)
 
     def test_unrelated_speech_resolves_to_nothing_in_a_context_with_no_grammar(self):
-        # `save_dialog` has no scoped grammar yet (Milestones 8.7-8.8), so
-        # once no global command matches there is nothing left to try.
-        # `picker` gained its own scoped grammar in Milestone 8.6 — see
-        # PickerContextTests.test_unrelated_speech_still_resolves_to_nothing.
-        result = router.resolve(router.SAVE_DIALOG, "banana")
+        # `dictation` has no scoped grammar yet (Milestone 8.8), so once no
+        # global command matches there is nothing left to try. `save_dialog`
+        # gained its own scoped grammar in Milestone 8.7 — see
+        # SaveDialogContextTests; `picker` gained its own in Milestone 8.6 —
+        # see PickerContextTests.test_unrelated_speech_still_resolves_to_nothing.
+        result = router.resolve(router.DICTATION, "banana")
         self.assertIsNone(result["command"])
         self.assertIsNone(result["clarify"])
 
@@ -211,6 +212,67 @@ class PickerContextTests(unittest.TestCase):
         self.assertIsNone(result["clarify"])
 
 
+class OpenDialogContextTests(unittest.TestCase):
+    def test_a_spoken_number_resolves_to_dialog_pick_with_its_index(self):
+        result = router.resolve(router.OPEN_DIALOG, "three")
+        self.assertEqual(result["command"]["intent"], router.DIALOG_PICK)
+        self.assertEqual(result["command"]["index"], 3)
+        self.assertIsNone(result["clarify"])
+
+    def test_a_digit_resolves_the_same_as_its_spoken_form(self):
+        result = router.resolve(router.OPEN_DIALOG, "3")
+        self.assertEqual(result["command"]["intent"], router.DIALOG_PICK)
+        self.assertEqual(result["command"]["index"], 3)
+
+    def test_go_up_resolves_via_any_of_its_phrasings(self):
+        for phrase in ("go up", "up a folder", "back a folder", "parent folder"):
+            result = router.resolve(router.OPEN_DIALOG, phrase)
+            self.assertEqual(result["command"]["intent"], router.DIALOG_UP, msg=phrase)
+
+    def test_cancel_resolves_via_either_of_its_two_phrasings(self):
+        self.assertEqual(
+            router.resolve(router.OPEN_DIALOG, "cancel")["command"]["intent"], router.CANCEL
+        )
+        self.assertEqual(
+            router.resolve(router.OPEN_DIALOG, "never mind")["command"]["intent"], router.CANCEL
+        )
+
+    def test_save_here_does_not_resolve_since_open_has_nothing_to_confirm(self):
+        result = router.resolve(router.OPEN_DIALOG, "save here")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+    def test_unrelated_speech_still_resolves_to_nothing(self):
+        result = router.resolve(router.OPEN_DIALOG, "banana")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+
+class SaveDialogContextTests(unittest.TestCase):
+    def test_a_spoken_number_resolves_to_dialog_pick_with_its_index(self):
+        result = router.resolve(router.SAVE_DIALOG, "twenty one")
+        self.assertEqual(result["command"]["intent"], router.DIALOG_PICK)
+        self.assertEqual(result["command"]["index"], 21)
+
+    def test_go_up_resolves_the_same_as_in_open_dialog(self):
+        result = router.resolve(router.SAVE_DIALOG, "go up")
+        self.assertEqual(result["command"]["intent"], router.DIALOG_UP)
+
+    def test_cancel_resolves(self):
+        result = router.resolve(router.SAVE_DIALOG, "cancel")
+        self.assertEqual(result["command"]["intent"], router.CANCEL)
+
+    def test_save_here_resolves_via_any_of_its_phrasings(self):
+        for phrase in ("save here", "save it", "confirm save"):
+            result = router.resolve(router.SAVE_DIALOG, phrase)
+            self.assertEqual(result["command"]["intent"], router.DIALOG_CONFIRM, msg=phrase)
+
+    def test_unrelated_speech_still_resolves_to_nothing(self):
+        result = router.resolve(router.SAVE_DIALOG, "banana")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+
 class VocabularyTests(unittest.TestCase):
     def test_reading_vocabulary_is_a_superset_of_global_and_command_grammar(self):
         vocab = set(router.vocabulary_for(router.READING))
@@ -219,10 +281,11 @@ class VocabularyTests(unittest.TestCase):
 
     def test_a_context_with_no_scoped_grammar_gets_only_global_vocabulary(self):
         # PICKER gained its own scoped grammar in Milestone 8.6 (see
-        # PickerContextTests below); SAVE_DIALOG is still one of the contexts
-        # with none, pending 8.7.
+        # PickerContextTests below); SAVE_DIALOG/OPEN_DIALOG gained theirs in
+        # Milestone 8.7 (see SaveDialogContextTests/OpenDialogContextTests).
+        # DICTATION is still the one context with none, pending 8.8.
         self.assertEqual(
-            set(router.vocabulary_for(router.SAVE_DIALOG)), set(router.GLOBAL_VOCABULARY)
+            set(router.vocabulary_for(router.DICTATION)), set(router.GLOBAL_VOCABULARY)
         )
 
     def test_home_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):
@@ -238,6 +301,22 @@ class VocabularyTests(unittest.TestCase):
         self.assertTrue(
             set(router._vocabulary_from_phrases(router.SETTINGS_PHRASES)).issubset(vocab)
         )
+
+    def test_open_dialog_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):
+        vocab = set(router.vocabulary_for(router.OPEN_DIALOG))
+        self.assertTrue(set(router.GLOBAL_VOCABULARY).issubset(vocab))
+        self.assertTrue(
+            set(router._vocabulary_from_phrases(router.OPEN_DIALOG_PHRASES)).issubset(vocab)
+        )
+        self.assertTrue(set(router._PICKER_NUMBER_WORDS).issubset(vocab))
+
+    def test_save_dialog_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):
+        vocab = set(router.vocabulary_for(router.SAVE_DIALOG))
+        self.assertTrue(set(router.GLOBAL_VOCABULARY).issubset(vocab))
+        self.assertTrue(
+            set(router._vocabulary_from_phrases(router.SAVE_DIALOG_PHRASES)).issubset(vocab)
+        )
+        self.assertTrue(set(router._PICKER_NUMBER_WORDS).issubset(vocab))
 
     def test_default_context_is_reading_to_preserve_pre_router_behavior(self):
         # Milestone 8.1-8.3's integration tests call `Api._on_voice_result`

@@ -183,9 +183,39 @@
     </div>
   </div>
 
+  <!-- In-app Save-As dialog (Milestone 8.7), gathering the path
+       promptSaveIfDirty()'s "Save a copy" choice needs — the native chooser
+       the voice router could not see used to do this. Every row is numbered
+       for the whole time this is open, same as the Open dialog. -->
+  <div class="dialog-scrim voice-dialog" id="saveAsDialogScrim" hidden>
+    <div class="dialog-card">
+      <div class="dialog-body">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="folder"></div>
+          <div>
+            <p class="dialog-title">Save a copy</p>
+            <p class="browser-path" id="saveAsDialogPath"></p>
+          </div>
+        </div>
+        <div class="browser-list" id="saveAsDialogList"></div>
+        <div class="browser-filename-row">
+          <label for="saveAsDialogFilename">File name</label>
+          <input type="text" id="saveAsDialogFilename" autocomplete="off">
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <span class="hint">Say a number to navigate, or "save here" / "cancel".</span>
+        <button class="btn btn-secondary" id="saveAsDialogUpBtn">Up</button>
+        <button class="btn btn-secondary" id="saveAsDialogCancelBtn">Cancel</button>
+        <button class="btn" id="saveAsDialogConfirmBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../js/icons.js"></script>
   <script src="../js/bridge.js"></script>
   <script src="../js/voice.js"></script>
+  <script src="../js/file-browser.js"></script>
   <script src="save-dialog.js"></script>
   <script src="command-reference.js"></script>
   <script src="reading.js"></script>

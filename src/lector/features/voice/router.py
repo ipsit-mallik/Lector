@@ -44,8 +44,12 @@ ordered phrase list, confident-only — no near-miss tier, for the same
 "not enough observed ambiguity to justify guessing" reason global commands
 have none). Each intent calls the exact function its equivalent click
 handler already calls (`home.js`/`settings.js`), so voice never grows a
-second copy of what a click does. The dialog/picker/dictation contexts still
-have none, pending 8.6-8.8. Until a context has one, it hears nothing but the
+second copy of what a click does. `OPEN_DIALOG`/`SAVE_DIALOG` gain theirs in
+Milestone 8.7, once the native OS file choosers they replace are gone —
+`DIALOG_PICK` reads a spoken row number the same way `PICKER`'s numbers do
+(reusing 8.6's number-parsing mechanic), plus `DIALOG_UP`/`CANCEL` and, for
+`SAVE_DIALOG` only, `DIALOG_CONFIRM`. `DICTATION` is the only context still
+with none, pending 8.8. Until a context has one, it hears nothing but the
 global commands — a screen with no voice commands of its own must not still
 be listening for a different screen's grammar, which is the accidental
 behavior this router replaces (before it, every recognizer was built from
@@ -168,10 +172,37 @@ PICKER_PHRASES: dict[str, tuple[str, ...]] = {
 # `_HUNDRED`) rather than a second copy of it — Recent is capped at 10
 # (`docs/DESIGN_SYSTEM.md`'s Miller's Law note), but nothing here hardcodes
 # that cap, so a future, larger list is not silently unreachable past ten.
+# Also reused as-is by `OPEN_DIALOG`/`SAVE_DIALOG` below, whose rows are
+# numbered the same way and are not capped at 10 either.
 _PICKER_NUMBER_WORDS: tuple[str, ...] = tuple(sorted(
     set(command_grammar._UNITS) | set(command_grammar._TENS)
     | {command_grammar._HUNDRED, command_grammar._FILLER}
 ))
+
+# Open/Save-As dialog contexts (Milestone 8.7): docs/ARCHITECTURE.md's
+# replacement for the native OS file choosers, which the router could not
+# see or drive. Each row (a folder or a PDF file) is numbered the same way a
+# Recent card is in `PICKER`, and `DIALOG_PICK` reads the spoken number the
+# same way `PICK` does — the frontend decides what picking a given row does
+# (open a file, navigate into a folder) since that is a property of the row,
+# not something the grammar needs to know. `DIALOG_UP` and `CANCEL` are
+# shared by both dialogs; `DIALOG_CONFIRM` ("save here") only makes sense for
+# `SAVE_DIALOG` — there is nothing to confirm in `OPEN_DIALOG`, where picking
+# a file row already opens it.
+DIALOG_UP = "DIALOG_UP"
+DIALOG_PICK = "DIALOG_PICK"
+DIALOG_CONFIRM = "DIALOG_CONFIRM"
+
+OPEN_DIALOG_PHRASES: dict[str, tuple[str, ...]] = {
+    DIALOG_UP: ("go up", "up a folder", "back a folder", "parent folder"),
+    CANCEL: ("cancel", "never mind"),
+}
+
+SAVE_DIALOG_PHRASES: dict[str, tuple[str, ...]] = {
+    DIALOG_UP: ("go up", "up a folder", "back a folder", "parent folder"),
+    CANCEL: ("cancel", "never mind"),
+    DIALOG_CONFIRM: ("save here", "save it", "confirm save"),
+}
 
 
 def _flatten_phrases(phrases: dict[str, tuple[str, ...]]) -> tuple[tuple[str, ...], dict[str, str]]:
@@ -190,16 +221,21 @@ _GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT = _flatten_phrases(GLOBAL_PHRA
 _HOME_ORDERED_PHRASES, _HOME_PHRASE_TO_INTENT = _flatten_phrases(HOME_PHRASES)
 _SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT = _flatten_phrases(SETTINGS_PHRASES)
 _PICKER_ORDERED_PHRASES, _PICKER_PHRASE_TO_INTENT = _flatten_phrases(PICKER_PHRASES)
+_OPEN_DIALOG_ORDERED_PHRASES, _OPEN_DIALOG_PHRASE_TO_INTENT = _flatten_phrases(OPEN_DIALOG_PHRASES)
+_SAVE_DIALOG_ORDERED_PHRASES, _SAVE_DIALOG_PHRASE_TO_INTENT = _flatten_phrases(SAVE_DIALOG_PHRASES)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
-# except `READING` (which delegates to `command_grammar` instead) and the
-# dialog/dictation contexts (which have no scoped grammar yet, pending
-# 8.7-8.8). `PICKER`'s table only ever matches `CANCEL` here — its numbers
-# are read by `_parse_picker_number` instead, tried first in `resolve`.
+# except `READING` (which delegates to `command_grammar` instead) and
+# `DICTATION` (which has no scoped grammar yet, pending 8.8). `PICKER`,
+# `OPEN_DIALOG` and `SAVE_DIALOG`'s tables only ever match their non-numeric
+# phrases here — their row numbers are read by `_parse_picker_number`/
+# `_parse_dialog_number` instead, tried first in `resolve`.
 _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     HOME: (_HOME_ORDERED_PHRASES, _HOME_PHRASE_TO_INTENT),
     SETTINGS: (_SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT),
     PICKER: (_PICKER_ORDERED_PHRASES, _PICKER_PHRASE_TO_INTENT),
+    OPEN_DIALOG: (_OPEN_DIALOG_ORDERED_PHRASES, _OPEN_DIALOG_PHRASE_TO_INTENT),
+    SAVE_DIALOG: (_SAVE_DIALOG_ORDERED_PHRASES, _SAVE_DIALOG_PHRASE_TO_INTENT),
 }
 
 
@@ -214,13 +250,15 @@ def _vocabulary_from_phrases(phrases: dict[str, tuple[str, ...]]) -> list[str]:
 GLOBAL_VOCABULARY: list[str] = _vocabulary_from_phrases(GLOBAL_PHRASES)
 
 # Per-context scoped vocabulary, on top of the globals every context gets.
-# The dialog/dictation contexts are deliberately absent — see the module
-# docstring for why they stay global-only until 8.7-8.8 give them their own.
+# `DICTATION` is deliberately absent — see the module docstring for why it
+# stays global-only until 8.8 gives it its own.
 _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     READING: command_grammar.VOCABULARY,
     HOME: _vocabulary_from_phrases(HOME_PHRASES),
     SETTINGS: _vocabulary_from_phrases(SETTINGS_PHRASES),
     PICKER: sorted(set(_vocabulary_from_phrases(PICKER_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
+    OPEN_DIALOG: sorted(set(_vocabulary_from_phrases(OPEN_DIALOG_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
+    SAVE_DIALOG: sorted(set(_vocabulary_from_phrases(SAVE_DIALOG_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
 }
 
 
@@ -263,16 +301,13 @@ def _match_global(text: str) -> dict | None:
     return _match_phrases(text, _GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT)
 
 
-def _parse_picker_number(text: str) -> dict | None:
-    """A bare spoken number ("three", "twenty one", "3") selects that badge.
-
-    Unlike `command_grammar._parse_goto`, no lead phrase is required before
-    the number: `GOTO_PAGE` treats a bare number cautiously because it could
-    be heard anywhere, mid-conversation, but `picker` is only ever active
-    while numbered badges are already on screen (`docs/ARCHITECTURE.md`'s
-    "Numbered-overlay picker"), so a bare number here is unambiguous — it can
-    only mean "pick that one." Reuses `command_grammar`'s own
-    normalization/number-reading helpers rather than a second copy of them.
+def _parse_spoken_number(text: str) -> tuple[int, str] | None:
+    """`(index, normalized phrase)` if `text` is nothing but a bare spoken
+    number ("three", "twenty one", "3") — the shared reading shared by
+    `_parse_picker_number` and `_parse_dialog_number` below, since a numbered
+    row means the same thing (badge/row `N`) whether it is `PICKER`'s or a
+    file dialog's. Reuses `command_grammar`'s own normalization/number-
+    reading helpers rather than a second copy of them.
     """
     words = command_grammar._normalize(text)
     # "and" is swept in alongside the digits, the same as `_parse_goto`: "one
@@ -285,10 +320,38 @@ def _parse_picker_number(text: str) -> dict | None:
     index = command_grammar._words_to_number(words)
     if index is None or index < 1:
         return None
+    return index, " ".join(words)
+
+
+def _parse_picker_number(text: str) -> dict | None:
+    """A bare spoken number selects that `PICKER` badge.
+
+    Unlike `command_grammar._parse_goto`, no lead phrase is required before
+    the number: `GOTO_PAGE` treats a bare number cautiously because it could
+    be heard anywhere, mid-conversation, but `picker` is only ever active
+    while numbered badges are already on screen (`docs/ARCHITECTURE.md`'s
+    "Numbered-overlay picker"), so a bare number here is unambiguous — it can
+    only mean "pick that one."
+    """
+    parsed = _parse_spoken_number(text)
+    if parsed is None:
+        return None
+    index, phrase = parsed
+    return {"intent": PICK, "index": index, "phrase": phrase, "matched": "<number>", "score": 1.0}
+
+
+def _parse_dialog_number(text: str) -> dict | None:
+    """A bare spoken number selects that numbered row in `OPEN_DIALOG`/
+    `SAVE_DIALOG` — the same reasoning as `_parse_picker_number`: the dialogs
+    only number their rows while open, so a bare number is unambiguous."""
+    parsed = _parse_spoken_number(text)
+    if parsed is None:
+        return None
+    index, phrase = parsed
     return {
-        "intent": PICK,
+        "intent": DIALOG_PICK,
         "index": index,
-        "phrase": " ".join(words),
+        "phrase": phrase,
         "matched": "<number>",
         "score": 1.0,
     }
@@ -315,7 +378,8 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
     doesn't have one either. `PICKER` (Milestone 8.6) additionally tries
     `_parse_picker_number` before its own fixed-phrase table, so a spoken
     number picks a badge and "cancel"/"never mind" still falls through to
-    `PICKER_PHRASES`.
+    `PICKER_PHRASES`. `OPEN_DIALOG`/`SAVE_DIALOG` (Milestone 8.7) do the same
+    with `_parse_dialog_number` before their own tables.
     """
     for candidate in (text, *(alternatives or ())):
         command = _match_global(candidate)
@@ -328,6 +392,12 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
     if context == PICKER:
         for candidate in (text, *(alternatives or ())):
             command = _parse_picker_number(candidate)
+            if command is not None:
+                return {"command": command, "clarify": None}
+
+    if context in (OPEN_DIALOG, SAVE_DIALOG):
+        for candidate in (text, *(alternatives or ())):
+            command = _parse_dialog_number(candidate)
             if command is not None:
                 return {"command": command, "clarify": None}
 

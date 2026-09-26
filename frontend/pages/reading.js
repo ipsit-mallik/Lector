@@ -869,6 +869,22 @@ async function cycleTheme() {
 // Save flow                                                            //
 // ------------------------------------------------------------------ //
 
+// In-app Save-As dialog (Milestone 8.7), replacing the native
+// `create_file_dialog()` the voice router could not see or drive — the same
+// file-browser.js module Home's Open dialog uses, in its "save" mode.
+const saveAsDialog = createFileBrowser({
+  scrimId: "saveAsDialogScrim",
+  listId: "saveAsDialogList",
+  pathId: "saveAsDialogPath",
+  upBtnId: "saveAsDialogUpBtn",
+  cancelBtnId: "saveAsDialogCancelBtn",
+  confirmBtnId: "saveAsDialogConfirmBtn",
+  filenameId: "saveAsDialogFilename",
+  mode: "save",
+  voiceContext: "save_dialog",
+  restingContext: "reading",
+});
+
 async function promptSaveIfDirty(allowDiscard) {
   if (!state.is_dirty) return true;
 
@@ -888,7 +904,17 @@ async function promptSaveIfDirty(allowDiscard) {
     mode = behavior;
   }
 
-  const outcome = await callApi("perform_save", mode);
+  // Overwrite needs no path; a copy does, and used to come from the native
+  // dialog's own return value — now gathered here instead.
+  let path = null;
+  if (mode === "copy") {
+    const start = await callApi("get_save_dialog_start");
+    const picked = await saveAsDialog.open({ dir: start.dir, filename: start.filename });
+    if (!picked || picked.cancelled) return false;
+    path = picked.path;
+  }
+
+  const outcome = await callApi("perform_save", mode, path);
   if (outcome.ok) {
     state = outcome.state;
     return true;
@@ -1180,6 +1206,14 @@ window.addEventListener("lector:command", (ev) => {
   // didn't ask to go, and the mic pill already shows what was heard so they
   // can see why nothing happened.
   if (!command) return;
+  // DIALOG_PICK/DIALOG_UP/CANCEL/DIALOG_CONFIRM only ever arrive while the
+  // Save-As dialog is the active voice context (router.py scopes them
+  // there), so it is checked first — neither VOICE_ACTIONS nor the dialog
+  // guard below know about it.
+  if (saveAsDialog.isOpen()) {
+    saveAsDialog.handleCommand(command);
+    return;
+  }
   const action = VOICE_ACTIONS[command.intent];
   if (!action) return;
   // A dialog owns the view while it is open; a page turn behind it would be

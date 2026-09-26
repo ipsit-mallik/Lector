@@ -8,9 +8,22 @@ async function openPath(path) {
   window.location.href = "pages/reading.html";
 }
 
+// In-app Open dialog (Milestone 8.7), replacing the native
+// `create_file_dialog()` the voice router could not see or drive.
+const openDialog = createFileBrowser({
+  scrimId: "openDialogScrim",
+  listId: "openDialogList",
+  pathId: "openDialogPath",
+  upBtnId: "openDialogUpBtn",
+  cancelBtnId: "openDialogCancelBtn",
+  mode: "open",
+  voiceContext: "open_dialog",
+  restingContext: "home",
+});
+
 openPdfBtn.addEventListener("click", async () => {
-  const path = await callApi("open_pdf_dialog");
-  if (path) await openPath(path);
+  const result = await openDialog.open({ dir: null });
+  if (result && result.path) await openPath(result.path);
 });
 
 // Shared by the sidebar click and the voice OPEN_SETTINGS command
@@ -245,6 +258,13 @@ const VOICE_ACTIONS = {
 window.addEventListener("lector:command", (ev) => {
   const { command } = ev.detail || {};
   if (!command) return;
+  // DIALOG_PICK/DIALOG_UP/CANCEL/DIALOG_CONFIRM only ever arrive while the
+  // Open dialog is the active voice context (router.py scopes them there),
+  // so it is checked first, the same way pickerActive already is below.
+  if (openDialog.isOpen()) {
+    openDialog.handleCommand(command);
+    return;
+  }
   // Picker commands (PICK/CANCEL) are not in VOICE_ACTIONS above — they are
   // scoped to the `picker` context rather than Home's, so they only ever
   // arrive while pickerActive is true, and are handled separately from it.

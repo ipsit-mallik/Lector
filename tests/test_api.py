@@ -135,5 +135,92 @@ class WindowClosingTests(unittest.TestCase):
         shutdown.assert_called_once()
 
 
+class BrowseAndSaveDialogTests(unittest.TestCase):
+    """`browse_directory`/`get_save_dialog_start`/`perform_save` (Milestone
+    8.7): the in-app Open/Save-As dialogs' bridge, replacing the native
+    `create_file_dialog()` the voice router could not see or drive.
+
+    `dialog_browser`'s own listing/default-directory logic is covered by
+    `test_dialog_browser.py`; these tests only check that `Api` calls into it
+    with the right arguments and returns what it hands back.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory(prefix="lector-settings-")
+        patcher = mock.patch.object(
+            store, "_settings_path", lambda: Path(self.dir.name) / "settings.json"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.dir.cleanup)
+
+        self.api = api_module.Api()
+        self.addCleanup(self.api.shutdown_voice)
+
+    def test_browse_directory_with_no_path_lists_the_open_dialogs_default(self):
+        with mock.patch.object(
+            api_module.dialog_browser, "default_open_dir", return_value="/home/reader"
+        ), mock.patch.object(api_module.dialog_browser, "list_directory") as list_directory:
+            list_directory.return_value = {"path": "/home/reader", "parent": None, "entries": [], "error": None}
+
+            result = self.api.browse_directory()
+
+        list_directory.assert_called_once_with("/home/reader")
+        self.assertEqual(result["path"], "/home/reader")
+
+    def test_browse_directory_with_a_path_lists_that_path_instead(self):
+        with mock.patch.object(api_module.dialog_browser, "list_directory") as list_directory:
+            list_directory.return_value = {"path": "/some/dir", "parent": "/some", "entries": [], "error": None}
+
+            self.api.browse_directory("/some/dir")
+
+        list_directory.assert_called_once_with("/some/dir")
+
+    def test_get_save_dialog_start_derives_dir_and_filename_from_the_suggested_copy_path(self):
+        self.api._doc = mock.Mock(path="/docs/report.pdf")
+        with mock.patch.object(
+            api_module.dialog_browser, "default_save_dir", return_value="/docs"
+        ) as default_save_dir:
+            result = self.api.get_save_dialog_start()
+
+        default_save_dir.assert_called_once_with("/docs/report (highlighted).pdf")
+        self.assertEqual(result, {"dir": "/docs", "filename": "report (highlighted).pdf"})
+
+    def test_perform_save_overwrite_ignores_a_missing_path(self):
+        # `is_open=False` keeps `_state()` (called on a successful save) from
+        # reaching into `self._doc.zoom` and friends, which a bare `Mock`
+        # cannot multiply — irrelevant to what this test is checking.
+        self.api._doc = mock.Mock(is_open=False)
+
+        outcome = self.api.perform_save(store.OVERWRITE)
+
+        self.api._doc.save_overwrite.assert_called_once()
+        self.assertTrue(outcome["ok"])
+
+    def test_perform_save_copy_with_no_path_reports_cancelled_without_touching_the_document(self):
+        self.api._doc = mock.Mock(is_open=False)
+
+        outcome = self.api.perform_save(store.COPY, None)
+
+        self.api._doc.save_copy.assert_not_called()
+        self.assertEqual(outcome, {"ok": False, "cancelled": True})
+
+    def test_perform_save_copy_with_a_path_saves_to_it(self):
+        self.api._doc = mock.Mock(is_open=False)
+
+        outcome = self.api.perform_save(store.COPY, "/docs/copy.pdf")
+
+        self.api._doc.save_copy.assert_called_once_with("/docs/copy.pdf")
+        self.assertTrue(outcome["ok"])
+
+    def test_perform_save_reports_an_error_instead_of_raising(self):
+        self.api._doc = mock.Mock(is_open=False)
+        self.api._doc.save_overwrite.side_effect = OSError("disk full")
+
+        outcome = self.api.perform_save(store.OVERWRITE)
+
+        self.assertEqual(outcome, {"ok": False, "error": "disk full"})
+
+
 if __name__ == "__main__":
     unittest.main()
