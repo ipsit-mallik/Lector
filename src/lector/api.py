@@ -15,6 +15,7 @@ import webview
 
 from lector.features.annotations import highlight_matcher
 from lector.features.annotations.highlighter import words_between
+from lector.features.dialogs import browser as dialog_browser
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading.document import PdfDocument
@@ -82,12 +83,25 @@ class Api:
     def get_recent_files(self) -> list[dict]:
         return home_recent.list_recent()
 
-    def open_pdf_dialog(self) -> str | None:
-        window = webview.windows[0]
-        result = window.create_file_dialog(
-            webview.FileDialog.OPEN, file_types=("PDF Files (*.pdf)",)
-        )
-        return result[0] if result else None
+    def browse_directory(self, path: str | None = None) -> dict:
+        """Lists a directory for the in-app Open/Save-As screens (Milestone
+        8.7), replacing the native `create_file_dialog()` the router could
+        not see. `path=None` starts at `dialog_browser.default_open_dir()` —
+        the Open dialog's own default; the Save-As dialog always passes an
+        explicit starting path from `get_save_dialog_start()` instead, since
+        its default is the current document's folder, not the most recent
+        file's."""
+        return dialog_browser.list_directory(path or dialog_browser.default_open_dir())
+
+    def get_save_dialog_start(self) -> dict:
+        """Where the in-app Save-As screen should start browsing and what
+        filename to pre-fill — both derived from `_suggested_copy_path()`,
+        the same suggestion the native dialog used to pre-fill."""
+        suggested = self._suggested_copy_path()
+        return {
+            "dir": dialog_browser.default_save_dir(suggested),
+            "filename": os.path.basename(suggested),
+        }
 
     # ------------------------------------------------------------------ #
     # Document lifecycle                                                   #
@@ -313,20 +327,15 @@ class Api:
     def set_reopen_behavior(self, mode: str) -> None:
         settings.set_reopen_behavior(mode)
 
-    def perform_save(self, mode: str) -> dict:
+    def perform_save(self, mode: str, path: str | None = None) -> dict:
+        """`path` is required when `mode` is `settings.COPY` — the in-app
+        Save-As screen (Milestone 8.7) gathers it via `browse_directory()`/
+        `get_save_dialog_start()` before calling this, the same way the
+        native dialog used to hand back a chosen path."""
         try:
             if mode == settings.OVERWRITE:
                 self._doc.save_overwrite()
             else:
-                suggested = self._suggested_copy_path()
-                window = webview.windows[0]
-                result = window.create_file_dialog(
-                    webview.FileDialog.SAVE,
-                    save_filename=os.path.basename(suggested),
-                    directory=os.path.dirname(suggested),
-                    file_types=("PDF Files (*.pdf)",),
-                )
-                path = result[0] if result else None
                 if not path:
                     return {"ok": False, "cancelled": True}
                 self._doc.save_copy(path)

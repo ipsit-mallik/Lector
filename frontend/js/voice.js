@@ -45,10 +45,16 @@ function shouldIgnoreKey() {
   return false;
 }
 
-// Whether a modal is on screen. A dialog owns the keyboard while it is open,
-// so push-to-talk stands down rather than competing with it.
+// Whether a modal is on screen that push-to-talk should stand down for. Most
+// dialogs (the save-changes confirmation, "What can I say?") have no scoped
+// voice grammar of their own, so a held Space would only compete with their
+// own keyboard handling. The Open/Save-As file browsers (Milestone 8.7) are
+// the exception: they carry their own `open_dialog`/`save_dialog` router
+// contexts (DIALOG_PICK/DIALOG_UP/CANCEL/DIALOG_CONFIRM) specifically so they
+// can be driven by voice, so they are marked `.voice-dialog` and excluded
+// here rather than suppressing push-to-talk while they're open.
 function dialogIsOpen() {
-  return Boolean(document.querySelector(".dialog-scrim:not([hidden])"));
+  return Boolean(document.querySelector(".dialog-scrim:not([hidden]):not(.voice-dialog)"));
 }
 
 /**

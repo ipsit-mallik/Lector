@@ -53,9 +53,34 @@
     </div>
   </div>
 
+  <!-- In-app Open dialog (Milestone 8.7), replacing the native file chooser
+       the voice router could not see. Every row is numbered for the whole
+       time this is open — see frontend/js/file-browser.js's header comment
+       for why, unlike the Recent grid's opt-in picker toggle above. -->
+  <div class="dialog-scrim voice-dialog" id="openDialogScrim" hidden>
+    <div class="dialog-card">
+      <div class="dialog-body">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="folder"></div>
+          <div>
+            <p class="dialog-title">Open PDF</p>
+            <p class="browser-path" id="openDialogPath"></p>
+          </div>
+        </div>
+        <div class="browser-list" id="openDialogList"></div>
+      </div>
+      <div class="dialog-footer">
+        <span class="hint">Say a number to open it, or "go up" / "cancel".</span>
+        <button class="btn btn-secondary" id="openDialogUpBtn">Up</button>
+        <button class="btn btn-secondary" id="openDialogCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/icons.js"></script>
   <script src="js/bridge.js"></script>
   <script src="js/voice.js"></script>
+  <script src="js/file-browser.js"></script>
   <script src="pages/home.js"></script>
 </body>
 </html>
