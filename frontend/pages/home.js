@@ -79,16 +79,33 @@ function buildCard(entry) {
     : entry.relative_time;
   card.appendChild(meta);
 
+  // Remove-from-Recent affordance (Milestone 8.9, docs/DESIGN_SYSTEM.md).
+  // A real <button>, not a click handler on a styled <div> — the
+  // accessibility baseline's "every interactive element is a real button"
+  // rule, and what gives it independent keyboard focus regardless of
+  // whether the card itself is ever made focusable. stopPropagation keeps
+  // this click from also bubbling into the card's own "open" handler below.
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "icon-btn recent-remove-btn";
+  removeBtn.dataset.icon = "remove";
+  removeBtn.title = "Remove from Recent";
+  removeBtn.setAttribute("aria-label", `Remove ${entry.name} from Recent`);
+  removeBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    removeEntry(entry);
+  });
+  card.appendChild(removeBtn);
+  mountIcon(removeBtn, "remove");
+
   card.addEventListener("click", () => openPath(entry.path));
   return card;
 }
 
-// Populated by loadRecent(), read by the picker below to map a spoken
+// Populated by renderRecent(), read by the picker below to map a spoken
 // index back to the entry it stands for.
 let recentEntries = [];
 
-async function loadRecent() {
-  const entries = await callApi("get_recent_files");
+function renderRecent(entries) {
   recentEntries = entries;
   recentCount.textContent = entries.length ? `${entries.length} of last 10 files` : "no files yet";
   recentArea.innerHTML = "";
@@ -102,6 +119,62 @@ async function loadRecent() {
   recentArea.appendChild(grid);
 }
 
+async function loadRecent() {
+  renderRecent(await callApi("get_recent_files"));
+}
+
+// --- Remove-from-Recent confirmation (Milestone 8.9) --------------------- //
+// Reuses the .dialog-scrim/.dialog-card frame verbatim, the same way
+// SaveDialog (frontend/pages/save-dialog.js) does — no new dialog chrome.
+const removeConfirmScrim = document.getElementById("removeConfirmScrim");
+const removeConfirmDesc = document.getElementById("removeConfirmDesc");
+const removeConfirmCancelBtn = document.getElementById("removeConfirmCancelBtn");
+const removeConfirmRemoveBtn = document.getElementById("removeConfirmRemoveBtn");
+
+let removeConfirmResolve = null;
+
+// Voice-drivable regardless of how the dialog was opened (index.html marks
+// its scrim `.voice-dialog` so push-to-talk keeps working while it's shown,
+// the same way the Open dialog's scrim already does) — restores the `home`
+// context on close since this dialog is only ever reached from Home.
+function closeRemoveConfirm(confirmed) {
+  removeConfirmScrim.hidden = true;
+  callApi("set_voice_context", "home");
+  if (removeConfirmResolve) {
+    removeConfirmResolve(confirmed);
+    removeConfirmResolve = null;
+  }
+}
+
+removeConfirmCancelBtn.addEventListener("click", () => closeRemoveConfirm(false));
+removeConfirmRemoveBtn.addEventListener("click", () => closeRemoveConfirm(true));
+
+function openRemoveConfirm(entry) {
+  removeConfirmDesc.textContent =
+    `"${entry.name}" will no longer appear in Recent.`;
+  removeConfirmScrim.hidden = false;
+  callApi("set_voice_context", "remove_confirm");
+  return new Promise((resolve) => {
+    removeConfirmResolve = resolve;
+  });
+}
+
+// Voice never skips this confirmation either (docs/DESIGN_SYSTEM.md) — the
+// same function backs both the icon-button click and the voice-triggered
+// path (REMOVE_RECENT/REMOVE_PICKER in VOICE_ACTIONS below).
+async function removeEntry(entry) {
+  if (!entry) return;
+  const confirmed = await openRemoveConfirm(entry);
+  if (!confirmed) return;
+  renderRecent(await callApi("remove_recent_file", entry.path));
+}
+
+// Mirrors openMostRecent() — "remove recent" acts on the single most-recent
+// card, the only one with a natural spoken label.
+async function removeMostRecent() {
+  if (recentEntries.length) await removeEntry(recentEntries[0]);
+}
+
 // --- Numbered-overlay picker (Milestone 8.6) ------------------------------ //
 // docs/ARCHITECTURE.md's "Numbered-overlay picker": a card with no natural
 // spoken label gets a number instead, and saying it does what clicking the
@@ -110,9 +183,17 @@ async function loadRecent() {
 // because clicking a card behaves identically whether or not this is
 // showing, never a separate mode to click through.
 let pickerActive = false;
+// "open" (default, Milestone 8.6) picks a card the way clicking it does;
+// "remove" (Milestone 8.9, entered via REMOVE_PICKER) routes the picked
+// card through removeEntry()'s confirmation instead — the picker itself
+// doesn't grow a second grammar for this, only what PICK does once said
+// changes, the same way DIALOG_PICK's meaning is a property of the
+// frontend's dialog mode rather than something router.py needs to know.
+let pickerMode = "open";
 
-function showPicker() {
+function showPicker(mode = "open") {
   if (pickerActive || !recentEntries.length) return;
+  pickerMode = mode;
   const cards = recentArea.querySelectorAll(".recent-card");
   cards.forEach((card, i) => {
     const badge = document.createElement("div");
@@ -138,8 +219,11 @@ function hidePicker() {
 async function handlePickerCommand(command) {
   if (command.intent === "PICK") {
     const entry = recentEntries[command.index - 1];
+    const mode = pickerMode;
     hidePicker();
-    if (entry) await openPath(entry.path);
+    if (!entry) return;
+    if (mode === "remove") await removeEntry(entry);
+    else await openPath(entry.path);
     return;
   }
   if (command.intent === "CANCEL") {
@@ -252,12 +336,24 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
 const VOICE_ACTIONS = {
   OPEN_SETTINGS: () => openSettings(),
   OPEN_RECENT: () => openMostRecent(),
-  OPEN_PICKER: () => showPicker(),
+  OPEN_PICKER: () => showPicker("open"),
+  // Milestone 8.9: same OPEN_RECENT/OPEN_PICKER split, for removal instead.
+  REMOVE_RECENT: () => removeMostRecent(),
+  REMOVE_PICKER: () => showPicker("remove"),
 };
 
 window.addEventListener("lector:command", (ev) => {
   const { command } = ev.detail || {};
   if (!command) return;
+  // CONFIRM_REMOVE/CANCEL only ever arrive while the remove-confirmation
+  // dialog is the active voice context (router.py scopes them there), so
+  // it is checked first, the same way openDialog/pickerActive already are
+  // below — and mirrors exactly what its Cancel/Remove buttons already do.
+  if (!removeConfirmScrim.hidden) {
+    if (command.intent === "CONFIRM_REMOVE") closeRemoveConfirm(true);
+    else if (command.intent === "CANCEL") closeRemoveConfirm(false);
+    return;
+  }
   // DIALOG_PICK/DIALOG_UP/CANCEL/DIALOG_CONFIRM only ever arrive while the
   // Open dialog is the active voice context (router.py scopes them there),
   // so it is checked first, the same way pickerActive already is below.

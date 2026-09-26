@@ -191,6 +191,50 @@ html, body { height: 100%; }
   z-index: 2;
 }
 
+/* Remove-from-Recent affordance (Milestone 8.9, docs/DESIGN_SYSTEM.md).
+   Hidden until hover/focus so it doesn't compete with the thumbnail at
+   rest — an additional accelerator layered on top of the card's existing
+   click-to-open behavior, never a mode, the same rule the picker badge
+   above already follows. Still a real, independently focusable <button>
+   (home.js), so it stays reachable by keyboard even while invisible to the
+   mouse. Sized like reading.css's `.nav-btn` icon-button variant rather
+   than the default 44px `.icon-btn`, which would crowd this small a
+   corner. Hover/active use the destructive token — the one other
+   destructive-leaning affordance in the app, per the design doc. */
+.recent-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 30px;
+  height: 30px;
+  opacity: 0;
+  z-index: 2;
+}
+
+.recent-remove-btn svg { width: 16px; height: 16px; }
+
+.recent-card:hover .recent-remove-btn,
+.recent-remove-btn:focus-visible {
+  opacity: 1;
+}
+
+.recent-remove-btn:hover {
+  background-color: color-mix(in srgb, var(--color-destructive) 14%, transparent);
+  color: var(--color-destructive);
+}
+
+.recent-remove-btn:active {
+  background-color: color-mix(in srgb, var(--color-destructive) 24%, transparent);
+}
+
+/* Same 2px outline + offset every other focusable control in the app uses
+   (docs/DESIGN_SYSTEM.md's contrast/focus clarifications) — no lighter
+   treatment just because this control is otherwise hidden at rest. */
+.recent-remove-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .recent-thumb {
   height: 118px;
   border-radius: 5px;

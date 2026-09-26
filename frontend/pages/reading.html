@@ -97,8 +97,10 @@
 
   <!-- Save-changes confirmation: frameless overlay + dimmed scrim, per
        docs/DESIGN_SYSTEM.md's modal pattern. Plain dim only — backdrop blur
-       explicitly deferred. -->
-  <div class="dialog-scrim" id="saveDialog" hidden>
+       explicitly deferred. Voice-drivable as of Milestone 8.9 (`.voice-dialog`
+       lets push-to-talk work while this is open — see js/voice.js's
+       dialogIsOpen()). -->
+  <div class="dialog-scrim voice-dialog" id="saveDialog" hidden>
     <div class="dialog-card">
       <div class="dialog-body">
         <div class="dialog-header">

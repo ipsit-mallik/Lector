@@ -79,12 +79,23 @@ SAVE_DIALOG = "save_dialog"
 OPEN_DIALOG = "open_dialog"
 PICKER = "picker"
 DICTATION = "dictation"
+# Milestone 8.9: the Remove-from-Recent confirmation dialog's own context —
+# deliberately not folded into `SAVE_DIALOG`/`OPEN_DIALOG` despite the shared
+# `.dialog-scrim` chrome, since this dialog's intents (confirm/cancel a
+# removal) have nothing to do with either file dialog's row-picking grammar.
+REMOVE_CONFIRM = "remove_confirm"
+# Milestone 8.9: the "Save changes?" confirmation's own context — distinct
+# from `SAVE_DIALOG` above, which belongs to the Save-As folder browser
+# (Milestone 8.7) and already owns that name; this is the separate, older
+# copy/overwrite/discard/cancel prompt reading.js's `promptSaveIfDirty` opens.
+SAVE_CONFIRM = "save_confirm"
 
 # Every context a page or dialog may declare itself as, via `Api.set_voice_context`.
-# Extendable: 8.6-8.8 add screens that need no new entry here beyond what is
+# Extendable: 8.6-8.9 add screens that need no new entry here beyond what is
 # already listed, since `docs/ARCHITECTURE.md` names the full set up front.
 CONTEXTS: tuple[str, ...] = (
     HOME, READING, SETTINGS, SAVE_DIALOG, OPEN_DIALOG, PICKER, DICTATION,
+    REMOVE_CONFIRM, SAVE_CONFIRM,
 )
 
 # What a fresh `VoiceEngine`/`Api` should behave as before any page has made
@@ -141,6 +152,18 @@ HOME_PHRASES: dict[str, tuple[str, ...]] = {
     OPEN_SETTINGS: ("open settings",),
     OPEN_RECENT: ("open recent", "resume reading"),
 }
+
+# Milestone 8.9: removing a Recent entry by voice. Mirrors OPEN_RECENT/
+# OPEN_PICKER's own split exactly — "remove recent" acts on the single most-
+# recent card, the one with a natural spoken label, while "remove a file"
+# puts the numbered-overlay picker (below) into a removal mode for any other
+# card. Neither ever removes anything directly: both route through the same
+# `removeEntry()`/confirmation-dialog flow the icon-button click uses
+# (docs/DESIGN_SYSTEM.md — voice never skips that confirmation).
+REMOVE_RECENT = "REMOVE_RECENT"
+REMOVE_PICKER = "REMOVE_PICKER"
+HOME_PHRASES[REMOVE_RECENT] = ("remove recent", "delete recent")
+HOME_PHRASES[REMOVE_PICKER] = ("remove a file", "delete a file")
 
 # Settings context (Milestone 8.5): theme switching and the existing
 # save/reopen preference toggles, per docs/TASKS.md. Three single-phrase
@@ -245,6 +268,39 @@ DICTATION_PHRASES: dict[str, tuple[str, ...]] = {
     CANCEL: ("cancel", "never mind"),
 }
 
+# Remove-from-Recent confirmation context (Milestone 8.9): reached from
+# REMOVE_RECENT/REMOVE_PICKER above or from the icon-button click — the
+# dialog is voice-drivable regardless of which way it was opened, since a
+# reader who clicked the icon-button should still be able to finish the
+# confirmation by voice. Reuses CANCEL rather than a second "back out"
+# intent, the same way PICKER/the file dialogs already do.
+CONFIRM_REMOVE = "CONFIRM_REMOVE"
+
+REMOVE_CONFIRM_PHRASES: dict[str, tuple[str, ...]] = {
+    CONFIRM_REMOVE: ("remove it", "confirm remove"),
+    CANCEL: ("cancel", "never mind"),
+}
+
+# Save-changes confirmation context (Milestone 8.9): reading.js's
+# `promptSaveIfDirty` (the "Save changes?" dialog, distinct from the
+# `SAVE_DIALOG` Save-As folder browser above). Reuses SAVE_COPY/SAVE_OVERWRITE
+# from SETTINGS_PHRASES rather than inventing new intent names for the same
+# choice — saying either one both selects that option and confirms in a
+# single command, the same one-command-does-the-whole-action mapping
+# REMOVE_CONFIRM above already establishes, matching docs/TASKS.md 8.9's "no
+# new dialog logic needed". DONT_SAVE is only meaningful when the dialog's
+# Don't-Save button is offered (`allowDiscard`); when it isn't, save-dialog.js
+# treats the phrase as a no-op, the same as the hidden button being
+# unclickable by mouse.
+DONT_SAVE = "DONT_SAVE"
+
+SAVE_CONFIRM_PHRASES: dict[str, tuple[str, ...]] = {
+    SAVE_COPY: ("save a copy",),
+    SAVE_OVERWRITE: ("overwrite the original",),
+    DONT_SAVE: ("don't save", "do not save"),
+    CANCEL: ("cancel", "never mind"),
+}
+
 
 def _flatten_phrases(phrases: dict[str, tuple[str, ...]]) -> tuple[tuple[str, ...], dict[str, str]]:
     """Shared by every fixed-phrase table here (global, home, settings):
@@ -265,6 +321,8 @@ _PICKER_ORDERED_PHRASES, _PICKER_PHRASE_TO_INTENT = _flatten_phrases(PICKER_PHRA
 _OPEN_DIALOG_ORDERED_PHRASES, _OPEN_DIALOG_PHRASE_TO_INTENT = _flatten_phrases(OPEN_DIALOG_PHRASES)
 _SAVE_DIALOG_ORDERED_PHRASES, _SAVE_DIALOG_PHRASE_TO_INTENT = _flatten_phrases(SAVE_DIALOG_PHRASES)
 _DICTATION_ORDERED_PHRASES, _DICTATION_PHRASE_TO_INTENT = _flatten_phrases(DICTATION_PHRASES)
+_REMOVE_CONFIRM_ORDERED_PHRASES, _REMOVE_CONFIRM_PHRASE_TO_INTENT = _flatten_phrases(REMOVE_CONFIRM_PHRASES)
+_SAVE_CONFIRM_ORDERED_PHRASES, _SAVE_CONFIRM_PHRASE_TO_INTENT = _flatten_phrases(SAVE_CONFIRM_PHRASES)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
 # except `READING` (which delegates to `command_grammar` instead) and
@@ -280,6 +338,8 @@ _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     PICKER: (_PICKER_ORDERED_PHRASES, _PICKER_PHRASE_TO_INTENT),
     OPEN_DIALOG: (_OPEN_DIALOG_ORDERED_PHRASES, _OPEN_DIALOG_PHRASE_TO_INTENT),
     SAVE_DIALOG: (_SAVE_DIALOG_ORDERED_PHRASES, _SAVE_DIALOG_PHRASE_TO_INTENT),
+    REMOVE_CONFIRM: (_REMOVE_CONFIRM_ORDERED_PHRASES, _REMOVE_CONFIRM_PHRASE_TO_INTENT),
+    SAVE_CONFIRM: (_SAVE_CONFIRM_ORDERED_PHRASES, _SAVE_CONFIRM_PHRASE_TO_INTENT),
 }
 
 
@@ -309,6 +369,8 @@ _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     OPEN_DIALOG: sorted(set(_vocabulary_from_phrases(OPEN_DIALOG_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
     SAVE_DIALOG: sorted(set(_vocabulary_from_phrases(SAVE_DIALOG_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
     DICTATION: _vocabulary_from_phrases(DICTATION_PHRASES),
+    REMOVE_CONFIRM: _vocabulary_from_phrases(REMOVE_CONFIRM_PHRASES),
+    SAVE_CONFIRM: _vocabulary_from_phrases(SAVE_CONFIRM_PHRASES),
 }
 
 
@@ -422,10 +484,11 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
     alternative. Only once no global command confidently matches does a
     context with its own scoped grammar get a turn: `READING` delegates to
     unchanged, existing `command_grammar.resolve` (with its own near-miss
-    clarification tier); `HOME` and `SETTINGS` (Milestone 8.5) try their own
-    fixed-phrase table the same confident-only way global commands are
-    matched — no clarification tier, for the reason `GLOBAL_PHRASES`
-    doesn't have one either. `PICKER` (Milestone 8.6) additionally tries
+    clarification tier); `HOME`, `SETTINGS` (Milestone 8.5), and
+    `REMOVE_CONFIRM`/`SAVE_CONFIRM` (Milestone 8.9) try their own fixed-phrase
+    table the same confident-only way global commands are matched — no clarification
+    tier, for the reason `GLOBAL_PHRASES` doesn't have one either. `PICKER`
+    (Milestone 8.6) additionally tries
     `_parse_picker_number` before its own fixed-phrase table, so a spoken
     number picks a badge and "cancel"/"never mind" still falls through to
     `PICKER_PHRASES`. `OPEN_DIALOG`/`SAVE_DIALOG` (Milestone 8.7) do the same

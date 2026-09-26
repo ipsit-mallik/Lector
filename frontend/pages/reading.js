@@ -892,7 +892,9 @@ async function promptSaveIfDirty(allowDiscard) {
   let mode;
   let remember = false;
   if (behavior === "ask") {
+    await callApi("set_voice_context", "save_confirm");
     const result = await SaveDialog.open({ allowDiscard });
+    await callApi("set_voice_context", "reading");
     if (result.action === "discard") return true;
     if (result.action !== "save") return false;
     mode = result.mode;
@@ -1212,6 +1214,14 @@ window.addEventListener("lector:command", (ev) => {
   // guard below know about it.
   if (saveAsDialog.isOpen()) {
     saveAsDialog.handleCommand(command);
+    return;
+  }
+  // SAVE_COPY/SAVE_OVERWRITE/DONT_SAVE/CANCEL only ever arrive while the
+  // Save-changes confirmation is the active voice context (router.py scopes
+  // them there via SAVE_CONFIRM, Milestone 8.9) — checked next for the same
+  // reason saveAsDialog is checked above it.
+  if (SaveDialog.isOpen()) {
+    SaveDialog.handleCommand(command);
     return;
   }
   const action = VOICE_ACTIONS[command.intent];

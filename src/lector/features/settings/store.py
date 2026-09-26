@@ -184,6 +184,28 @@ def add_recent_file(path: str) -> None:
     _save(data)
 
 
+def remove_recent_file(path: str) -> None:
+    """Drop `path` from the recent-files list only (Milestone 8.9).
+
+    List-entry removal only — the underlying PDF on disk is never touched,
+    which is what makes this reversible (reopening the file re-adds it) and
+    safe to gate behind nothing more than a confirmation dialog. A no-op if
+    `path` isn't present, the same tolerance `add_recent_file`'s own dedup
+    already assumes of this list.
+    """
+    data = _load()
+    entries = data.get(_RECENT_FILES_KEY)
+    if not isinstance(entries, list):
+        return
+    filtered = [
+        e for e in entries if not (isinstance(e, dict) and e.get("path") == path)
+    ]
+    if len(filtered) == len(entries):
+        return
+    data[_RECENT_FILES_KEY] = filtered
+    _save(data)
+
+
 # Reading position rides along on the recent-files entry rather than living in
 # its own map: it is only ever needed for a file the reader can actually get
 # back to from the Home screen, so tying its lifetime to the 10-item recent
