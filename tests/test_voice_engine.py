@@ -162,6 +162,15 @@ class VocabularyTests(unittest.TestCase):
         words.append("previous")
         self.assertEqual(engine._vocabulary, ["next"])
 
+    def test_set_vocabulary_none_means_open_vocabulary(self):
+        # Milestone 8.8's dictation mode: `None` is the sentinel
+        # `_new_recognizer` reads as "no grammar constraint at all", not "use
+        # the default navigation grammar" — those are different things, and
+        # only `None` means the former.
+        engine = ve.VoiceEngine(vocabulary=["open"])
+        engine.set_vocabulary(None)
+        self.assertIsNone(engine._vocabulary)
+
 
 class CommandEndpointTests(unittest.TestCase):
     """`_check_command_endpoint` decides whether trailing silence should
@@ -304,6 +313,23 @@ class RecognizerTests(unittest.TestCase):
     def test_grammar_is_constrained_to_the_vocabulary_plus_unknown(self):
         engine = voice_support.engine(vocabulary=["next", "page"])
         engine._ensure_model()
+        recognizer = engine._new_recognizer()
+        self.assertIsNotNone(recognizer)
+
+    def test_a_none_vocabulary_builds_a_recognizer_with_no_grammar_argument(self):
+        # Milestone 8.8: `set_vocabulary(None)` must reach Vosk as "build the
+        # recognizer with no grammar constraint at all" (open vocabulary),
+        # not as a zero-word closed grammar, which would make it hear
+        # nothing. `KaldiRecognizer(model, rate)` (no third argument) is what
+        # Vosk's own API uses to mean that; the mirrored real-audio proof
+        # (transcribing a word outside every closed vocabulary here) lives
+        # outside this suite for the same reason `test_silence_yields_no_
+        # command` above's neighbors do — a real transcription needs
+        # synthesized speech, which this suite does not carry as a fixture
+        # (see the module docstring).
+        engine = voice_support.engine()
+        engine._ensure_model()
+        engine.set_vocabulary(None)
         recognizer = engine._new_recognizer()
         self.assertIsNotNone(recognizer)
 

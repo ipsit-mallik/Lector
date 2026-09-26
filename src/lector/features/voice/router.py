@@ -48,13 +48,27 @@ second copy of what a click does. `OPEN_DIALOG`/`SAVE_DIALOG` gain theirs in
 Milestone 8.7, once the native OS file choosers they replace are gone —
 `DIALOG_PICK` reads a spoken row number the same way `PICKER`'s numbers do
 (reusing 8.6's number-parsing mechanic), plus `DIALOG_UP`/`CANCEL` and, for
-`SAVE_DIALOG` only, `DIALOG_CONFIRM`. `DICTATION` is the only context still
-with none, pending 8.8. Until a context has one, it hears nothing but the
-global commands — a screen with no voice commands of its own must not still
-be listening for a different screen's grammar, which is the accidental
-behavior this router replaces (before it, every recognizer was built from
-the reading grammar regardless of which screen was open, because there was
-only ever one grammar to reach for).
+`SAVE_DIALOG` only, `DIALOG_CONFIRM`. Until a context has one, it hears
+nothing but the global commands — a screen with no voice commands of its own
+must not still be listening for a different screen's grammar, which is the
+accidental behavior this router replaces (before it, every recognizer was
+built from the reading grammar regardless of which screen was open, because
+there was only ever one grammar to reach for).
+
+`DICTATION` (Milestone 8.8) is the one exception to "global commands are
+matched before a context is consulted at all": while it is active, `resolve`
+skips global matching entirely and tries only `DICTATION_PHRASES` ("done" to
+confirm, "cancel"/"never mind" to abandon), falling through to
+`{"command": None, ...}` for anything else. Every other context needs global
+commands to win first so a misheard "undo" is not swallowed by a context
+grammar that happens to share a word; `DICTATION` needs the opposite,
+because its "anything else" is not silence but arbitrary dictated text a
+reader is actively speaking, via open-vocabulary recognition
+(`VoiceEngine.set_vocabulary(None)`, reached through
+`Api._refresh_voice_vocabulary`'s own special case for this context). A
+dictated sentence that happens to contain "help" or "go home" must reach the
+caller as plain text, not get hijacked into a global command partway through
+being spoken.
 """
 from lector.features.voice import command_grammar, fuzzy
 
@@ -91,6 +105,14 @@ UNDO = "UNDO"
 REDO = "REDO"
 HELP = "HELP"
 GO_HOME = "GO_HOME"
+# Milestone 8.8: the one way into dictation mode, reachable from wherever the
+# "What can I say?" panel's search field can be reached (today, only reading,
+# via HELP) — a global command rather than a `READING`-scoped one so it does
+# not need duplicating into `command_grammar.py`, which `READING` delegates
+# to unchanged. It is a silent no-op anywhere the panel is not wired to open,
+# the same way `HELP` already is on Home (docs/TASKS.md's build order has not
+# reached wiring Home's own reference panel yet).
+START_DICTATION = "START_DICTATION"
 
 # Phrasings per global intent — the exact wording `docs/TASKS.md` and
 # `docs/ARCHITECTURE.md` name for 8.4. Unlike `command_grammar.PHRASES`,
@@ -103,6 +125,7 @@ GLOBAL_PHRASES: dict[str, tuple[str, ...]] = {
     REDO: ("redo",),
     HELP: ("help", "what can i say"),
     GO_HOME: ("go home",),
+    START_DICTATION: ("start search",),
 }
 
 # Home context (Milestone 8.5): sidebar navigation and opening a PDF from
@@ -204,6 +227,24 @@ SAVE_DIALOG_PHRASES: dict[str, tuple[str, ...]] = {
     DIALOG_CONFIRM: ("save here", "save it", "confirm save"),
 }
 
+# Dictation context (Milestone 8.8): docs/ARCHITECTURE.md's "Dictation mode"
+# — the one free-text field that exists today, the command-reference panel's
+# live search. `START_DICTATION` (above, global) pushes this context;
+# `STOP_DICTATION` ("done") pops it back to a resting context and keeps
+# whatever was dictated, the same way `CANCEL` pops it back and discards.
+# Reuses `CANCEL` rather than a second exit intent — "cancel" already means
+# "leave without keeping this" in `PICKER`/the file dialogs, and dictation's
+# cancel means exactly the same thing. Deliberately just these two phrases:
+# resolve() skips global matching while this context is active (see the
+# module docstring), so anything else falls through as dictated text instead
+# of being matched against a table at all.
+STOP_DICTATION = "STOP_DICTATION"
+
+DICTATION_PHRASES: dict[str, tuple[str, ...]] = {
+    STOP_DICTATION: ("done",),
+    CANCEL: ("cancel", "never mind"),
+}
+
 
 def _flatten_phrases(phrases: dict[str, tuple[str, ...]]) -> tuple[tuple[str, ...], dict[str, str]]:
     """Shared by every fixed-phrase table here (global, home, settings):
@@ -223,13 +264,16 @@ _SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT = _flatten_phrases(SETTING
 _PICKER_ORDERED_PHRASES, _PICKER_PHRASE_TO_INTENT = _flatten_phrases(PICKER_PHRASES)
 _OPEN_DIALOG_ORDERED_PHRASES, _OPEN_DIALOG_PHRASE_TO_INTENT = _flatten_phrases(OPEN_DIALOG_PHRASES)
 _SAVE_DIALOG_ORDERED_PHRASES, _SAVE_DIALOG_PHRASE_TO_INTENT = _flatten_phrases(SAVE_DIALOG_PHRASES)
+_DICTATION_ORDERED_PHRASES, _DICTATION_PHRASE_TO_INTENT = _flatten_phrases(DICTATION_PHRASES)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
 # except `READING` (which delegates to `command_grammar` instead) and
-# `DICTATION` (which has no scoped grammar yet, pending 8.8). `PICKER`,
-# `OPEN_DIALOG` and `SAVE_DIALOG`'s tables only ever match their non-numeric
-# phrases here — their row numbers are read by `_parse_picker_number`/
-# `_parse_dialog_number` instead, tried first in `resolve`.
+# `DICTATION` (handled by its own dedicated branch at the top of `resolve`,
+# since unlike every other context it must *not* fall back to this table
+# after failing to match — see the module docstring). `PICKER`, `OPEN_DIALOG`
+# and `SAVE_DIALOG`'s tables only ever match their non-numeric phrases here —
+# their row numbers are read by `_parse_picker_number`/`_parse_dialog_number`
+# instead, tried first in `resolve`.
 _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     HOME: (_HOME_ORDERED_PHRASES, _HOME_PHRASE_TO_INTENT),
     SETTINGS: (_SETTINGS_ORDERED_PHRASES, _SETTINGS_PHRASE_TO_INTENT),
@@ -250,8 +294,13 @@ def _vocabulary_from_phrases(phrases: dict[str, tuple[str, ...]]) -> list[str]:
 GLOBAL_VOCABULARY: list[str] = _vocabulary_from_phrases(GLOBAL_PHRASES)
 
 # Per-context scoped vocabulary, on top of the globals every context gets.
-# `DICTATION` is deliberately absent — see the module docstring for why it
-# stays global-only until 8.8 gives it its own.
+# `DICTATION`'s entry here is never actually handed to the recognizer — Api.
+# _refresh_voice_vocabulary special-cases this context to run Vosk
+# open-vocabulary instead (`VoiceEngine.set_vocabulary(None)`) — but it is
+# still filled in below rather than left absent, so `vocabulary_for` and
+# `resolve` agree on what this context's fixed phrases are, and so a future
+# caller of `vocabulary_for` that is not `Api` does not silently get an empty
+# scoped set for a context that does, in fact, have one.
 _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     READING: command_grammar.VOCABULARY,
     HOME: _vocabulary_from_phrases(HOME_PHRASES),
@@ -259,6 +308,7 @@ _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     PICKER: sorted(set(_vocabulary_from_phrases(PICKER_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
     OPEN_DIALOG: sorted(set(_vocabulary_from_phrases(OPEN_DIALOG_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
     SAVE_DIALOG: sorted(set(_vocabulary_from_phrases(SAVE_DIALOG_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
+    DICTATION: _vocabulary_from_phrases(DICTATION_PHRASES),
 }
 
 
@@ -380,7 +430,21 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
     number picks a badge and "cancel"/"never mind" still falls through to
     `PICKER_PHRASES`. `OPEN_DIALOG`/`SAVE_DIALOG` (Milestone 8.7) do the same
     with `_parse_dialog_number` before their own tables.
+
+    `DICTATION` (Milestone 8.8) is handled before any of the above, and does
+    not fall through to it: global matching is skipped entirely, only
+    `DICTATION_PHRASES` is tried, and failing to match that returns
+    `command: None` rather than continuing on to look for anything else —
+    the caller (`Api._on_voice_result`) treats that `None` together with the
+    original `text` as dictated content, not as "nothing was understood".
     """
+    if context == DICTATION:
+        for candidate in (text, *(alternatives or ())):
+            command = _match_phrases(candidate, _DICTATION_ORDERED_PHRASES, _DICTATION_PHRASE_TO_INTENT)
+            if command is not None:
+                return {"command": command, "clarify": None}
+        return {"command": None, "clarify": None}
+
     for candidate in (text, *(alternatives or ())):
         command = _match_global(candidate)
         if command is not None:

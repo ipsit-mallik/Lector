@@ -277,23 +277,40 @@ class VoiceEngine:
         callers building a command-capable recognizer pass
         `COMMAND_ALTERNATIVES`; the wake recognizer, which only ever checks
         for one phrase, leaves it at 0.
+
+        `self._vocabulary` being `None` (set via `set_vocabulary(None)`,
+        Milestone 8.8's dictation mode) means open-vocabulary: no grammar
+        argument is passed to `KaldiRecognizer` at all, which is what lets
+        Vosk return arbitrary dictated text instead of only ever the closed
+        set `command_grammar.VOCABULARY` and its kin allow. `vocabulary`
+        (the explicit wake-listening argument) is never `None` in practice —
+        only the default, viewport/context-driven vocabulary is ever set to
+        it.
         """
         import vosk
 
         words = self._vocabulary if vocabulary is None else vocabulary
-        grammar = json.dumps(list(words) + [UNKNOWN_TOKEN])
-        recognizer = vosk.KaldiRecognizer(self._model, SAMPLE_RATE, grammar)
+        if words is None:
+            recognizer = vosk.KaldiRecognizer(self._model, SAMPLE_RATE)
+        else:
+            grammar = json.dumps(list(words) + [UNKNOWN_TOKEN])
+            recognizer = vosk.KaldiRecognizer(self._model, SAMPLE_RATE, grammar)
         recognizer.SetWords(False)
         if alternatives:
             recognizer.SetMaxAlternatives(alternatives)
         return recognizer
 
-    def set_vocabulary(self, vocabulary: list[str]) -> None:
+    def set_vocabulary(self, vocabulary: list[str] | None) -> None:
         """Swap the recognized word list; takes effect on the next
         `start_listening()`, or on the next wake. The navigation grammar is
         already the default — this is how Milestone 7 widens the vocabulary
-        to the words currently on screen once highlighting can be spoken."""
-        self._vocabulary = list(vocabulary)
+        to the words currently on screen once highlighting can be spoken.
+
+        `None` means open vocabulary — no grammar constraint at all — which
+        Milestone 8.8's dictation mode uses so free-text search queries are
+        not limited to a closed word list the way every other context is.
+        """
+        self._vocabulary = None if vocabulary is None else list(vocabulary)
 
     # ---------------------------------------------------------------- #
     # Status                                                             #

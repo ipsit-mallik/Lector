@@ -43,8 +43,13 @@ class GlobalCommandTests(unittest.TestCase):
         result = router.resolve(router.SETTINGS, "go home")
         self.assertEqual(result["command"]["intent"], router.GO_HOME)
 
-    def test_global_commands_are_available_in_every_context(self):
+    def test_global_commands_are_available_in_every_context_except_dictation(self):
+        # DICTATION is the one deliberate exception (Milestone 8.8) — see
+        # test_global_commands_do_not_resolve_while_dictation_is_active below,
+        # and DictationContextTests for its own behavior in full.
         for context in router.CONTEXTS:
+            if context == router.DICTATION:
+                continue
             result = router.resolve(context, "undo")
             self.assertEqual(
                 result["command"]["intent"], router.UNDO, msg=f"context={context}"
@@ -56,13 +61,13 @@ class GlobalCommandTests(unittest.TestCase):
         result = router.resolve(router.HOME, "undue", alternatives=["undo"])
         self.assertEqual(result["command"]["intent"], router.UNDO)
 
-    def test_unrelated_speech_resolves_to_nothing_in_a_context_with_no_grammar(self):
-        # `dictation` has no scoped grammar yet (Milestone 8.8), so once no
-        # global command matches there is nothing left to try. `save_dialog`
-        # gained its own scoped grammar in Milestone 8.7 — see
-        # SaveDialogContextTests; `picker` gained its own in Milestone 8.6 —
-        # see PickerContextTests.test_unrelated_speech_still_resolves_to_nothing.
-        result = router.resolve(router.DICTATION, "banana")
+    def test_global_commands_do_not_resolve_while_dictation_is_active(self):
+        # DictationContextTests below covers `dictation`'s own behavior in
+        # detail; this pins down that it is the one context excluded from
+        # "global commands are matched before a context is consulted at all"
+        # (see the module docstring) — a dictated sentence that happens to
+        # contain "undo" must not be hijacked into the UNDO command.
+        result = router.resolve(router.DICTATION, "undo")
         self.assertIsNone(result["command"])
         self.assertIsNone(result["clarify"])
 
@@ -273,19 +278,79 @@ class SaveDialogContextTests(unittest.TestCase):
         self.assertIsNone(result["clarify"])
 
 
+class DictationContextTests(unittest.TestCase):
+    def test_done_resolves_to_stop_dictation(self):
+        result = router.resolve(router.DICTATION, "done")
+        self.assertEqual(result["command"]["intent"], router.STOP_DICTATION)
+        self.assertIsNone(result["clarify"])
+
+    def test_cancel_resolves_via_either_of_its_two_phrasings(self):
+        self.assertEqual(
+            router.resolve(router.DICTATION, "cancel")["command"]["intent"], router.CANCEL
+        )
+        self.assertEqual(
+            router.resolve(router.DICTATION, "never mind")["command"]["intent"], router.CANCEL
+        )
+
+    def test_arbitrary_dictated_text_resolves_to_no_command(self):
+        # This is the entire point of the context: unlike every other one,
+        # "resolves to nothing" here does not mean "wasn't understood" — the
+        # caller (Api._on_voice_result / command-reference.js) treats this
+        # together with the original text as dictated content.
+        result = router.resolve(router.DICTATION, "chapter three summary")
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["clarify"])
+
+    def test_a_global_command_word_inside_dictated_text_is_not_hijacked(self):
+        # "undo" would resolve instantly as a global command in every other
+        # context (see GlobalCommandTests) — dictation is the one place a
+        # reader must be able to say it and have it land in the search field
+        # instead.
+        for phrase in ("undo", "help", "go home", "redo", "start search"):
+            result = router.resolve(router.DICTATION, phrase)
+            self.assertIsNone(result["command"], msg=phrase)
+            self.assertIsNone(result["clarify"], msg=phrase)
+
+    def test_a_stop_phrase_is_found_among_alternatives(self):
+        result = router.resolve(router.DICTATION, "dun", alternatives=["done"])
+        self.assertEqual(result["command"]["intent"], router.STOP_DICTATION)
+
+
+class StartDictationTests(unittest.TestCase):
+    def test_start_search_resolves_as_a_global_command_from_reading(self):
+        # Entering dictation happens from whatever context has the reference
+        # panel open (today, always `reading`) — a normal global-command
+        # match, not a special case the way exiting dictation is.
+        result = router.resolve(router.READING, "start search")
+        self.assertEqual(result["command"]["intent"], router.START_DICTATION)
+        self.assertIsNone(result["clarify"])
+
+    def test_start_search_is_available_in_every_context(self):
+        for context in router.CONTEXTS:
+            if context == router.DICTATION:
+                continue  # Covered by DictationContextTests instead.
+            result = router.resolve(context, "start search")
+            self.assertEqual(
+                result["command"]["intent"], router.START_DICTATION, msg=f"context={context}"
+            )
+
+
 class VocabularyTests(unittest.TestCase):
     def test_reading_vocabulary_is_a_superset_of_global_and_command_grammar(self):
         vocab = set(router.vocabulary_for(router.READING))
         self.assertTrue(set(router.GLOBAL_VOCABULARY).issubset(vocab))
         self.assertTrue(set(command_grammar.VOCABULARY).issubset(vocab))
 
-    def test_a_context_with_no_scoped_grammar_gets_only_global_vocabulary(self):
-        # PICKER gained its own scoped grammar in Milestone 8.6 (see
-        # PickerContextTests below); SAVE_DIALOG/OPEN_DIALOG gained theirs in
-        # Milestone 8.7 (see SaveDialogContextTests/OpenDialogContextTests).
-        # DICTATION is still the one context with none, pending 8.8.
-        self.assertEqual(
-            set(router.vocabulary_for(router.DICTATION)), set(router.GLOBAL_VOCABULARY)
+    def test_dictation_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):
+        # Never actually handed to the recognizer while dictation is active —
+        # Api._refresh_voice_vocabulary bypasses this in favor of
+        # VoiceEngine.set_vocabulary(None) (open vocabulary) instead — but
+        # still a coherent value in its own right, the same as every other
+        # context's entry.
+        vocab = set(router.vocabulary_for(router.DICTATION))
+        self.assertTrue(set(router.GLOBAL_VOCABULARY).issubset(vocab))
+        self.assertTrue(
+            set(router._vocabulary_from_phrases(router.DICTATION_PHRASES)).issubset(vocab)
         )
 
     def test_home_vocabulary_is_a_superset_of_global_and_its_own_phrases(self):

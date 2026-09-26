@@ -451,6 +451,18 @@ html, body { height: 100%; }
   outline-offset: 2px;
 }
 
+/* Milestone 8.8: "voice is paying attention here" while dictation mode is
+   active, the same --color-voice-focus convention .mic-pill.listening uses
+   (docs/DESIGN_SYSTEM.md) rather than the plain focus outline above, so a
+   reader can tell "listening for a command" and "listening for dictated
+   text" apart at a glance. */
+.reference-search.dictating {
+  border-color: var(--color-voice-focus);
+  outline: 2px solid var(--color-voice-focus);
+  outline-offset: 2px;
+  background-color: color-mix(in srgb, var(--color-voice-focus) 6%, var(--color-input-bg));
+}
+
 .reference-search-icon { display: flex; color: var(--color-text-very-muted); }
 .reference-search-icon svg { width: 15px; height: 15px; }
 

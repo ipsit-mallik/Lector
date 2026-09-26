@@ -18,6 +18,10 @@ const referenceDialog = document.getElementById("referenceDialog");
 const referenceGrid = document.getElementById("referenceGrid");
 const referenceEmpty = document.getElementById("referenceEmpty");
 const referenceSearch = document.getElementById("referenceSearch");
+// The `.dictating` cue paints the bordered wrapper around the input, the
+// same element `:focus-within` already styles — not the bare `<input>`,
+// which carries no border of its own to color.
+const referenceSearchWrap = referenceSearch.closest(".reference-search");
 const referenceActivation = document.getElementById("referenceActivation");
 const referenceCloseBtn = document.getElementById("referenceCloseBtn");
 const referenceGotItBtn = document.getElementById("referenceGotItBtn");
@@ -132,6 +136,12 @@ async function openCommandReference() {
 
 function closeCommandReference() {
   if (referenceDialog.hidden) return;
+  // Leaving the panel with dictation still active must not leave the voice
+  // context stuck on `dictation` — nothing after this point would ever pop
+  // it back, and every subsequent command anywhere in the app would be
+  // silently swallowed as "just dictated text" (see the module docstring in
+  // src/lector/features/voice/router.py).
+  if (dictationActive) endDictation({ restore: false });
   referenceDialog.hidden = true;
   if (referenceOpener && referenceOpener.focus) referenceOpener.focus();
   referenceOpener = null;
@@ -160,3 +170,81 @@ document.addEventListener(
   },
   true,
 );
+
+// --- Dictation mode (Milestone 8.8) ---------------------------------------
+//
+// docs/ARCHITECTURE.md's "Dictation mode": the one free-text field that
+// exists today is this panel's own search box, and voice fills it the same
+// way a keyboard does — by typing into it, not by matching a fixed phrase.
+// "start search" pushes a `dictation` router context (open-vocabulary
+// recognition, src/lector/features/voice/engine.py); "done" keeps whatever
+// was dictated and pops back; "cancel"/"never mind" discards it and pops
+// back to what the field held before. Only *final* recognition results are
+// ever applied to the field — this deliberately does not stream partial
+// results into it character-by-character, because a partial result cannot
+// yet be told apart from the start of "done"/"cancel", and writing a
+// half-formed guess into the reader's search query would be worse than
+// waiting the extra moment for the final one.
+//
+// The resting context this pops back to is hardcoded to "reading" rather
+// than tracked as "whatever was active before dictation started": the panel
+// is, today, only ever opened from the reading view (home.js has no
+// reference-panel button yet, per its own comment), so there is exactly one
+// context to return to. A second opener would need this to remember its own
+// entry context instead.
+let dictationActive = false;
+let dictationPreviousValue = "";
+
+function startDictation() {
+  if (dictationActive) return;
+  dictationActive = true;
+  dictationPreviousValue = referenceSearch.value;
+  referenceSearchWrap.classList.add("dictating");
+  callApi("set_voice_context", "dictation").catch(() => {
+    // A failed context switch must not leave the field looking like it is
+    // listening when it is not.
+    dictationActive = false;
+    referenceSearchWrap.classList.remove("dictating");
+  });
+}
+
+function endDictation({ restore }) {
+  if (!dictationActive) return;
+  dictationActive = false;
+  referenceSearchWrap.classList.remove("dictating");
+  if (restore) {
+    referenceSearch.value = dictationPreviousValue;
+    applyReferenceFilter();
+  }
+  callApi("set_voice_context", "reading").catch(() => {});
+}
+
+// A separate `lector:command` listener from reading.js's own: that one bails
+// out immediately on `!command` (it has nothing to do with plain text), but
+// dictated text arrives as exactly that — a final result with `command:
+// null` — so this panel needs its own subscriber to see the raw `text`
+// field voice.js's `lector:voice` handler re-broadcasts alongside it.
+window.addEventListener("lector:command", (ev) => {
+  if (referenceDialog.hidden) return;
+  const { text, command } = ev.detail || {};
+  if (!dictationActive) {
+    if (command && command.intent === "START_DICTATION") startDictation();
+    return;
+  }
+  if (command && command.intent === "STOP_DICTATION") {
+    endDictation({ restore: false });
+    return;
+  }
+  if (command && command.intent === "CANCEL") {
+    endDictation({ restore: true });
+    return;
+  }
+  // Anything else heard while dictating is the dictated text itself —
+  // router.py's DICTATION branch returns `command: null` for it precisely so
+  // it reaches here as plain text rather than being matched against any
+  // fixed-phrase table.
+  if (text) {
+    referenceSearch.value = text;
+    applyReferenceFilter();
+  }
+});

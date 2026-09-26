@@ -517,7 +517,15 @@ class Api:
         the grammar changes — the active context or the visible viewport —
         so the fixed-vocabulary and viewport-vocabulary computation can't
         drift apart the way duplicating it at each call site would risk.
+
+        `DICTATION` (Milestone 8.8) bypasses the usual computation entirely:
+        `VoiceEngine.set_vocabulary(None)` puts the recognizer into
+        open-vocabulary mode, so viewport widening (meaningless for free
+        dictated text) is skipped rather than computed and then ignored.
         """
+        if self._voice_context == router.DICTATION:
+            self._voice.set_vocabulary(None)
+            return
         extra = self._viewport_vocabulary(self._voice_viewport) if self._doc.is_open else []
         self._voice.set_vocabulary(router.vocabulary_for(self._voice_context) + extra)
 
