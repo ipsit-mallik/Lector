@@ -26,9 +26,12 @@ Two things are deliberately kept apart:
   `fuzzy.best_match` primitive `command_grammar` uses. `docs/TASKS.md` names
   the set this milestone builds: "undo"/"redo" (wired to the existing
   `undo_highlight`/`redo_highlight`), "help"/"what can I say", and "go home".
-  "close app" is deliberately absent — `docs/TASKS.md`'s 8.11 adds it once
-  Milestone 8.1's close gatekeeper is what it wires into, as its own task
-  rather than bundled in here. Global matching is confident-only: unlike
+  "close app"/"quit" (Milestone 8.11) joins the set once Milestone 8.1's close
+  gatekeeper exists for it to invoke — `Api.close_app()` calls
+  `window.destroy()`, the exact same call `handle_window_closing()` itself
+  makes to reissue a confirmed close, so the dirty-document check and
+  save-or-discard prompt 8.1 built run unchanged; no separate close logic was
+  added here. Global matching is confident-only: unlike
   `command_grammar.resolve`, there is no near-miss clarification tier for
   these, for the same reason 8.3 excluded `GOTO_PAGE` and the highlight
   triggers from its own — "did you mean 'go home'?" is a fair question only
@@ -124,11 +127,18 @@ GO_HOME = "GO_HOME"
 # the same way `HELP` already is on Home (docs/TASKS.md's build order has not
 # reached wiring Home's own reference panel yet).
 START_DICTATION = "START_DICTATION"
+# Milestone 8.11: the last global command `docs/TASKS.md` names for this
+# milestone range. Deliberately held until now because it needed Milestone
+# 8.1's close gatekeeper (`Api.handle_window_closing`) to invoke — see
+# `Api.close_app()`.
+CLOSE_APP = "CLOSE_APP"
 
 # Phrasings per global intent — the exact wording `docs/TASKS.md` and
-# `docs/ARCHITECTURE.md` name for 8.4. Unlike `command_grammar.PHRASES`,
-# these are deliberately single-phrase where the docs only ever name one
-# wording: adding synonyms nobody asked for is scope the docs did not
+# `docs/ARCHITECTURE.md` name for 8.4 (and, for CLOSE_APP, 8.11). Unlike
+# `command_grammar.PHRASES`, these are deliberately single-phrase where the
+# docs only ever name one wording — except CLOSE_APP, whose two wordings
+# ("close app"/"quit") are both named explicitly in `docs/TASKS.md`'s 8.11
+# entry: adding synonyms nobody asked for is scope the docs did not
 # authorize, the same restraint `command_grammar.HIGHLIGHT_TRIGGERS` already
 # applies to its own single trigger.
 GLOBAL_PHRASES: dict[str, tuple[str, ...]] = {
@@ -137,6 +147,7 @@ GLOBAL_PHRASES: dict[str, tuple[str, ...]] = {
     HELP: ("help", "what can i say"),
     GO_HOME: ("go home",),
     START_DICTATION: ("start search",),
+    CLOSE_APP: ("close app", "quit"),
 }
 
 # Home context (Milestone 8.5): sidebar navigation and opening a PDF from
