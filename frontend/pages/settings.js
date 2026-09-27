@@ -43,6 +43,12 @@ function goHome() {
 
 recentNav.addEventListener("click", goHome);
 
+// The voice "close app"/"quit" command (Milestone 8.11) — see reading.js's
+// identical closeApp() for why there is no separate click/keyboard wiring.
+async function closeApp() {
+  await callApi("close_app");
+}
+
 // Shared by a theme card's click and the voice THEME_* commands (Milestone
 // 8.5). Reads the active theme from the DOM rather than taking it as a
 // parameter, since the voice path has no closured `current` the way a card's
@@ -187,6 +193,7 @@ const VOICE_ACTIONS = {
   SAVE_OVERWRITE: () => chooseSaveMode("overwrite"),
   REOPEN_CONTINUE: () => chooseReopenMode("continue"),
   REOPEN_START: () => chooseReopenMode("start"),
+  CLOSE_APP: () => closeApp(),
 };
 
 window.addEventListener("lector:command", (ev) => {

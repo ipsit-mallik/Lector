@@ -646,6 +646,24 @@ class Api:
         window.evaluate_js("promptSaveIfDirty(true)", callback=_on_resolved)
         return False
 
+    def close_app(self) -> None:
+        """The `CLOSE_APP` global voice command's ("close app"/"quit") entry
+        point (Milestone 8.11).
+
+        Calls `window.destroy()` — the exact same call
+        `handle_window_closing()` above already makes to reissue a confirmed
+        close. On Windows this is `Window.Close()`, which fires `FormClosing`
+        the same way clicking the OS close button or Alt+F4 would, so it
+        re-enters `handle_window_closing()` through `window.events.closing`
+        and gets the identical dirty-document check and save-or-discard
+        prompt for free. No separate close logic lives here.
+        """
+        try:
+            window = webview.windows[0]
+        except IndexError:
+            return
+        window.destroy()
+
     # ------------------------------------------------------------------ #
     # Onboarding (Milestone 4 stub — real flow is Milestone 8)             #
     # ------------------------------------------------------------------ #

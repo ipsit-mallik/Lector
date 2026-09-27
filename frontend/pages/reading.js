@@ -942,6 +942,15 @@ async function goHome() {
 
 backBtn.addEventListener("click", goHome);
 
+// The voice "close app"/"quit" command (Milestone 8.11). No click/keyboard
+// wiring of its own — the OS window's own close button and Alt+F4 already
+// are this command's mouse/keyboard equivalent, and `close_app()` re-enters
+// the exact same `handle_window_closing()` dirty check and save-or-discard
+// prompt those already trigger.
+async function closeApp() {
+  await callApi("close_app");
+}
+
 prevBtn.addEventListener("click", goPrev);
 nextBtn.addEventListener("click", goNext);
 pageInput.addEventListener("change", () => goToPage(Number(pageInput.value)));
@@ -1199,6 +1208,7 @@ const VOICE_ACTIONS = {
   REDO: () => redo(),
   HELP: () => openCommandReference(),
   GO_HOME: () => goHome(),
+  CLOSE_APP: () => closeApp(),
 };
 
 window.addEventListener("lector:command", (ev) => {

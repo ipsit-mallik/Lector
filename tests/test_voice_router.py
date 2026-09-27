@@ -43,6 +43,16 @@ class GlobalCommandTests(unittest.TestCase):
         result = router.resolve(router.SETTINGS, "go home")
         self.assertEqual(result["command"]["intent"], router.GO_HOME)
 
+    def test_close_app_resolves_via_either_of_its_two_phrasings(self):
+        self.assertEqual(
+            router.resolve(router.HOME, "close app")["command"]["intent"],
+            router.CLOSE_APP,
+        )
+        self.assertEqual(
+            router.resolve(router.READING, "quit")["command"]["intent"],
+            router.CLOSE_APP,
+        )
+
     def test_global_commands_are_available_in_every_context_except_dictation(self):
         # DICTATION is the one deliberate exception (Milestone 8.8) — see
         # test_global_commands_do_not_resolve_while_dictation_is_active below,

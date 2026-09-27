@@ -135,6 +135,44 @@ class WindowClosingTests(unittest.TestCase):
         shutdown.assert_called_once()
 
 
+class CloseAppTests(unittest.TestCase):
+    """`Api.close_app` (Milestone 8.11): the "close app"/"quit" global voice
+    command's entry point. It is expected to do nothing but call
+    `window.destroy()` — the exact same call `handle_window_closing` above
+    already makes to reissue a confirmed close — so the dirty-document check
+    that method owns runs unchanged; this class only pins down that
+    `close_app` reaches it and does nothing else.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory(prefix="lector-settings-")
+        patcher = mock.patch.object(
+            store, "_settings_path", lambda: Path(self.dir.name) / "settings.json"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.dir.cleanup)
+
+        self.api = api_module.Api()
+        self.addCleanup(self.api.shutdown_voice)
+
+        self.window = mock.Mock()
+        patcher = mock.patch.object(api_module.webview, "windows", [self.window])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_close_app_destroys_the_window(self):
+        self.api.close_app()
+
+        self.window.destroy.assert_called_once()
+
+    def test_close_app_with_no_window_open_does_nothing(self):
+        with mock.patch.object(api_module.webview, "windows", []):
+            self.api.close_app()  # must not raise
+
+        self.window.destroy.assert_not_called()
+
+
 class BrowseAndSaveDialogTests(unittest.TestCase):
     """`browse_directory`/`get_save_dialog_start`/`perform_save` (Milestone
     8.7): the in-app Open/Save-As dialogs' bridge, replacing the native

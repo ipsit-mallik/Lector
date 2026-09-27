@@ -333,6 +333,12 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
 // global (Milestone 8.4) but not wired here: "go home" is a no-op on the
 // screen that already is Home, and undo/redo/help have nothing to act on
 // with no document open and no command-reference button on this screen.
+// CLOSE_APP (Milestone 8.11) is wired, unlike those — quitting is never a
+// no-op regardless of which screen is active.
+async function closeApp() {
+  await callApi("close_app");
+}
+
 const VOICE_ACTIONS = {
   OPEN_SETTINGS: () => openSettings(),
   OPEN_RECENT: () => openMostRecent(),
@@ -340,6 +346,7 @@ const VOICE_ACTIONS = {
   // Milestone 8.9: same OPEN_RECENT/OPEN_PICKER split, for removal instead.
   REMOVE_RECENT: () => removeMostRecent(),
   REMOVE_PICKER: () => showPicker("remove"),
+  CLOSE_APP: () => closeApp(),
 };
 
 window.addEventListener("lector:command", (ev) => {
