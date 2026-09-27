@@ -15,11 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from lector.features.voice import command_grammar  # noqa: E402
 from lector.features.voice import reference  # noqa: E402
+from lector.features.voice import router  # noqa: E402
 from lector.features.voice import wake  # noqa: E402
 
 
-def _all_commands() -> list[dict]:
-    return [cmd for category in reference.categories() for cmd in category["commands"]]
+def _all_commands(context: str = router.READING) -> list[dict]:
+    return [cmd for category in reference.categories(context) for cmd in category["commands"]]
 
 
 class ExampleTruthfulnessTests(unittest.TestCase):
@@ -104,6 +105,80 @@ class PanelShapeTests(unittest.TestCase):
             [c["title"] for c in reference.panel()["categories"]],
             [c["title"] for c in reference.categories()],
         )
+
+
+class ContextScopingTests(unittest.TestCase):
+    """Milestone 8.10: the panel shows only the active context's commands."""
+
+    def test_home_context_is_scoped_away_from_the_reading_grammar(self):
+        titles = [c["title"] for c in reference.categories(router.HOME)]
+        self.assertNotIn("Moving around", titles)
+        self.assertNotIn("Highlighting", titles)
+
+    def test_settings_context_is_scoped_away_from_the_reading_grammar(self):
+        titles = [c["title"] for c in reference.categories(router.SETTINGS)]
+        self.assertNotIn("Moving around", titles)
+        self.assertNotIn("Highlighting", titles)
+
+    def test_every_context_without_its_own_categories_falls_back_to_reading(self):
+        # Only HOME/SETTINGS have their own scoped grammar so far
+        # (Milestone 8.5) — every other context, including any future one
+        # this test doesn't yet know the name of, keeps the pre-8.10 default
+        # rather than advertising nothing.
+        for context in router.CONTEXTS:
+            if context in (router.HOME, router.SETTINGS):
+                continue
+            with self.subTest(context=context):
+                self.assertEqual(reference.categories(context), reference.categories())
+
+    def test_every_home_phrase_is_advertised_and_understood(self):
+        # `HOME_PHRASES` is Home's whole scoped grammar — every intent there
+        # should show up in the panel, and every example the panel offers
+        # should resolve through the router the way `READING`'s examples
+        # resolve through `command_grammar`.
+        advertised_intents = set()
+        for command in _all_commands(router.HOME):
+            for phrase in command["examples"]:
+                with self.subTest(phrase=phrase):
+                    resolved = router.resolve(router.HOME, phrase)["command"]
+                    self.assertIsNotNone(
+                        resolved, f"the Home panel offers {phrase!r} but the router rejects it"
+                    )
+                    advertised_intents.add(resolved["intent"])
+        self.assertEqual(advertised_intents, set(router.HOME_PHRASES))
+
+    def test_every_settings_phrase_is_advertised_and_understood(self):
+        advertised_intents = set()
+        for command in _all_commands(router.SETTINGS):
+            for phrase in command["examples"]:
+                with self.subTest(phrase=phrase):
+                    resolved = router.resolve(router.SETTINGS, phrase)["command"]
+                    self.assertIsNotNone(
+                        resolved, f"the Settings panel offers {phrase!r} but the router rejects it"
+                    )
+                    advertised_intents.add(resolved["intent"])
+        self.assertEqual(advertised_intents, set(router.SETTINGS_PHRASES))
+
+    def test_no_home_or_settings_category_is_empty(self):
+        for context in (router.HOME, router.SETTINGS):
+            for category in reference.categories(context):
+                with self.subTest(context=context, category=category["title"]):
+                    self.assertTrue(category["commands"])
+
+    def test_home_and_settings_commands_have_a_description_and_equivalent(self):
+        for context in (router.HOME, router.SETTINGS):
+            for command in _all_commands(context):
+                with self.subTest(context=context, command=command["examples"]):
+                    self.assertTrue(command["description"].strip())
+                    self.assertTrue(command["equivalent"].strip())
+
+    def test_the_panel_threads_context_through_to_categories(self):
+        for context in (router.HOME, router.SETTINGS, router.READING):
+            with self.subTest(context=context):
+                self.assertEqual(
+                    [c["title"] for c in reference.panel(context)["categories"]],
+                    [c["title"] for c in reference.categories(context)],
+                )
 
 
 if __name__ == "__main__":

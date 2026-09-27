@@ -2,10 +2,11 @@
 requirement, built in Milestone 8).
 
 The point of this module is that the panel cannot lie. Every example phrase
-below is taken from `command_grammar`'s own phrasings rather than retyped
-beside them, so a command the reference offers is by construction a command
-the grammar accepts — a list of suggestions that has quietly drifted out of
-date is worse for a reader guessing at phrasing than no list at all.
+below is taken from `command_grammar`'s or `router`'s own phrasings rather
+than retyped beside them, so a command the reference offers is by
+construction a command the grammar accepts — a list of suggestions that has
+quietly drifted out of date is worse for a reader guessing at phrasing than
+no list at all.
 
 Two things are deliberate about the contents:
 
@@ -21,9 +22,20 @@ Two things are deliberate about the contents:
   something the reader can check. Showing the equivalent is what makes it
   checkable, and it doubles as the answer for a reader who tried voice,
   found it unreliable, and wants to know what to press instead.
+
+Milestone 8.10 scopes both `categories()` and `panel()` to whichever
+`router` context is active, rather than always building the reading-view
+grammar's categories regardless of where the reader actually is: `HOME` and
+`SETTINGS` now have their own scoped command tables (Milestone 8.5), so a
+panel that still only ever showed "Moving around"/"Highlighting" would be
+advertising commands that context cannot act on. `READING`, and any context
+without its own categories yet (the dialog/picker/dictation contexts, none
+of which wire "help" to open this panel today), fall back to the reading
+categories — the same content this module has always returned, kept as the
+default so every existing caller's behavior is unchanged.
 """
 from lector.features.voice import command_grammar as grammar
-from lector.features.voice import wake
+from lector.features.voice import router, wake
 
 # How many phrasings per command the panel offers. The grammar accepts more
 # (several synonyms per intent, most-explicit first), but a reference that
@@ -37,17 +49,128 @@ def _examples(intent: str) -> list[str]:
     return list(grammar.PHRASES[intent][:_EXAMPLES_SHOWN])
 
 
+def _examples_from(phrases: dict[str, tuple[str, ...]], intent: str) -> list[str]:
+    """Same as `_examples`, for a `router` phrase table instead of
+    `command_grammar.PHRASES` — `HOME`/`SETTINGS`'s commands live there, not
+    in the reading grammar."""
+    return list(phrases[intent][:_EXAMPLES_SHOWN])
+
+
 def _command(examples: list[str], description: str, equivalent: str) -> dict:
     return {"examples": examples, "description": description, "equivalent": equivalent}
 
 
-def categories() -> list[dict]:
-    """The panel's contents: `[{"title", "commands": [...]}, ...]`.
+def categories(context: str = router.READING) -> list[dict]:
+    """The panel's contents for `context`: `[{"title", "commands": [...]}, ...]`.
 
     Built per call rather than frozen at import so a change to the grammar is
     reflected without a restart — this is read once when a panel opens, so
     the cost is irrelevant next to the drift it prevents.
     """
+    if context == router.HOME:
+        return _home_categories()
+    if context == router.SETTINGS:
+        return _settings_categories()
+    return _reading_categories()
+
+
+def _home_categories() -> list[dict]:
+    return [
+        {
+            "title": "Recent files",
+            "commands": [
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.OPEN_RECENT),
+                    "Opens the most recently opened file.",
+                    "Click the first card in Recent",
+                ),
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.OPEN_PICKER),
+                    "Numbers every card in Recent so you can say which one to open.",
+                    "Click any card in Recent",
+                ),
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.REMOVE_RECENT),
+                    "Removes the most recent file from Recent, after confirming — "
+                    "the file on disk is never touched.",
+                    "Hover the first card and click its remove icon",
+                ),
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.REMOVE_PICKER),
+                    "Numbers every card in Recent so you can say which one to remove.",
+                    "Hover a card and click its remove icon",
+                ),
+            ],
+        },
+        {
+            "title": "The app itself",
+            "commands": [
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.OPEN_SETTINGS),
+                    "Opens Settings.",
+                    "Click Settings in the sidebar",
+                ),
+            ],
+        },
+    ]
+
+
+def _settings_categories() -> list[dict]:
+    return [
+        {
+            "title": "Theme",
+            "commands": [
+                _command(
+                    _examples_from(router.SETTINGS_PHRASES, router.THEME_LIGHT),
+                    "Switches to the light theme.",
+                    "Click the Light theme card",
+                ),
+                _command(
+                    _examples_from(router.SETTINGS_PHRASES, router.THEME_DARK),
+                    "Switches to the dark theme.",
+                    "Click the Dark theme card",
+                ),
+                _command(
+                    _examples_from(router.SETTINGS_PHRASES, router.THEME_SEPIA),
+                    "Switches to the sepia theme.",
+                    "Click the Sepia theme card",
+                ),
+            ],
+        },
+        {
+            "title": "When I save highlights",
+            "commands": [
+                _command(
+                    _examples_from(router.SETTINGS_PHRASES, router.SAVE_COPY),
+                    'Sets "save a copy" as the default for saving highlights.',
+                    'Click "Save a copy"',
+                ),
+                _command(
+                    _examples_from(router.SETTINGS_PHRASES, router.SAVE_OVERWRITE),
+                    'Sets "overwrite the original" as the default.',
+                    'Click "Overwrite the original"',
+                ),
+            ],
+        },
+        {
+            "title": "When I reopen a PDF",
+            "commands": [
+                _command(
+                    _examples_from(router.SETTINGS_PHRASES, router.REOPEN_CONTINUE),
+                    "Sets reopening a PDF from Recent to continue where you left off.",
+                    'Click "Continue where I left off"',
+                ),
+                _command(
+                    _examples_from(router.SETTINGS_PHRASES, router.REOPEN_START),
+                    "Sets reopening a PDF from Recent to always start at page 1.",
+                    'Click "Always start at the beginning"',
+                ),
+            ],
+        },
+    ]
+
+
+def _reading_categories() -> list[dict]:
     return [
         {
             "title": "Moving around",
@@ -112,15 +235,20 @@ def categories() -> list[dict]:
     ]
 
 
-def panel() -> dict:
+def panel(context: str = router.READING) -> dict:
     """Everything the panel needs, including how to start talking at all.
+
+    `context` is whichever `router` context is active when the panel opens
+    (Milestone 8.10) — `Api.get_command_reference` passes its own
+    `self._voice_context` — so the categories shown match what that context
+    can actually act on rather than always the reading grammar's.
 
     The activation line is part of the payload rather than hardcoded in the
     frontend because it names the wake phrase, and the phrase has exactly one
     home (`wake.py`).
     """
     return {
-        "categories": categories(),
+        "categories": categories(context),
         "wake_phrase": wake.WAKE_PHRASE,
         "wake_phrase_display": wake.WAKE_PHRASE_DISPLAY,
         "push_to_talk_key": "Space",
