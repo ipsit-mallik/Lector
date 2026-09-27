@@ -33,11 +33,16 @@ const SaveDialog = (() => {
     }
   }
 
+  function saveWithMode(mode) {
+    selectRow(mode === "overwrite" ? overwriteRow : copyRow);
+    close({ action: "save", mode, remember: rememberCheck.checked });
+  }
+
   cancelBtn.addEventListener("click", () => close({ action: "cancel" }));
   discardBtn.addEventListener("click", () => close({ action: "discard" }));
   saveBtn.addEventListener("click", () => {
     const mode = overwriteRow.classList.contains("selected") ? "overwrite" : "copy";
-    close({ action: "save", mode, remember: rememberCheck.checked });
+    saveWithMode(mode);
   });
 
   // allow_discard: true when reached via the "Library" back button, which
@@ -52,5 +57,31 @@ const SaveDialog = (() => {
     });
   }
 
-  return { open };
+  function isOpen() {
+    return !scrim.hidden;
+  }
+
+  // SAVE_COPY/SAVE_OVERWRITE select and confirm in one spoken command rather
+  // than requiring a separate "confirm" step — the mode itself is the whole
+  // decision here, so this mirrors clicking a row and then Save in one go
+  // (docs/TASKS.md 8.9: "no new dialog logic needed"). DONT_SAVE is a no-op
+  // when the button isn't offered, same as it being un-clickable by mouse.
+  function handleCommand(command) {
+    switch (command.intent) {
+      case "SAVE_COPY":
+        saveWithMode("copy");
+        break;
+      case "SAVE_OVERWRITE":
+        saveWithMode("overwrite");
+        break;
+      case "DONT_SAVE":
+        if (!discardBtn.hidden) close({ action: "discard" });
+        break;
+      case "CANCEL":
+        close({ action: "cancel" });
+        break;
+    }
+  }
+
+  return { open, isOpen, handleCommand };
 })();

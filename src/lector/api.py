@@ -83,6 +83,14 @@ class Api:
     def get_recent_files(self) -> list[dict]:
         return home_recent.list_recent()
 
+    def remove_recent_file(self, path: str) -> list[dict]:
+        """Drops `path` from the Recent list only (Milestone 8.9) — never
+        touches the file on disk, per docs/PRD.md's scope note. Returns the
+        refreshed list so the frontend can re-render without a second round
+        trip back through `get_recent_files`."""
+        settings.remove_recent_file(path)
+        return home_recent.list_recent()
+
     def browse_directory(self, path: str | None = None) -> dict:
         """Lists a directory for the in-app Open/Save-As screens (Milestone
         8.7), replacing the native `create_file_dialog()` the router could
