@@ -439,9 +439,12 @@ class Api:
 
         Assembled from the grammar itself (`voice/reference.py`) rather than
         written out in the frontend, so the panel cannot offer a phrasing the
-        recognizer would not accept.
+        recognizer would not accept. Scoped to `self._voice_context`
+        (Milestone 8.10), so opening the panel from a screen with its own
+        command set shows that screen's commands rather than always the
+        reading grammar's.
         """
-        return reference.panel()
+        return reference.panel(self._voice_context)
 
     # ------------------------------------------------------------------ #
     # Voice (Milestone 5 — push-to-talk; Milestone 8 — wake phrase)        #
