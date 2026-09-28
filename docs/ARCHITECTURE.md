@@ -59,7 +59,7 @@ lector/
 │       └── (per-page JS files, mirroring frontend/pages/)
 │
 ├── assets/
-│   ├── vosk_model/              # Offline speech model (~68 MB). Fetched by
+│   ├── vosk_model/              # Offline speech model (~205 MB). Fetched by
 │   │                             #   scripts/fetch_vosk_model.py, not committed —
 │   │                             #   it is gitignored. Bundled at packaging time.
 │   └── silero_vad.onnx          # Offline VAD model (~2 MB). Fetched by

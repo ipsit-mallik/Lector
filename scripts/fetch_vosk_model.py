@@ -1,9 +1,9 @@
 """Download the offline Vosk speech model into `assets/vosk_model/`.
 
-The model is ~40 MB of binary data, so it is gitignored rather than committed
-(see `.gitignore`) — `docs/ARCHITECTURE.md` calls it a "bundled" model, which
-it is at *packaging* time; for a working copy it is fetched once by this
-script. Run it after cloning:
+The model is ~125 MB zipped / ~205 MB unpacked, so it is gitignored rather
+than committed (see `.gitignore`) — `docs/ARCHITECTURE.md` calls it a
+"bundled" model, which it is at *packaging* time; for a working copy it is
+fetched once by this script. Run it after cloning:
 
     python scripts/fetch_vosk_model.py
 
@@ -18,14 +18,19 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-en-us-0.22-lgraph.zip"
 DEST = Path(__file__).resolve().parents[1] / "assets" / "vosk_model"
 
-# The small English model is deliberate: docs/TECH_STACK.md constrains Vosk to
-# a fixed command grammar, not general transcription, so the large model's
-# extra accuracy on open-ended speech buys nothing and costs ~1.8 GB of
-# install size against a project whose premise is being lighter than Adobe
-# Reader.
+# vosk-model-small-en-us-0.15 (the original choice here) turned out too small
+# to reliably transcribe real speech - Milestone 8.12 diagnosed this by first
+# confirming the audio pipeline (VAD, endpointing, chunk-feeding) was already
+# sound, which left the acoustic model itself as the bottleneck. The lgraph
+# model is the next tier up: still built around a lexicon/graph small enough
+# to run on-device without a GPU, at ~205 MB unpacked rather than the small
+# model's ~68 MB, and well short of the full vosk-model-en-us-0.22's ~1.8 GB -
+# docs/TECH_STACK.md still constrains Vosk to a fixed command grammar, not
+# general transcription, so that full model's extra accuracy on open-ended
+# speech still buys nothing here.
 
 
 # A Vosk model directory always carries these. Testing for them rather than
