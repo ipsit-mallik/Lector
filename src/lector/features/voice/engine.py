@@ -43,7 +43,7 @@ from pathlib import Path
 
 from lector.features.voice import audio_frontend, command_grammar, wake
 
-# Vosk's small English model is 16 kHz mono; feeding it anything else quietly
+# Vosk's English models are 16 kHz mono; feeding one anything else quietly
 # degrades recognition rather than erroring, so the rate is fixed here rather
 # than taken from the device's default.
 SAMPLE_RATE = 16000
@@ -82,6 +82,23 @@ ENDPOINT_TRAILING_SILENCE_SECONDS = 0.6
 
 # .../<repo>/src/lector/features/voice/engine.py -> .../<repo>/assets/vosk_model
 MODEL_DIR = Path(__file__).resolve().parents[4] / "assets" / "vosk_model"
+
+# A loaded `vosk.Model` is read-only graph data that Vosk's own examples
+# build once and hand to many `KaldiRecognizer`s — sharing one is the
+# supported usage, not a workaround. The app only ever builds one
+# `VoiceEngine` (`api.py`), so this cache is invisible there, but the test
+# suite builds a fresh `VoiceEngine` per test, and without sharing, each one
+# loaded its own full copy of the model into memory. That was affordable
+# with the small model (~68 MB unpacked); with Milestone 8.12's larger
+# lgraph model (~205 MB unpacked, ~1 GB+ resident once loaded), a full test
+# run's worth of unshared loads compounds into swapping severe enough to
+# starve the OS of memory for stack growth — surfacing as a native stack
+# overflow crash rather than an ordinary `MemoryError`, and hanging the
+# machine well before that. Keyed by resolved model directory so an
+# `_ensure_model()` failure test pointed at a scratch directory never
+# collides with the real model's cache entry.
+_MODEL_CACHE: dict[str, "vosk.Model"] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
 
 # What the open microphone is currently for. Only one mode can hold the
 # device, so this is a single value rather than a set of flags.
@@ -219,18 +236,27 @@ class VoiceEngine:
 
         Takes `_model_lock` so a warm-up already in flight is waited on
         rather than raced: building a second `vosk.Model` would cost another
-        ~70 MB and several seconds for a result that is thrown away.
+        several hundred MB and several seconds for a result that is thrown
+        away. The model itself is then fetched from (or added to)
+        `_MODEL_CACHE` rather than always constructed fresh — see that
+        cache's module-level comment for why.
         """
         with self._model_lock:
             if self._model is not None:
                 return True
             if not self._model_is_installed():
                 return False
+            key = str(self._model_dir.resolve())
             try:
                 import vosk
 
                 vosk.SetLogLevel(-1)  # Vosk logs decoding chatter to stderr by default.
-                self._model = vosk.Model(str(self._model_dir))
+                with _MODEL_CACHE_LOCK:
+                    model = _MODEL_CACHE.get(key)
+                    if model is None:
+                        model = vosk.Model(str(self._model_dir))
+                        _MODEL_CACHE[key] = model
+                self._model = model
             except Exception as exc:
                 self._load_error = f"Could not load the speech model: {exc}"
                 return False
@@ -276,7 +302,9 @@ class VoiceEngine:
         for that many n-best hypotheses instead of just its top guess —
         callers building a command-capable recognizer pass
         `COMMAND_ALTERNATIVES`; the wake recognizer, which only ever checks
-        for one phrase, leaves it at 0.
+        for one phrase, leaves it at 0. That same `vocabulary` check is also
+        what turns per-word confidence on (see `SetWords` below) only for
+        the wake recognizer, which is the one caller that reads it.
 
         `self._vocabulary` being `None` (set via `set_vocabulary(None)`,
         Milestone 8.8's dictation mode) means open-vocabulary: no grammar
@@ -295,7 +323,11 @@ class VoiceEngine:
         else:
             grammar = json.dumps(list(words) + [UNKNOWN_TOKEN])
             recognizer = vosk.KaldiRecognizer(self._model, SAMPLE_RATE, grammar)
-        recognizer.SetWords(False)
+        # Per-word confidence is only meaningful (and only checked) for the
+        # wake recognizer — see `wake.wake_phrase_confidence` and
+        # `_consume_wake_chunk` — so it stays off everywhere else rather than
+        # paying for output no caller reads.
+        recognizer.SetWords(vocabulary == wake.WAKE_GRAMMAR)
         if alternatives:
             recognizer.SetMaxAlternatives(alternatives)
         return recognizer
@@ -633,14 +665,11 @@ class VoiceEngine:
         """Listen for the wake phrase in one chunk, and switch modes if it is
         there.
 
-        Only *completed* utterances are checked, never partial ones. This was
-        measured rather than assumed: "Hey there, how are you today" passes
-        through a partial reading of exactly `hey lector` for one chunk before
-        Vosk revises it to `hey [unk]` and settles on that as its final. A
+        Only *completed* utterances are checked, never partial ones. A
         partial is a hypothesis the decoder is still free to retract, so
-        waking on one means waking on speech the recognizer itself goes on to
-        disagree with — and a wake nobody asked for is the failure that makes
-        an always-on microphone not worth having.
+        waking on one means waking on speech the recognizer itself may go on
+        to disagree with — and a wake nobody asked for is the failure that
+        makes an always-on microphone not worth having.
 
         The cost is that the phrase must be followed by a breath: Vosk closes
         an utterance on a pause, so "Hey Lector, next page" said flat out
@@ -651,11 +680,21 @@ class VoiceEngine:
         Nothing is emitted for speech that is *not* the phrase: an idle
         listener that narrated every stray sound back to the reader would be
         its own kind of privacy problem.
+
+        Text adjacency is checked first and confidence second, not the other
+        way round: `wake.wake_phrase_confidence` only has anything to say
+        once `wake.contains_wake_phrase` has already found the pair, so
+        computing it first would waste the work on every chunk that was
+        never going to wake anything anyway.
         """
         if not recognizer.AcceptWaveform(chunk):
             return
-        text = _clean(json.loads(recognizer.Result()).get("text", ""))
+        data = json.loads(recognizer.Result())
+        text = _clean(data.get("text", ""))
         if not wake.contains_wake_phrase(text):
+            return
+        confidence = wake.wake_phrase_confidence(data.get("result") or [])
+        if confidence is not None and confidence < wake.WAKE_WORD_CONFIDENCE_THRESHOLD:
             return
 
         self._utterances = []

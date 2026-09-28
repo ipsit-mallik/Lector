@@ -57,6 +57,64 @@ class WakePhraseDetectionTests(unittest.TestCase):
         self.assertTrue(wake.contains_wake_phrase("Hey Lector"))
 
 
+class WakePhraseConfidenceTests(unittest.TestCase):
+    """`wake_phrase_confidence` on synthetic Vosk `SetWords(True)` output —
+    no model needed, since these are pure-function checks of the gate
+    Milestone 8.12 added once the larger model's better accuracy started
+    producing confident-looking `hey lector` text for speech that was not
+    the phrase (see the module docstring)."""
+
+    def test_returns_the_lower_of_the_two_words_confidences(self):
+        # Arrange
+        words = [{"word": "hey", "conf": 1.0}, {"word": "lector", "conf": 0.687}]
+
+        # Act
+        confidence = wake.wake_phrase_confidence(words)
+
+        # Assert
+        self.assertEqual(confidence, 0.687)
+
+    def test_returns_none_when_the_phrase_is_absent(self):
+        words = [{"word": "hey", "conf": 1.0}, {"word": "there", "conf": 0.9}]
+        self.assertIsNone(wake.wake_phrase_confidence(words))
+
+    def test_returns_none_when_the_words_are_not_adjacent(self):
+        # A filler word decoded between "hey" and "lector" in the raw output
+        # means the decoder did not actually hear them back to back.
+        words = [
+            {"word": "hey", "conf": 1.0},
+            {"word": "[unk]", "conf": 0.9},
+            {"word": "lector", "conf": 1.0},
+        ]
+        self.assertIsNone(wake.wake_phrase_confidence(words))
+
+    def test_uses_the_last_occurrence(self):
+        # Mirrors StripWakePhraseTests.test_uses_the_last_occurrence: saying
+        # it twice means the second saying is the one that counts.
+        words = [
+            {"word": "hey", "conf": 1.0}, {"word": "lector", "conf": 0.3},
+            {"word": "hey", "conf": 1.0}, {"word": "lector", "conf": 0.95},
+        ]
+        self.assertEqual(wake.wake_phrase_confidence(words), 0.95)
+
+    def test_the_measured_false_positive_falls_below_threshold(self):
+        # "Hey there, how are you today" against this project's own model —
+        # see the CHANGELOG's Milestone 8.12 entry for how this was measured.
+        words = [
+            {"word": "hey", "conf": 0.995679},
+            {"word": "lector", "conf": 0.687213},
+            {"word": "hey", "conf": 0.948991},
+            {"word": "[unk]", "conf": 1.0},
+        ]
+        confidence = wake.wake_phrase_confidence(words)
+        self.assertLess(confidence, wake.WAKE_WORD_CONFIDENCE_THRESHOLD)
+
+    def test_genuine_wake_speech_clears_the_threshold(self):
+        words = [{"word": "hey", "conf": 1.0}, {"word": "lector", "conf": 1.0}]
+        confidence = wake.wake_phrase_confidence(words)
+        self.assertGreaterEqual(confidence, wake.WAKE_WORD_CONFIDENCE_THRESHOLD)
+
+
 class StripWakePhraseTests(unittest.TestCase):
     def test_returns_what_followed_the_phrase(self):
         self.assertEqual(wake.strip_wake_phrase("hey lector next page"), "next page")
