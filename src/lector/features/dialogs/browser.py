@@ -8,11 +8,18 @@ file now has to happen as regular DOM rows the router can number and pick
 directory contents have to be listed in Python and handed to the frontend
 rather than delegated to the OS.
 """
+import platform
+import string
 from pathlib import Path
 
 from lector.features.settings import store as settings
 
 PDF_EXTENSION = ".pdf"
+
+# A sentinel `path` value (never a real filesystem path) for the synthetic
+# "Other Drives" row appended to a drive-root listing. The frontend
+# recognizes it and calls `list_drives()` instead of `list_directory()`.
+DRIVES_ENTRY_PATH = "__lector_drives__"
 
 
 def list_directory(path: str) -> dict:
@@ -27,13 +34,14 @@ def list_directory(path: str) -> dict:
     than crashing the bridge call.
     """
     resolved = Path(path).resolve()
+    parent = _parent_of(resolved)
     try:
         raw_entries = list(resolved.iterdir())
     except OSError as exc:
         return {
             "path": str(resolved),
-            "parent": _parent_of(resolved),
-            "entries": [],
+            "parent": parent,
+            "entries": _with_drives_entry([], parent),
             "error": str(exc),
         }
 
@@ -47,7 +55,48 @@ def list_directory(path: str) -> dict:
     )
     entries = [{"name": e.name, "path": str(e), "is_dir": True} for e in folders]
     entries += [{"name": e.name, "path": str(e), "is_dir": False} for e in files]
-    return {"path": str(resolved), "parent": _parent_of(resolved), "entries": entries, "error": None}
+    return {
+        "path": str(resolved),
+        "parent": parent,
+        "entries": _with_drives_entry(entries, parent),
+        "error": None,
+    }
+
+
+def _with_drives_entry(entries: list[dict], parent: str | None) -> list[dict]:
+    """Prepends the "Other Drives" row once a listing has no parent (a
+    Windows drive root, or Mac/Linux's `/`) — the only place `_parent_of`
+    leaves Up with nowhere to go, so it's the only place this entry point
+    needs to appear."""
+    if parent is not None:
+        return entries
+    drives_row = {"name": "Other Drives", "path": DRIVES_ENTRY_PATH, "is_dir": True}
+    return [drives_row, *entries]
+
+
+def list_drives() -> dict:
+    """Available drives/volumes, offered when a directory listing has no
+    parent to go Up to — see docs/DESIGN_SYSTEM.md's open_dialog spec.
+
+    Windows: drive letters A-Z that actually exist, checked by testing each
+    root's existence directly (no `psutil` dependency, and `os.listdrives()`
+    isn't available on this project's Python floor of 3.11 — it's 3.12+).
+    Mac (and other POSIX platforms): there's no drive-letter concept, so this
+    surfaces `/` plus whatever is mounted under `/Volumes`.
+    """
+    if platform.system() == "Windows":
+        drives = [
+            f"{letter}:\\" for letter in string.ascii_uppercase if Path(f"{letter}:\\").exists()
+        ]
+    else:
+        drives = ["/"]
+        volumes = Path("/Volumes")
+        if volumes.is_dir():
+            drives += sorted(
+                str(v) for v in volumes.iterdir() if v.is_dir() and not v.name.startswith(".")
+            )
+    entries = [{"name": d, "path": d, "is_dir": True} for d in drives]
+    return {"path": "Drives", "parent": None, "entries": entries, "error": None}
 
 
 def _parent_of(path: Path) -> str | None:

@@ -86,8 +86,19 @@ function createFileBrowser({
     mountIcons(listEl);
   }
 
+  // A drive-root listing (`parent === null`) has nowhere for Up to go, so
+  // `list_directory` prepends a synthetic "Other Drives" row whose `path` is
+  // this sentinel rather than a real filesystem path — see
+  // `dialog_browser.DRIVES_ENTRY_PATH`. Recognizing it here, instead of the
+  // backend returning a different shape, keeps every row flowing through the
+  // same numbered-picker rendering/activation path.
+  const DRIVES_ENTRY_PATH = "__lector_drives__";
+
   async function navigateTo(dir) {
-    const listing = await callApi("browse_directory", dir);
+    const listing =
+      dir === DRIVES_ENTRY_PATH
+        ? await callApi("list_drives")
+        : await callApi("browse_directory", dir);
     currentDir = listing.path;
     parentDir = listing.parent;
     entries = listing.entries;

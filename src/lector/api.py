@@ -101,6 +101,12 @@ class Api:
         file's."""
         return dialog_browser.list_directory(path or dialog_browser.default_open_dir())
 
+    def list_drives(self) -> dict:
+        """Backs the "Other Drives" row `list_directory()` appends at a
+        drive root — see `dialog_browser.list_drives()` for the
+        platform-specific listing logic."""
+        return dialog_browser.list_drives()
+
     def get_save_dialog_start(self) -> dict:
         """Where the in-app Save-As screen should start browsing and what
         filename to pre-fill — both derived from `_suggested_copy_path()`,

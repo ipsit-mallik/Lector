@@ -86,6 +86,26 @@ class ListDirectoryTests(unittest.TestCase):
 
         self.assertIsNone(result["parent"])
 
+    def test_the_filesystem_root_offers_an_other_drives_row_first(self):
+        # Milestone: fixing the drive-root dead end — Up is disabled with
+        # nowhere else to go once `parent` is None, so `list_directory`
+        # itself has to offer a way to reach another drive.
+        root = Path(self.tmp.name).parents[-1]
+
+        result = browser.list_directory(str(root))
+
+        self.assertEqual(result["entries"][0]["path"], browser.DRIVES_ENTRY_PATH)
+        self.assertTrue(result["entries"][0]["is_dir"])
+
+    def test_a_non_root_directory_does_not_offer_an_other_drives_row(self):
+        child = self.root / "child"
+        child.mkdir()
+
+        result = browser.list_directory(str(child))
+
+        paths = [e["path"] for e in result["entries"]]
+        self.assertNotIn(browser.DRIVES_ENTRY_PATH, paths)
+
     def test_an_unreadable_directory_reports_an_error_instead_of_raising(self):
         missing = self.root / "does-not-exist"
 
@@ -93,6 +113,37 @@ class ListDirectoryTests(unittest.TestCase):
 
         self.assertEqual(result["entries"], [])
         self.assertIsNotNone(result["error"])
+
+
+class ListDrivesTests(unittest.TestCase):
+    def test_windows_lists_only_drive_letters_that_exist(self):
+        exists_map = {"C:\\": True, "D:\\": True}
+        with mock.patch.object(browser.platform, "system", return_value="Windows"), mock.patch.object(
+            browser.Path, "exists", autospec=True, side_effect=lambda p: exists_map.get(str(p), False)
+        ):
+            result = browser.list_drives()
+
+        names = [e["name"] for e in result["entries"]]
+        self.assertEqual(names, ["C:\\", "D:\\"])
+        self.assertIsNone(result["parent"])
+
+    def test_mac_surfaces_root_plus_mounted_volumes(self):
+        with tempfile.TemporaryDirectory(prefix="lector-volumes-") as volumes_dir:
+            volumes_path = Path(volumes_dir)
+            (volumes_path / "Macintosh HD").mkdir()
+            (volumes_path / "Backup Drive").mkdir()
+            (volumes_path / ".hidden").mkdir()
+
+            with mock.patch.object(browser.platform, "system", return_value="Darwin"), mock.patch.object(
+                browser, "Path", side_effect=lambda p: volumes_path if p == "/Volumes" else Path(p)
+            ):
+                result = browser.list_drives()
+
+        names = [e["name"] for e in result["entries"]]
+        self.assertIn("/", names)
+        self.assertTrue(any(n.endswith("Macintosh HD") for n in names))
+        self.assertTrue(any(n.endswith("Backup Drive") for n in names))
+        self.assertFalse(any(".hidden" in n for n in names))
 
 
 class DefaultOpenDirTests(unittest.TestCase):

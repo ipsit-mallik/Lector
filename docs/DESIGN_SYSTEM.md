@@ -93,6 +93,17 @@ List-entry removal only (never deletes, renames, or modifies the underlying PDF 
 - **Mouse/keyboard parity:** clicking the icon-button (or tabbing to it and pressing Enter/Space) opens the same confirmation dialog voice opens; nothing about the button's presence changes how the card itself behaves when clicked (still opens the file).
 - **Voice path:** "remove recent" / "delete recent" (global, from Home) removes the single most-recent file's entry, mirroring 8.5's `OPEN_RECENT`; "remove a file" / "delete a file" opens the numbered-overlay picker in a removal mode instead of open mode, so a spoken number picks which entry to remove rather than which to open. Either path lands on the same confirmation dialog, itself voice-drivable ("remove it" / "confirm remove" to proceed, "cancel" / "never mind" to back out) regardless of whether it was opened by voice or by clicking the icon-button — voice never skips the confirmation step a mouse user would also see.
 
+## Open/Save-As dialog (`open_dialog`) (Milestone 8.7, drive navigation added later)
+
+No dedicated mockup — built entirely from tokens/components already established (the same numbered-overlay picker mechanic as the Recent grid), for the same reason native `create_file_dialog()` was replaced: the voice router can only see and drive the app's own UI, not OS chrome, so folder/file browsing has to be regular numbered DOM rows.
+
+- **Rows:** folders first, then PDF-only files, each alphabetically — every row numbered and visible for as long as the dialog is open (unlike the Recent grid's opt-in picker toggle), since nothing here has a natural spoken label the way "recent" does.
+- **Up:** disabled once a listing reports no parent directory — a Windows drive root (`C:\`) or, on Mac, `/`.
+- **Platform note — reaching another drive at a root:** Up alone leaves a drive root a dead end with no way to reach any other drive, which is fine on a single-drive machine but a real gap otherwise. When a listing has no parent, it prepends a synthetic **"Other Drives"** row (same numbered-row treatment as a folder) that opens a drive/volume picker instead of another folder:
+  - **Windows:** every drive letter A–Z that actually exists, checked directly rather than depending on `psutil` or `os.listdrives()` (the latter needs Python 3.12+; this project's floor is 3.11).
+  - **Mac (and other POSIX platforms):** there's no drive-letter concept, so this surfaces `/` plus whatever is mounted under `/Volumes`.
+  - Picking a drive/volume navigates into it exactly like picking a folder does — the picker is a detour through a virtual listing, not a different interaction pattern.
+
 ## Accessibility baseline
 
 Every interactive element is a real `<button>`/`<a>`/`<input>`, never a clickable `div` — required for keyboard focus and screen-reader compatibility, and a direct consequence of the "voice is an accelerator, not a replacement UI" requirement: the app must be fully operable by keyboard and mouse alone.
