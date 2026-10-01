@@ -214,6 +214,16 @@ class BrowseAndSaveDialogTests(unittest.TestCase):
 
         list_directory.assert_called_once_with("/some/dir")
 
+    def test_list_quick_access_returns_what_the_dialog_browser_lists(self):
+        listing = {"entries": [{"name": "Home", "path": "/home/reader", "is_dir": True}]}
+        with mock.patch.object(
+            api_module.dialog_browser, "list_quick_access", return_value=listing
+        ) as list_quick_access:
+            result = self.api.list_quick_access()
+
+        list_quick_access.assert_called_once_with()
+        self.assertEqual(result, listing)
+
     def test_get_save_dialog_start_derives_dir_and_filename_from_the_suggested_copy_path(self):
         self.api._doc = mock.Mock(path="/docs/report.pdf")
         with mock.patch.object(

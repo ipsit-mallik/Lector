@@ -84,6 +84,11 @@ button {
   overflow: hidden;
 }
 
+/* Only the Open/Save-As dialogs need this width (a persistent directory tree
+   needs room to stay legible) — a modifier, not a change to the shared rule,
+   so every other dialog stays 560px. */
+.dialog-card--wide { width: 940px; }
+
 .dialog-body {
   padding: 26px 28px 20px;
 }
@@ -266,17 +271,247 @@ button {
 
 /* Shares the `.dialog-scrim`/`.dialog-card` frame above; only the body
    contents are specific to browsing. */
-.browser-path {
-  margin: 0 0 10px;
-  font-size: 12px;
+.dialog-body--browser { padding-bottom: 16px; }
+.dialog-body--browser .dialog-header { align-items: center; }
+.dialog-body--browser .dialog-title { margin: 0; }
+
+/* Breadcrumb above the two panes: ancestors are plain clickable text; the
+   current folder is bold, primary-colored text with no badge. */
+.browser-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 28px;
+  border-top: 1px solid var(--color-border-light);
+  border-bottom: 1px solid var(--color-border-light);
+  font-size: 12.5px;
   color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.browser-crumb--link { cursor: pointer; }
+.browser-crumb--link:hover { color: var(--color-text-primary); text-decoration: underline; }
+
+.browser-crumb--current {
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.browser-crumb-sep { color: var(--color-text-very-muted); }
+.browser-crumb-error { color: var(--color-destructive); }
+
+.browser-panes {
+  display: flex;
+  height: min(440px, calc(100vh - 260px));
+  min-height: 240px;
+}
+
+.browser-side {
+  flex: none;
+  width: 268px;
+  padding: 14px 12px;
+  overflow-y: auto;
+  background-color: var(--color-panel);
+  border-right: 1px solid var(--color-border-light);
+}
+
+.browser-side-label {
+  margin: 4px 8px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.browser-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.browser-quick-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-quick-chip:hover { background-color: rgba(20, 26, 22, 0.06); }
+.browser-quick-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+.browser-quick-chip.is-active {
+  background-color: var(--color-accent);
+  color: var(--color-surface);
+  font-weight: 600;
+}
+
+.browser-quick-icon { flex: none; width: 17px; height: 17px; }
+.browser-quick-icon svg { width: 100%; height: 100%; }
+
+/* Directory tree. Each folder's children sit in a grid wrapper that animates
+   from `0fr` to `1fr` (auto height with no measured pixel value — `max-height`
+   does not animate cleanly to real content height). Branch connectors are a
+   1px base line plus an accent overlay that grows to full height on the
+   current folder's ancestor chain, delayed per depth so it visibly travels
+   down. Hand-built rather than adopting reactbits.dev's React component — see
+   docs/DESIGN_SYSTEM.md. */
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.tree-row:hover { background-color: rgba(20, 26, 22, 0.06); }
+.tree-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+.tree-row.is-current {
+  background-color: var(--color-accent);
+  color: var(--color-surface);
+  font-weight: 600;
+  cursor: default;
+}
+
+.tree-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+}
+
+.tree-chevron svg { width: 100%; height: 100%; }
+.tree-chevron.is-expanded { transform: rotate(90deg); }
+.tree-chevron.is-leaf { visibility: hidden; }
+.tree-row.is-current .tree-chevron { color: inherit; }
+
+.tree-icon { flex: none; width: 15px; height: 15px; color: var(--color-voice-focus); }
+.tree-icon svg { width: 100%; height: 100%; }
+
+.tree-label {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.tree-children { display: grid; grid-template-rows: 0fr; }
+.tree-children.is-expanded { grid-template-rows: 1fr; }
+
+.tree-children-inner { min-height: 0; overflow: hidden; }
+.tree-children:not(.is-expanded) > .tree-children-inner { visibility: hidden; }
+
+.tree-branch {
+  position: relative;
+  margin-left: 14px;
+  padding-left: 8px;
+}
+
+.tree-line {
+  position: absolute;
+  top: 0;
+  bottom: 4px;
+  left: 0;
+  width: 1px;
+  background-color: var(--color-border-light);
+}
+
+.tree-line-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  background-color: var(--color-accent);
+}
+
+.tree-line.is-active-path .tree-line-fill { height: 100%; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .tree-children {
+    transition: grid-template-rows 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .tree-children:not(.is-expanded) > .tree-children-inner {
+    transition: visibility 0s linear 260ms;
+  }
+
+  .tree-chevron {
+    transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .tree-line-fill {
+    transition: height 220ms ease-out;
+    transition-delay: calc(var(--depth, 0) * 60ms);
+  }
+}
+
+.browser-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 20px 16px;
+}
+
+.browser-search {
+  position: relative;
+  flex: none;
+  margin-bottom: 12px;
+}
+
+.browser-search [data-icon] {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.browser-search [data-icon] svg { width: 100%; height: 100%; }
+
+.browser-search input,
+.browser-filename-row input {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--color-border-light);
+  background-color: var(--color-input-bg);
+  font-size: 13.5px;
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+}
+
+.browser-search input { width: 100%; padding-left: 36px; box-sizing: border-box; }
+
+.browser-search input:focus-visible,
+.browser-filename-row input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 .browser-list {
-  height: 280px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid var(--color-border-light);
   border-radius: 8px;
@@ -350,19 +585,4 @@ button {
   color: var(--color-text-secondary);
 }
 
-.browser-filename-row input {
-  flex: 1;
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 7px;
-  border: 1px solid var(--color-border-light);
-  background-color: var(--color-surface);
-  font-size: 13.5px;
-  color: var(--color-text-primary);
-  font-family: var(--font-ui);
-}
-
-.browser-filename-row input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
+.browser-filename-row input { flex: 1; }

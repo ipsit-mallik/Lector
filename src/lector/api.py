@@ -102,10 +102,15 @@ class Api:
         return dialog_browser.list_directory(path or dialog_browser.default_open_dir())
 
     def list_drives(self) -> dict:
-        """Backs the "Other Drives" row `list_directory()` appends at a
-        drive root — see `dialog_browser.list_drives()` for the
-        platform-specific listing logic."""
+        """Top-level nodes of the Open/Save-As directory tree — see
+        `dialog_browser.list_drives()` for the platform-specific listing
+        logic."""
         return dialog_browser.list_drives()
+
+    def list_quick_access(self) -> dict:
+        """Home/Desktop/Documents/Downloads for the Open/Save-As dialogs'
+        Quick Access chips — see `dialog_browser.list_quick_access()`."""
+        return dialog_browser.list_quick_access()
 
     def get_save_dialog_start(self) -> dict:
         """Where the in-app Save-As screen should start browsing and what
@@ -370,6 +375,12 @@ class Api:
 
     def set_theme(self, name: str) -> None:
         settings.set_theme(name)
+
+    def get_recent_view(self) -> str:
+        return settings.get_recent_view()
+
+    def set_recent_view(self, mode: str) -> None:
+        settings.set_recent_view(mode)
 
     # ------------------------------------------------------------------ #
     # Voice activation modes (Milestone 8)                                 #

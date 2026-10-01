@@ -10,6 +10,17 @@
  * treat them as a starting point to confirm, not as settled as light.
  */
 
+/* Motion & elevation foundation (docs/DESIGN_SYSTEM.md "Motion & elevation
+ * foundation") -- shared across all three themes; only color values below
+ * (surface-hover/active, shadow/elevation-border) are per-theme. */
+:root {
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 :root,
 [data-theme="light"] {
   --color-canvas: #E7E2D9;
@@ -36,14 +47,30 @@
   --color-border-light: #D2CCC2;
   --color-border-subtle: #D8D3C9;
   --color-border-muted: #A8A6A0;
+
+  --color-surface-hover: color-mix(in srgb, var(--color-surface) 96%, black 4%);
+  --color-surface-active: color-mix(in srgb, var(--color-surface) 92%, black 8%);
+  --shadow-elevation-1: 0 1px 2px rgba(22, 26, 24, 0.06), 0 1px 3px rgba(22, 26, 24, 0.08);
+  --shadow-elevation-2: 0 4px 10px rgba(22, 26, 24, 0.12), 0 2px 4px rgba(22, 26, 24, 0.08);
+  --color-elevation-border: var(--color-border-light);
+  --color-panel-hover: color-mix(in srgb, var(--color-panel) 95%, black 5%);
+  --color-panel-active: color-mix(in srgb, var(--color-panel) 90%, black 10%);
 }
 
 [data-theme="dark"] {
-  --color-canvas: #1C1A17;
-  --color-surface: #26231F;
-  --color-panel: #211E1A;
-  --color-panel-tertiary: #232019;
-  --color-input-bg: #2C2822;
+  /* Canvas/panel/surface widened from the original provisional values
+   * (#1C1A17 / #211E1A / #26231F) -- those left canvas and panel almost
+   * indistinguishable (a ~5-unit-per-channel gap) and gave surface too
+   * shallow a lift to read as an elevated card against either. Restores
+   * the same canvas < panel < surface < input-bg ordering the light
+   * theme uses, with comparable perceptual spacing between steps.
+   * Still provisional/unverified like the rest of this block -- confirm
+   * visually once implemented. */
+  --color-canvas: #171512;
+  --color-surface: #2A2621;
+  --color-panel: #201C18;
+  --color-panel-tertiary: #241F1A;
+  --color-input-bg: #322D26;
 
   --color-text-primary: #EDE8DF;
   --color-text-body: #E5E0D6;
@@ -63,6 +90,20 @@
   --color-border-light: #3A362F;
   --color-border-subtle: #332F29;
   --color-border-muted: #4A453C;
+
+  /* Dark surfaces get lighter, not darker, on hover/press -- there is no
+   * "add black" step available this close to the canvas floor. */
+  --color-surface-hover: color-mix(in srgb, var(--color-surface) 92%, white 8%);
+  --color-surface-active: color-mix(in srgb, var(--color-surface) 86%, white 14%);
+  /* A black box-shadow does not read against a near-black canvas, so
+   * elevation here comes from a lighter border tint instead of shadow
+   * blur -- shadow-elevation-2 keeps a very faint glow only, for the
+   * hover-lift transition to still have *something* to animate. */
+  --shadow-elevation-1: none;
+  --shadow-elevation-2: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --color-elevation-border: #4A453C;
+  --color-panel-hover: color-mix(in srgb, var(--color-panel) 90%, white 10%);
+  --color-panel-active: color-mix(in srgb, var(--color-panel) 84%, white 16%);
 }
 
 [data-theme="sepia"] {
@@ -90,6 +131,14 @@
   --color-border-light: #DDCBA0;
   --color-border-subtle: #E3D3AC;
   --color-border-muted: #C9B78E;
+
+  --color-surface-hover: color-mix(in srgb, var(--color-surface) 96%, black 4%);
+  --color-surface-active: color-mix(in srgb, var(--color-surface) 92%, black 8%);
+  --shadow-elevation-1: 0 1px 2px rgba(59, 47, 32, 0.08), 0 1px 3px rgba(59, 47, 32, 0.10);
+  --shadow-elevation-2: 0 4px 10px rgba(59, 47, 32, 0.14), 0 2px 4px rgba(59, 47, 32, 0.10);
+  --color-elevation-border: var(--color-border-light);
+  --color-panel-hover: color-mix(in srgb, var(--color-panel) 95%, black 5%);
+  --color-panel-active: color-mix(in srgb, var(--color-panel) 90%, black 10%);
 }
 
 /* Text-selection wash drawn over a page while the reader is dragging out a
@@ -122,6 +171,22 @@ html, body {
 
 body {
   overflow: hidden;
+}
+
+/* Global reduced-motion safety net -- collapses every transition/
+ * animation in the app to effectively instant for users who've asked
+ * the OS for reduced motion, so individual components (card hover lift,
+ * tree expand/collapse, dialog motion) don't each need their own copy
+ * of this query. A component-level media query is still needed only when
+ * a *state change* itself (not just its transition) must be skipped --
+ * see docs/DESIGN_SYSTEM.md open_dialog's Motion note for that case. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Thin, understated scrollbar (mockups show a slim rail, not the OS's wide

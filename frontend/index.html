@@ -46,7 +46,16 @@
 
       <div class="recent-heading">
         <h2>RECENT</h2>
-        <span id="recentCount">last 10 files</span>
+        <span id="recentCount" class="count-empty">no files yet</span>
+        <div class="recent-heading-fill"></div>
+        <div class="view-toggle" role="group" aria-label="Recent view">
+          <button class="view-toggle-btn" id="recentViewGridBtn" aria-pressed="true" aria-label="Grid view" title="Grid view">
+            <span data-icon="grid_view"></span>
+          </button>
+          <button class="view-toggle-btn" id="recentViewListBtn" aria-pressed="false" aria-label="List view" title="List view">
+            <span data-icon="list_view"></span>
+          </button>
+        </div>
       </div>
 
       <div id="recentArea"></div>
@@ -58,20 +67,31 @@
        time this is open — see frontend/js/file-browser.js's header comment
        for why, unlike the Recent grid's opt-in picker toggle above. -->
   <div class="dialog-scrim voice-dialog" id="openDialogScrim" hidden>
-    <div class="dialog-card">
-      <div class="dialog-body">
+    <div class="dialog-card dialog-card--wide">
+      <div class="dialog-body dialog-body--browser">
         <div class="dialog-header">
           <div class="dialog-badge" data-icon="folder"></div>
-          <div>
-            <p class="dialog-title">Open PDF</p>
-            <p class="browser-path" id="openDialogPath"></p>
-          </div>
+          <p class="dialog-title">Open PDF</p>
         </div>
-        <div class="browser-list" id="openDialogList"></div>
+      </div>
+      <div class="browser-crumbs" id="openDialogPath"></div>
+      <div class="browser-panes">
+        <div class="browser-side themed-scroll">
+          <p class="browser-side-label">Quick access</p>
+          <div class="browser-quick" id="openDialogQuick"></div>
+          <p class="browser-side-label">This PC</p>
+          <div class="browser-tree" id="openDialogTree" role="tree"></div>
+        </div>
+        <div class="browser-main">
+          <div class="browser-search">
+            <span data-icon="search"></span>
+            <input type="text" id="openDialogSearch" placeholder="Search this folder…" autocomplete="off" aria-label="Search this folder">
+          </div>
+          <div class="browser-list themed-scroll" id="openDialogList"></div>
+        </div>
       </div>
       <div class="dialog-footer">
-        <span class="hint">Say a number to open it, or "go up" / "cancel".</span>
-        <button class="btn btn-secondary" id="openDialogUpBtn">Up</button>
+        <span class="hint">Click a folder or PDF, or say its number, or "home" / "desktop" / "documents" / "downloads".</span>
         <button class="btn btn-secondary" id="openDialogCancelBtn">Cancel</button>
       </div>
     </div>

@@ -230,7 +230,7 @@ PICKER_PHRASES: dict[str, tuple[str, ...]] = {
 # (`docs/DESIGN_SYSTEM.md`'s Miller's Law note), but nothing here hardcodes
 # that cap, so a future, larger list is not silently unreachable past ten.
 # Also reused as-is by `OPEN_DIALOG`/`SAVE_DIALOG` below, whose rows are
-# numbered the same way and are not capped at 10 either.
+# numbered the same way and are not capped at 20 either.
 _PICKER_NUMBER_WORDS: tuple[str, ...] = tuple(sorted(
     set(command_grammar._UNITS) | set(command_grammar._TENS)
     | {command_grammar._HUNDRED, command_grammar._FILLER}
@@ -250,14 +250,34 @@ DIALOG_UP = "DIALOG_UP"
 DIALOG_PICK = "DIALOG_PICK"
 DIALOG_CONFIRM = "DIALOG_CONFIRM"
 
+# Quick Access chips (Home/Desktop/Documents/Downloads) have natural spoken
+# labels, so they are reached by name rather than by number — one intent per
+# chip, matching the fixed-phrase-table pattern every other intent here uses.
+DIALOG_HOME = "DIALOG_HOME"
+DIALOG_DESKTOP = "DIALOG_DESKTOP"
+DIALOG_DOCUMENTS = "DIALOG_DOCUMENTS"
+DIALOG_DOWNLOADS = "DIALOG_DOWNLOADS"
+
+_DIALOG_QUICK_ACCESS_PHRASES: dict[str, tuple[str, ...]] = {
+    # No bare "go home": that phrase is the global GO_HOME, which resolve()
+    # matches first, so listing it here would be dead. "go to home" matches the
+    # other chips' "go to <name>" form without colliding with it.
+    DIALOG_HOME: ("home", "go to home"),
+    DIALOG_DESKTOP: ("desktop", "go to desktop"),
+    DIALOG_DOCUMENTS: ("documents", "go to documents"),
+    DIALOG_DOWNLOADS: ("downloads", "go to downloads"),
+}
+
 OPEN_DIALOG_PHRASES: dict[str, tuple[str, ...]] = {
     DIALOG_UP: ("go up", "up a folder", "back a folder", "parent folder"),
     CANCEL: ("cancel", "never mind"),
+    **_DIALOG_QUICK_ACCESS_PHRASES,
 }
 
 SAVE_DIALOG_PHRASES: dict[str, tuple[str, ...]] = {
     DIALOG_UP: ("go up", "up a folder", "back a folder", "parent folder"),
     CANCEL: ("cancel", "never mind"),
+    **_DIALOG_QUICK_ACCESS_PHRASES,
     DIALOG_CONFIRM: ("save here", "save it", "confirm save"),
 }
 

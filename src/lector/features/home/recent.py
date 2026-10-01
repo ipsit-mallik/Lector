@@ -60,11 +60,23 @@ def list_recent(thumbnail_height: int = 116) -> list[dict]:
         path = entry["path"]
         name = os.path.splitext(os.path.basename(path))[0]
         thumbnail, page_count = _load_thumbnail_and_count(path, thumbnail_height)
+        # List view's Progress column (Recent grid/list toggle): the reader's
+        # last-left-off page, as a 0-100 percent read through the document.
+        # None (not 0) when nothing has ever been recorded for this file --
+        # "just opened, never read a page" is a different state from "read
+        # 0% of it", and the frontend renders them differently.
+        position = settings.position_from_entry(entry)
+        if position is not None and page_count:
+            progress_percent = round(100 * (position["page_index"] + 1) / page_count)
+            progress_percent = max(0, min(100, progress_percent))
+        else:
+            progress_percent = None
         entries.append({
             "path": path,
             "name": name,
             "thumbnail": thumbnail,
             "page_count": page_count,
             "relative_time": settings.format_relative_time(entry["opened_at"]),
+            "progress_percent": progress_percent,
         })
     return entries

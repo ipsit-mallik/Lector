@@ -2,6 +2,8 @@ const openPdfBtn = document.getElementById("openPdfBtn");
 const settingsNav = document.getElementById("settingsNav");
 const recentArea = document.getElementById("recentArea");
 const recentCount = document.getElementById("recentCount");
+const recentViewGridBtn = document.getElementById("recentViewGridBtn");
+const recentViewListBtn = document.getElementById("recentViewListBtn");
 
 async function openPath(path) {
   await callApi("open_pdf", path);
@@ -14,7 +16,9 @@ const openDialog = createFileBrowser({
   scrimId: "openDialogScrim",
   listId: "openDialogList",
   pathId: "openDialogPath",
-  upBtnId: "openDialogUpBtn",
+  quickId: "openDialogQuick",
+  treeId: "openDialogTree",
+  searchId: "openDialogSearch",
   cancelBtnId: "openDialogCancelBtn",
   mode: "open",
   voiceContext: "open_dialog",
@@ -53,9 +57,40 @@ function buildEmptyState() {
   return el;
 }
 
+// Remove-from-Recent affordance (Milestone 8.9, docs/DESIGN_SYSTEM.md).
+// A real <button>, not a click handler on a styled <div> — the
+// accessibility baseline's "every interactive element is a real button"
+// rule, and what gives it independent keyboard focus regardless of
+// whether its container is ever made focusable. stopPropagation keeps
+// this click from also bubbling into the card/row's own "open" handler.
+// Shared by both buildCard() (grid) and buildListRow() (list) — same
+// control, just laid out differently by its container's CSS.
+function buildRemoveBtn(entry) {
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "icon-btn recent-remove-btn";
+  removeBtn.dataset.icon = "remove";
+  removeBtn.title = "Remove from Recent";
+  removeBtn.setAttribute("aria-label", `Remove ${entry.name} from Recent`);
+  removeBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    removeEntry(entry);
+  });
+  mountIcon(removeBtn, "remove");
+  return removeBtn;
+}
 function buildCard(entry) {
   const card = document.createElement("div");
   card.className = "recent-card";
+  // docs/DESIGN_SYSTEM.md's accessibility baseline ("never a clickable
+  // div") can't be met with a literal <button> here, since the card
+  // also contains its own nested, independently-focusable remove
+  // <button> below -- a <button> cannot contain another <button>. This
+  // is the standard fallback for that exact composite-control shape:
+  // role="button" + tabindex so it is reachable and announced like one,
+  // plus an Enter/Space handler so keyboard activation matches click.
+  card.setAttribute("role", "button");
+  card.tabIndex = 0;
+  card.setAttribute("aria-label", `Open ${entry.name}`);
 
   const thumb = document.createElement("div");
   thumb.className = "recent-thumb";
@@ -79,44 +114,139 @@ function buildCard(entry) {
     : entry.relative_time;
   card.appendChild(meta);
 
-  // Remove-from-Recent affordance (Milestone 8.9, docs/DESIGN_SYSTEM.md).
-  // A real <button>, not a click handler on a styled <div> — the
-  // accessibility baseline's "every interactive element is a real button"
-  // rule, and what gives it independent keyboard focus regardless of
-  // whether the card itself is ever made focusable. stopPropagation keeps
-  // this click from also bubbling into the card's own "open" handler below.
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "icon-btn recent-remove-btn";
-  removeBtn.dataset.icon = "remove";
-  removeBtn.title = "Remove from Recent";
-  removeBtn.setAttribute("aria-label", `Remove ${entry.name} from Recent`);
-  removeBtn.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    removeEntry(entry);
-  });
-  card.appendChild(removeBtn);
-  mountIcon(removeBtn, "remove");
+  card.appendChild(buildRemoveBtn(entry));
 
   card.addEventListener("click", () => openPath(entry.path));
+  card.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      openPath(entry.path);
+    }
+  });
   return card;
+}
+
+// List view's row -- same interactive-surface contract as buildCard()
+// (role=button/tabindex/keydown for the same nested-button reason, same
+// shared buildRemoveBtn(), and deliberately keeps the "recent-card" class
+// alongside its own "recent-row" one so the numbered-overlay picker below
+// (which queries ".recent-card") keeps working in either view without
+// its own view-aware branch.
+function buildListRow(entry) {
+  const row = document.createElement("div");
+  row.className = "recent-card recent-row";
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
+  row.setAttribute("aria-label", `Open ${entry.name}`);
+
+  const thumb = document.createElement("div");
+  thumb.className = "recent-thumb";
+  if (entry.thumbnail) {
+    const img = document.createElement("img");
+    img.src = `data:image/png;base64,${entry.thumbnail}`;
+    thumb.appendChild(img);
+  }
+  row.appendChild(thumb);
+
+  const title = document.createElement("div");
+  title.className = "title row-title";
+  title.textContent = entry.name;
+  row.appendChild(title);
+
+  const lastOpened = document.createElement("div");
+  lastOpened.className = "row-col row-last-opened";
+  lastOpened.textContent = entry.relative_time;
+  row.appendChild(lastOpened);
+
+  const pages = document.createElement("div");
+  pages.className = "row-col row-pages";
+  const noun = entry.page_count === 1 ? "page" : "pages";
+  pages.textContent = entry.page_count ? `${entry.page_count} ${noun}` : "—";
+  row.appendChild(pages);
+
+  // progress_percent is null when the file has never been opened far
+  // enough to record a position (src/lector/features/home/recent.py) --
+  // shown as "Not started" text rather than a 0%-filled bar, so a reader
+  // cannot mistake "no data yet" for "read almost nothing of it".
+  const progress = document.createElement("div");
+  progress.className = "row-col row-progress";
+  if (entry.progress_percent === null || entry.progress_percent === undefined) {
+    const label = document.createElement("span");
+    label.className = "progress-label";
+    label.textContent = "Not started";
+    progress.appendChild(label);
+  } else {
+    const bar = document.createElement("div");
+    bar.className = "progress-bar";
+    const fill = document.createElement("div");
+    fill.className = "progress-bar-fill";
+    fill.style.width = `${entry.progress_percent}%`;
+    bar.appendChild(fill);
+    const label = document.createElement("span");
+    label.className = "progress-label";
+    label.textContent = `${entry.progress_percent}%`;
+    progress.appendChild(bar);
+    progress.appendChild(label);
+  }
+  row.appendChild(progress);
+
+  row.appendChild(buildRemoveBtn(entry));
+
+  row.addEventListener("click", () => openPath(entry.path));
+  row.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      openPath(entry.path);
+    }
+  });
+  return row;
 }
 
 // Populated by renderRecent(), read by the picker below to map a spoken
 // index back to the entry it stands for.
 let recentEntries = [];
 
+// Grid/list toggle (Recent screen, Motion & elevation foundation pass):
+// a persisted preference (settings.json via get_recent_view/
+// set_recent_view), not per-session UI state -- see docs/DESIGN_SYSTEM.md.
+let recentViewMode = "grid";
+
+function setRecentView(mode) {
+  if (mode === recentViewMode) return;
+  recentViewMode = mode;
+  recentViewGridBtn.setAttribute("aria-pressed", String(mode === "grid"));
+  recentViewListBtn.setAttribute("aria-pressed", String(mode === "list"));
+  callApi("set_recent_view", mode);
+  renderRecent(recentEntries);
+}
+recentViewGridBtn.addEventListener("click", () => setRecentView("grid"));
+recentViewListBtn.addEventListener("click", () => setRecentView("list"));
+
 function renderRecent(entries) {
   recentEntries = entries;
-  recentCount.textContent = entries.length ? `${entries.length} of last 10 files` : "no files yet";
+  // Shows how many cards are actually on screen, not the cap -- see
+  // .count-pill in home.css.
+  if (entries.length) {
+    recentCount.className = "count-pill";
+    recentCount.textContent = String(entries.length);
+  } else {
+    recentCount.className = "count-empty";
+    recentCount.textContent = "no files yet";
+  }
   recentArea.innerHTML = "";
   if (!entries.length) {
     recentArea.appendChild(buildEmptyState());
     return;
   }
-  const grid = document.createElement("div");
-  grid.className = "recent-grid";
-  entries.forEach((entry) => grid.appendChild(buildCard(entry)));
-  recentArea.appendChild(grid);
+  const container = document.createElement("div");
+  if (recentViewMode === "list") {
+    container.className = "recent-list";
+    entries.forEach((entry) => container.appendChild(buildListRow(entry)));
+  } else {
+    container.className = "recent-grid";
+    entries.forEach((entry) => container.appendChild(buildCard(entry)));
+  }
+  recentArea.appendChild(container);
 }
 
 async function loadRecent() {
@@ -323,6 +453,9 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
   // (Milestone 8.5) carries its own scoped commands — see VOICE_ACTIONS
   // below — on top of the always-on global ones (undo/redo/help/go home).
   await callApi("set_voice_context", "home");
+  recentViewMode = await callApi("get_recent_view");
+  recentViewGridBtn.setAttribute("aria-pressed", String(recentViewMode === "grid"));
+  recentViewListBtn.setAttribute("aria-pressed", String(recentViewMode === "list"));
   await loadRecent();
   voice = initVoice(renderVoiceBox);
 })();

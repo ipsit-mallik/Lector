@@ -252,6 +252,29 @@ class OpenDialogContextTests(unittest.TestCase):
             router.resolve(router.OPEN_DIALOG, "never mind")["command"]["intent"], router.CANCEL
         )
 
+    def test_quick_access_names_resolve_to_their_own_intents(self):
+        expected = {
+            "home": router.DIALOG_HOME,
+            "desktop": router.DIALOG_DESKTOP,
+            "documents": router.DIALOG_DOCUMENTS,
+            "downloads": router.DIALOG_DOWNLOADS,
+        }
+        for phrase, intent in expected.items():
+            result = router.resolve(router.OPEN_DIALOG, phrase)
+            self.assertEqual(result["command"]["intent"], intent, msg=phrase)
+
+    def test_go_to_home_reaches_the_home_folder_chip_like_the_other_chips(self):
+        for context in (router.OPEN_DIALOG, router.SAVE_DIALOG):
+            result = router.resolve(context, "go to home")
+            self.assertEqual(result["command"]["intent"], router.DIALOG_HOME, msg=context)
+
+    def test_go_home_stays_the_global_command_not_the_home_folder_chip(self):
+        # "go home" is a global phrase and globals resolve before a context's
+        # own table, so the Home folder chip is reached by the bare word only.
+        for context in (router.OPEN_DIALOG, router.SAVE_DIALOG):
+            result = router.resolve(context, "go home")
+            self.assertEqual(result["command"]["intent"], router.GO_HOME, msg=context)
+
     def test_save_here_does_not_resolve_since_open_has_nothing_to_confirm(self):
         result = router.resolve(router.OPEN_DIALOG, "save here")
         self.assertIsNone(result["command"])
@@ -276,6 +299,17 @@ class SaveDialogContextTests(unittest.TestCase):
     def test_cancel_resolves(self):
         result = router.resolve(router.SAVE_DIALOG, "cancel")
         self.assertEqual(result["command"]["intent"], router.CANCEL)
+
+    def test_quick_access_names_resolve_the_same_as_in_open_dialog(self):
+        expected = {
+            "home": router.DIALOG_HOME,
+            "desktop": router.DIALOG_DESKTOP,
+            "documents": router.DIALOG_DOCUMENTS,
+            "downloads": router.DIALOG_DOWNLOADS,
+        }
+        for phrase, intent in expected.items():
+            result = router.resolve(router.SAVE_DIALOG, phrase)
+            self.assertEqual(result["command"]["intent"], intent, msg=phrase)
 
     def test_save_here_resolves_via_any_of_its_phrasings(self):
         for phrase in ("save here", "save it", "confirm save"):

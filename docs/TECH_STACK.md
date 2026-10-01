@@ -48,7 +48,7 @@ Compiles Python to C; produces smaller and faster standalone binaries than PyIns
 
 State is limited to two kinds of data:
 1. **Highlight/annotation data** — lives inside the PDF file itself as real PyMuPDF-written annotations, not in a separate store.
-2. **App-level settings** — theme, save-behavior preference, voice activation mode, recent-files list (capped at 10). Stored via a local JSON settings file (no `QSettings` equivalent under pywebview — this is a straightforward substitution, not a design change).
+2. **App-level settings** — theme, save-behavior preference, voice activation mode, recent-files list (capped at 20). Stored via a local JSON settings file (no `QSettings` equivalent under pywebview — this is a straightforward substitution, not a design change).
 
 A database would be unjustified complexity for this data shape — there is no multi-record relational data, no concurrent access, and no querying need beyond "read this small settings blob."
 

@@ -60,6 +60,38 @@ class ListDirectoryTests(unittest.TestCase):
         names = [e["name"] for e in result["entries"]]
         self.assertEqual(names, ["visible"])
 
+    def test_windows_hidden_and_system_folders_are_omitted(self):
+        (self.root / "$RECYCLE.BIN").mkdir()
+        (self.root / "Reports").mkdir()
+        flagged = {"$RECYCLE.BIN": browser.stat.FILE_ATTRIBUTE_HIDDEN | browser.stat.FILE_ATTRIBUTE_SYSTEM}
+        real_stat = Path.stat
+
+        def fake_stat(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            attributes = flagged.get(path.name, 0)
+            return mock.Mock(st_mode=result.st_mode, st_file_attributes=attributes)
+
+        with mock.patch.object(Path, "stat", autospec=True, side_effect=fake_stat):
+            result = browser.list_directory(str(self.root))
+
+        self.assertEqual([e["name"] for e in result["entries"]], ["Reports"])
+
+    def test_a_system_only_flagged_folder_is_still_listed(self):
+        # Customised user folders (desktop.ini) can carry the system attribute
+        # alone; only hidden-flagged folders are noise.
+        (self.root / "Customised").mkdir()
+        flagged = {"Customised": browser.stat.FILE_ATTRIBUTE_SYSTEM}
+        real_stat = Path.stat
+
+        def fake_stat(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            return mock.Mock(st_mode=result.st_mode, st_file_attributes=flagged.get(path.name, 0))
+
+        with mock.patch.object(Path, "stat", autospec=True, side_effect=fake_stat):
+            result = browser.list_directory(str(self.root))
+
+        self.assertEqual([e["name"] for e in result["entries"]], ["Customised"])
+
     def test_an_empty_directory_reports_no_entries_and_no_error(self):
         result = browser.list_directory(str(self.root))
 
@@ -86,25 +118,14 @@ class ListDirectoryTests(unittest.TestCase):
 
         self.assertIsNone(result["parent"])
 
-    def test_the_filesystem_root_offers_an_other_drives_row_first(self):
-        # Milestone: fixing the drive-root dead end — Up is disabled with
-        # nowhere else to go once `parent` is None, so `list_directory`
-        # itself has to offer a way to reach another drive.
+    def test_the_filesystem_root_has_no_synthetic_other_drives_row(self):
+        # Every drive is a permanent tree node now (`list_drives()`), so a
+        # drive-root listing is only ever real folders/PDFs.
         root = Path(self.tmp.name).parents[-1]
 
         result = browser.list_directory(str(root))
 
-        self.assertEqual(result["entries"][0]["path"], browser.DRIVES_ENTRY_PATH)
-        self.assertTrue(result["entries"][0]["is_dir"])
-
-    def test_a_non_root_directory_does_not_offer_an_other_drives_row(self):
-        child = self.root / "child"
-        child.mkdir()
-
-        result = browser.list_directory(str(child))
-
-        paths = [e["path"] for e in result["entries"]]
-        self.assertNotIn(browser.DRIVES_ENTRY_PATH, paths)
+        self.assertFalse(any(e["path"].startswith("__lector") for e in result["entries"]))
 
     def test_an_unreadable_directory_reports_an_error_instead_of_raising(self):
         missing = self.root / "does-not-exist"
@@ -144,6 +165,96 @@ class ListDrivesTests(unittest.TestCase):
         self.assertTrue(any(n.endswith("Macintosh HD") for n in names))
         self.assertTrue(any(n.endswith("Backup Drive") for n in names))
         self.assertFalse(any(".hidden" in n for n in names))
+
+
+    def test_mac_does_not_list_the_boot_volume_symlink_as_a_second_drive(self):
+        # /Volumes/<boot volume> is a symlink back to "/", which is already
+        # listed, so it must not appear as a duplicate node in the tree.
+        with tempfile.TemporaryDirectory(prefix="lector-volumes-") as volumes_dir:
+            volumes_path = Path(volumes_dir)
+            (volumes_path / "Backup Drive").mkdir()
+            (volumes_path / "Macintosh HD").mkdir()
+            filesystem_root = Path("/").resolve()
+            real_resolve = Path.resolve
+
+            # A real symlink needs privileges some platforms withhold, so the
+            # boot volume is simulated by making its resolve() land on "/".
+            def fake_resolve(path, *args, **kwargs):
+                if path.name == "Macintosh HD":
+                    return filesystem_root
+                return real_resolve(path, *args, **kwargs)
+
+            with mock.patch.object(browser.platform, "system", return_value="Darwin"), mock.patch.object(
+                browser, "Path", side_effect=lambda p: volumes_path if p == "/Volumes" else Path(p)
+            ), mock.patch.object(Path, "resolve", autospec=True, side_effect=fake_resolve):
+                result = browser.list_drives()
+
+        names = [e["name"] for e in result["entries"]]
+        self.assertFalse(any(n.endswith("Macintosh HD") for n in names))
+        self.assertTrue(any(n.endswith("Backup Drive") for n in names))
+
+
+class ListQuickAccessTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="lector-home-")
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+
+    def _quick_access(self) -> list[dict]:
+        # `_known_folder` is pinned to home/<name> so these tests do not pick up
+        # the real machine's (possibly redirected) Desktop/Documents/Downloads.
+        with mock.patch.object(browser.Path, "home", return_value=self.home), mock.patch.object(
+            browser, "_known_folder", side_effect=lambda name: self.home / name
+        ):
+            return browser.list_quick_access()["entries"]
+
+    def test_a_plain_file_with_a_folders_name_is_not_offered(self):
+        (self.home / "Downloads").touch()
+        (self.home / "Desktop").mkdir()
+
+        entries = self._quick_access()
+
+        self.assertEqual([e["name"] for e in entries], ["Home", "Desktop"])
+
+    def test_a_redirected_folder_is_offered_at_its_real_location(self):
+        # OneDrive-style redirection: Documents lives outside the home folder.
+        redirected = self.home / "OneDrive" / "Documents"
+        redirected.mkdir(parents=True)
+        with mock.patch.object(browser.Path, "home", return_value=self.home), mock.patch.object(
+            browser,
+            "_known_folder",
+            side_effect=lambda name: redirected if name == "Documents" else self.home / name,
+        ):
+            entries = browser.list_quick_access()["entries"]
+
+        self.assertEqual([e["name"] for e in entries], ["Home", "Documents"])
+        self.assertEqual(entries[1]["path"], str(redirected))
+
+    def test_home_is_always_first_even_with_no_children(self):
+        entries = self._quick_access()
+
+        self.assertEqual([e["name"] for e in entries], ["Home"])
+        self.assertEqual(entries[0]["path"], str(self.home))
+        self.assertTrue(entries[0]["is_dir"])
+
+    def test_only_children_that_exist_are_offered_in_order(self):
+        (self.home / "Downloads").mkdir()
+        (self.home / "Desktop").mkdir()
+
+        entries = self._quick_access()
+
+        self.assertEqual([e["name"] for e in entries], ["Home", "Desktop", "Downloads"])
+        self.assertEqual(entries[1]["path"], str(self.home / "Desktop"))
+
+    def test_all_children_are_offered_when_all_exist(self):
+        for name in ("Desktop", "Documents", "Downloads"):
+            (self.home / name).mkdir()
+
+        entries = self._quick_access()
+
+        self.assertEqual(
+            [e["name"] for e in entries], ["Home", "Desktop", "Documents", "Downloads"]
+        )
 
 
 class DefaultOpenDirTests(unittest.TestCase):

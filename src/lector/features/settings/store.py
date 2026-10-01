@@ -4,7 +4,7 @@ docs/TECH_STACK.md rules out a database for app state. Under PySide6 this was
 backed by `QSettings` (registry on Windows, a plist on Mac); pywebview has no
 equivalent, so this is now a plain JSON file in the OS's standard per-user app
 data location — "a straightforward substitution, not a design change" per
-docs/TECH_STACK.md. Behavior (keys, defaults, the 10-item recent-files cap)
+docs/TECH_STACK.md. Behavior (keys, defaults, the 20-item recent-files cap)
 is unchanged from the QSettings-backed version.
 """
 import datetime
@@ -32,7 +32,16 @@ _SAVE_BEHAVIOR_KEY = "save_behavior"
 _THEME_KEY = "theme"
 _REOPEN_BEHAVIOR_KEY = "reopen_behavior"
 _RECENT_FILES_KEY = "recent_files"
-RECENT_FILES_CAP = 10
+RECENT_FILES_CAP = 20
+
+# Home screen's Recent grid/list toggle (grid is the long-standing default;
+# list adds sortable-at-a-glance columns for a longer history now that the
+# cap is 20). A persisted preference like theme/reopen-behavior, not a
+# per-session UI toggle, since the whole point is it stays how the reader
+# left it.
+_RECENT_VIEW_KEY = "recent_view"
+RECENT_VIEW_GRID = "grid"
+RECENT_VIEW_LIST = "list"
 
 # Voice activation (docs/PRD.md: "independently toggleable"). Two separate
 # booleans rather than one three-valued mode, because the PRD's requirement
@@ -104,6 +113,19 @@ def set_theme(name: str) -> None:
         raise ValueError(f"invalid theme: {name!r}")
     data = _load()
     data[_THEME_KEY] = name
+    _save(data)
+
+
+def get_recent_view() -> str:
+    value = _load().get(_RECENT_VIEW_KEY, RECENT_VIEW_GRID)
+    return value if value in (RECENT_VIEW_GRID, RECENT_VIEW_LIST) else RECENT_VIEW_GRID
+
+
+def set_recent_view(mode: str) -> None:
+    if mode not in (RECENT_VIEW_GRID, RECENT_VIEW_LIST):
+        raise ValueError(f"invalid recent view: {mode!r}")
+    data = _load()
+    data[_RECENT_VIEW_KEY] = mode
     _save(data)
 
 
@@ -208,7 +230,7 @@ def remove_recent_file(path: str) -> None:
 
 # Reading position rides along on the recent-files entry rather than living in
 # its own map: it is only ever needed for a file the reader can actually get
-# back to from the Home screen, so tying its lifetime to the 10-item recent
+# back to from the Home screen, so tying its lifetime to the 20-item recent
 # list means stale positions for long-forgotten files are pruned for free
 # instead of accumulating in settings.json forever.
 _POSITION_PAGE_KEY = "page_index"
@@ -221,10 +243,11 @@ _POSITION_ZOOM_KEY = "zoom"
 _DEFAULT_ZOOM = 1.0
 
 
-def get_document_position(path: str) -> dict | None:
-    """The page/layout/zoom `path` was last left on, or None if never recorded."""
-    entry = next((e for e in get_recent_files() if e["path"] == path), None)
-    if entry is None or _POSITION_PAGE_KEY not in entry:
+def position_from_entry(entry: dict) -> dict | None:
+    """The page/layout/zoom recorded on one recent-files `entry`, or None if it
+    has none. Split out of `get_document_position` so a caller already holding
+    the entries (Home's list) need not re-read settings.json once per file."""
+    if _POSITION_PAGE_KEY not in entry:
         return None
     page_index = entry[_POSITION_PAGE_KEY]
     if not isinstance(page_index, int) or page_index < 0:
@@ -238,6 +261,12 @@ def get_document_position(path: str) -> dict | None:
         "layout_mode": layout if layout in (BOOK, STRIP) else BOOK,
         "zoom": float(zoom),
     }
+
+
+def get_document_position(path: str) -> dict | None:
+    """The page/layout/zoom `path` was last left on, or None if never recorded."""
+    entry = next((e for e in get_recent_files() if e["path"] == path), None)
+    return None if entry is None else position_from_entry(entry)
 
 
 def set_document_position(path: str, page_index: int, layout_mode: str, zoom: float) -> None:

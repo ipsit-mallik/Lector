@@ -52,12 +52,23 @@ html, body { height: 100%; }
   color: var(--color-text-secondary);
   font-size: 13.5px;
   text-align: left;
+  transition: background-color var(--duration-base) var(--ease-standard),
+              color var(--duration-base) var(--ease-standard);
 }
 
 .nav-item [data-icon] { width: 18px; height: 18px; display: block; }
-.nav-item:hover:not(:disabled) { background-color: rgba(20, 26, 22, 0.06); color: var(--color-text-primary); }
+
+/* Previously a hardcoded rgba(20, 26, 22, 0.06) -- a darkening wash that
+   only works over a light background, so it did nothing at all in dark
+   theme (see docs/DESIGN_SYSTEM.md "Motion & elevation foundation"). Now
+   theme-aware: lightens in dark mode, darkens in light/sepia, via the
+   shared --color-panel-hover/-active tokens since the sidebar sits on
+   --color-panel, not --color-surface. */
+.nav-item:hover:not(:disabled) { background-color: var(--color-panel-hover); color: var(--color-text-primary); }
+.nav-item:active:not(:disabled) { background-color: var(--color-panel-active); }
 .nav-item.active { background-color: rgba(62, 98, 89, 0.12); color: var(--color-accent-dark); font-weight: 600; }
 .nav-item:disabled { color: var(--color-border-muted); cursor: default; }
+.nav-item:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
 .sidebar-fill { flex: 1; }
 
@@ -131,10 +142,46 @@ html, body { height: 100%; }
 
 .recent-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   margin-bottom: 14px;
 }
+
+.recent-heading-fill { flex: 1; }
+
+/* Grid/list toggle -- a segmented pair, not two separate icon-buttons,
+   so the pressed state reads as "one of these two, always exactly one"
+   rather than two independent switches. */
+.view-toggle {
+  display: flex;
+  padding: 2px;
+  border-radius: 8px;
+  background-color: var(--color-panel);
+  border: 1px solid var(--color-border-light);
+}
+
+.view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--ease-standard),
+              color var(--duration-base) var(--ease-standard);
+}
+.view-toggle-btn svg { width: 15px; height: 15px; }
+.view-toggle-btn:hover { color: var(--color-text-primary); }
+.view-toggle-btn[aria-pressed="true"] {
+  background-color: var(--color-surface);
+  color: var(--color-accent-dark);
+  box-shadow: var(--shadow-elevation-1);
+}
+.view-toggle-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 
 .recent-heading h2 {
   margin: 0;
@@ -144,7 +191,26 @@ html, body { height: 100%; }
   color: var(--color-text-primary);
 }
 
-.recent-heading span { font-size: 12.5px; color: var(--color-text-muted); }
+/* Count pill (replaces a plain "N of last 10 files" text label) --
+   shows how many cards are actually on screen right now, not the cap,
+   which is an implementation detail nobody reading the heading needs.
+   Empty ("no files yet") falls back to the old plain-text treatment,
+   since there is no count to badge. */
+.recent-heading .count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background-color: var(--color-panel);
+  border: 1px solid var(--color-border-light);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.recent-heading .count-empty { font-size: 12.5px; color: var(--color-text-muted); }
 
 .recent-grid {
   display: grid;
@@ -152,15 +218,58 @@ html, body { height: 100%; }
   gap: 20px;
 }
 
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Shared interactive-surface contract for both a grid card and a list
+   row -- border/elevation/hover/focus recipe from the Motion & elevation
+   foundation. Layout (width, padding, flex direction) is grid- or
+   list-specific and lives below, scoped by container. */
 .recent-card {
   position: relative;
-  width: 268px;
-  padding: 10px;
   border-radius: 9px;
   background-color: var(--color-input-bg);
-  border: 1px solid var(--color-border-light);
+  border: 1px solid var(--color-elevation-border);
+  box-shadow: var(--shadow-elevation-1);
   cursor: pointer;
+  transition: transform var(--duration-base) var(--ease-standard),
+              box-shadow var(--duration-base) var(--ease-standard),
+              border-color var(--duration-base) var(--ease-standard);
 }
+
+.recent-grid .recent-card { width: 268px; padding: 10px; }
+
+.recent-list .recent-card {
+  width: 100%;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+/* Rows sit directly above/below one another in a tight column, so the
+   grid card's 2px lift (which reads fine with 20px of gap around it)
+   would visually collide with its neighbors here -- border/shadow still
+   carries the hover/focus feedback, just without the vertical shift. */
+.recent-list .recent-card:hover,
+.recent-list .recent-card:focus-visible,
+.recent-list .recent-card:active {
+  transform: none;
+}
+
+/* The card lift a static page never gets: border brightens toward the
+   accent, elevation steps up, and it rises 2px. Same recipe on focus
+   (keyboard users get the same feedback mouse hover gives). */
+.recent-card:hover,
+.recent-card:focus-visible {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-elevation-2);
+  transform: translateY(-2px);
+}
+.recent-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.recent-card:active { transform: translateY(-1px); box-shadow: var(--shadow-elevation-1); }
 
 /* Numbered-overlay picker (Milestone 8.6, docs/DESIGN_SYSTEM.md). Only
    present while the `picker` voice context is active — see
@@ -190,6 +299,10 @@ html, body { height: 100%; }
   pointer-events: none;
   z-index: 2;
 }
+/* List rows sit close together (.recent-list's 6px gap) -- the grid
+   badge's -10px offset would poke into the row above it, so it pulls
+   in a bit here rather than reusing the grid's spacing verbatim. */
+.recent-list .picker-badge { top: -7px; left: -7px; }
 
 /* Remove-from-Recent affordance (Milestone 8.9, docs/DESIGN_SYSTEM.md).
    Hidden until hover/focus so it doesn't compete with the thumbnail at
@@ -201,35 +314,48 @@ html, body { height: 100%; }
    than the default 44px `.icon-btn`, which would crowd this small a
    corner. Hover/active use the destructive token — the one other
    destructive-leaning affordance in the app, per the design doc. */
+/* Previously pinned flush against the thumbnail's corner (top/right: 4px)
+   with `opacity: 0` at rest and zero background until hovered, so it read
+   as a loose icon floating over the image rather than a control
+   belonging to the card. Now inset further and *always rendered* at a
+   low-key resting opacity/background (never fully hidden -- the old
+   "reveal on hover" pattern hid it from a first-time user entirely,
+   which is exactly the kind of undiscoverable affordance the picker
+   badges above are careful to avoid); hover/focus brings it up to full
+   contrast and the destructive tint. */
 .recent-remove-btn {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 30px;
-  height: 30px;
-  opacity: 0;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background-color: color-mix(in srgb, var(--color-panel) 55%, transparent);
+  color: var(--color-text-muted);
   z-index: 2;
+  transition: background-color var(--duration-base) var(--ease-standard),
+              color var(--duration-base) var(--ease-standard);
 }
 
-.recent-remove-btn svg { width: 16px; height: 16px; }
+.recent-remove-btn svg { width: 15px; height: 15px; }
 
 .recent-card:hover .recent-remove-btn,
 .recent-remove-btn:focus-visible {
-  opacity: 1;
+  background-color: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  color: var(--color-text-secondary);
 }
 
 .recent-remove-btn:hover {
-  background-color: color-mix(in srgb, var(--color-destructive) 14%, transparent);
+  background-color: color-mix(in srgb, var(--color-destructive) 16%, var(--color-panel));
   color: var(--color-destructive);
 }
 
 .recent-remove-btn:active {
-  background-color: color-mix(in srgb, var(--color-destructive) 24%, transparent);
+  background-color: color-mix(in srgb, var(--color-destructive) 26%, var(--color-panel));
 }
 
 /* Same 2px outline + offset every other focusable control in the app uses
-   (docs/DESIGN_SYSTEM.md's contrast/focus clarifications) — no lighter
-   treatment just because this control is otherwise hidden at rest. */
+   (docs/DESIGN_SYSTEM.md's contrast/focus clarifications). */
 .recent-remove-btn:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
@@ -244,13 +370,64 @@ html, body { height: 100%; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  margin-bottom: 10px;
+  flex: none;
 }
+.recent-grid .recent-thumb { margin-bottom: 10px; }
+
+/* List view: a small fixed-size thumbnail instead of the grid's full-
+   width one -- there isn't room for a 118px-tall preview in a dense
+   row, and the row already carries the title as the primary identifier. */
+.recent-list .recent-thumb { width: 34px; height: 44px; border-radius: 4px; }
 
 .recent-thumb img { max-width: 100%; max-height: 100%; }
 
 .recent-card .title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
 .recent-card .meta { font-size: 11.5px; color: var(--color-text-muted); margin-top: 4px; }
+
+/* --- List view row columns ------------------------------------------ */
+.row-title {
+  flex: 2 1 200px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+}
+.row-col {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.row-last-opened { width: 100px; }
+.row-pages { width: 64px; text-align: right; }
+.row-progress { width: 116px; }
+
+.progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--color-border-subtle);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background-color: var(--color-accent);
+  transition: width var(--duration-slow) var(--ease-standard);
+}
+.progress-label {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* The remove button is absolutely positioned for the grid card (a
+   corner overlay on the thumbnail); in a list row it needs to sit in
+   normal flex flow as the row's trailing element instead. */
+.recent-list .recent-remove-btn {
+  position: static;
+  flex: none;
+}
 
 .empty-state {
   max-width: 520px;

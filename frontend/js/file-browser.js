@@ -12,16 +12,90 @@
 // `mode` ("open" | "save") is the one branch point below rather than two
 // near-duplicate modules.
 //
-// Every row is numbered and left visible for as long as the dialog is open,
-// unlike Home's Recent grid: Recent has one card with a natural spoken label
-// (Milestone 8.5's "open recent"), so its numbers are an opt-in fallback for
-// everything else. Nothing here has a natural spoken label — the badges are
-// not a togglable extra, they are the only way in.
+// Layout (docs/DESIGN_SYSTEM.md's tree-sidebar redesign): a left pane with
+// Quick Access chips and a lazily-expanded directory tree, a breadcrumb above
+// both panes, and the numbered folder contents on the right with a search
+// filter. Quick Access entries have natural spoken labels, so they are reached
+// by name ("documents") rather than number; only the right pane's rows are
+// numbered, and filtering renumbers the visible rows so a spoken number always
+// matches what is on screen.
+const QUICK_ACCESS_INTENTS = {
+  DIALOG_HOME: "Home",
+  DIALOG_DESKTOP: "Desktop",
+  DIALOG_DOCUMENTS: "Documents",
+  DIALOG_DOWNLOADS: "Downloads",
+};
+const QUICK_ACCESS_ICONS = {
+  Home: "home",
+  Desktop: "desktop",
+  Documents: "documents",
+  Downloads: "downloads",
+};
+
+// `browse_directory`'s `path` is already an OS-native absolute path
+// (`str(Path(...).resolve())` in browser.py) — Windows backslashes or POSIX
+// forward slashes, never mixed — so these string helpers only need to match
+// whichever separator a path already uses; no path library is needed.
+function pathSeparator(path) {
+  return path.includes("\\") ? "\\" : "/";
+}
+
+function joinPath(dir, name) {
+  const sep = pathSeparator(dir);
+  return dir.endsWith(sep) ? dir + name : dir + sep + name;
+}
+
+// A comparison key: Windows paths are case-insensitive, and a trailing
+// separator is not significant except on a bare root ("C:\", "/").
+function pathKey(path) {
+  const sep = pathSeparator(path);
+  const isRoot = path === "/" || /^[A-Za-z]:\\$/.test(path);
+  const trimmed = !isRoot && path.endsWith(sep) ? path.slice(0, -1) : path;
+  return sep === "\\" ? trimmed.toLowerCase() : trimmed;
+}
+
+function isSamePath(a, b) {
+  return pathKey(a) === pathKey(b);
+}
+
+function isUnderPath(path, base) {
+  if (isSamePath(path, base)) return true;
+  const key = pathKey(base);
+  const prefix = key.endsWith(pathSeparator(path)) ? key : key + pathSeparator(path);
+  return pathKey(path).startsWith(prefix);
+}
+
+// The path segments strictly below `base` on the way to `path`, each with the
+// full path built up to that point — `base` must be an ancestor of `path`.
+function segmentsBelow(base, path) {
+  const sep = pathSeparator(path);
+  const baseWithSep = base.endsWith(sep) ? base : base + sep;
+  const rest = isSamePath(path, base) ? "" : path.slice(baseWithSep.length);
+  const segments = [];
+  let built = base;
+  for (const name of rest.split(sep).filter(Boolean)) {
+    built = joinPath(built, name);
+    segments.push({ name, path: built });
+  }
+  return segments;
+}
+
+// "C:\" -> "Local Disk (C:)"; a Mac volume or "/" is named by its last
+// segment, since neither has a drive letter to show.
+function driveLabel(path) {
+  const letter = /^([A-Za-z]):\\$/.exec(path);
+  if (letter) return `Local Disk (${letter[1].toUpperCase()}:)`;
+  if (path === "/") return "Macintosh HD";
+  return path.split("/").filter(Boolean).pop() || path;
+}
+
 function createFileBrowser({
   scrimId,
   listId,
   pathId,
-  upBtnId,
+  quickId,
+  treeId,
+  searchId,
   cancelBtnId,
   confirmBtnId,
   filenameId,
@@ -31,37 +105,107 @@ function createFileBrowser({
 }) {
   const scrim = document.getElementById(scrimId);
   const listEl = document.getElementById(listId);
-  const pathLabel = document.getElementById(pathId);
-  const upBtn = document.getElementById(upBtnId);
+  const crumbsEl = document.getElementById(pathId);
+  const quickEl = document.getElementById(quickId);
+  const treeEl = document.getElementById(treeId);
+  const searchEl = document.getElementById(searchId);
   const cancelBtn = document.getElementById(cancelBtnId);
   const confirmBtn = confirmBtnId ? document.getElementById(confirmBtnId) : null;
   const filenameInput = filenameId ? document.getElementById(filenameId) : null;
 
   let entries = [];
+  let visibleEntries = [];
   let currentDir = null;
   let parentDir = null;
+  let listError = null;
   let settleOpen = null;
+  let navigationId = 0;
+  // True while the right pane lists the drives themselves ("This PC") rather
+  // than a folder — reached by "go up" from a drive root, the one place a
+  // voice-only user can pick a different drive by number.
+  let showingDrives = false;
 
-  // `browse_directory`'s `path` is already an OS-native absolute path
-  // (`str(Path(...).resolve())` in browser.py) — Windows backslashes or POSIX
-  // forward slashes, never mixed — so a plain string join matching whichever
-  // separator it already uses is enough; no path library is needed just for
-  // appending one filename.
-  function joinPath(dir, name) {
-    const sep = dir.includes("\\") ? "\\" : "/";
-    return dir.endsWith(sep) ? dir + name : dir + sep + name;
+  // Fetched once per `open()`.
+  let quickAccess = [];
+  let homePath = null;
+  let drives = [];
+  let profileFolderPath = null;
+  const treeNodes = new Map();
+
+  function findDrive(path) {
+    let best = null;
+    for (const drive of drives) {
+      if (!isUnderPath(path, drive.path)) continue;
+      if (!best || pathKey(drive.path).length > pathKey(best.path).length) best = drive;
+    }
+    return best;
   }
 
+  // The OS profile folder (`C:\Users`, `/Users`) is never shown as a tree
+  // node — Quick Access is how a user reaches anything under their home.
+  function findProfileFolder() {
+    const drive = homePath && findDrive(homePath);
+    if (!drive) return null;
+    const [first] = segmentsBelow(drive.path, homePath);
+    return first ? first.path : null;
+  }
+
+  // ---- Breadcrumb -------------------------------------------------------
+
+  function crumbPlan(dir) {
+    const drive = findDrive(dir);
+    if (!drive) return [{ name: dir, path: dir }];
+    const crumbs = [{ name: driveLabel(drive.path), path: drive.path }];
+    const underHome = homePath && !isSamePath(homePath, drive.path) && isUnderPath(dir, homePath);
+    if (!underHome) return crumbs.concat(segmentsBelow(drive.path, dir));
+    const below = segmentsBelow(homePath, dir);
+    return crumbs.concat(below.length ? below : [{ name: "Home", path: homePath }]);
+  }
+
+  function appendCrumbText(text, className) {
+    const el = document.createElement("span");
+    el.className = className;
+    el.textContent = text;
+    crumbsEl.appendChild(el);
+    return el;
+  }
+
+  function renderBreadcrumb() {
+    crumbsEl.innerHTML = "";
+    if (showingDrives) {
+      appendCrumbText("This PC", "browser-crumb browser-crumb--current");
+      return;
+    }
+    appendCrumbText("This PC", "browser-crumb");
+    const crumbs = crumbPlan(currentDir);
+    crumbs.forEach((crumb, i) => {
+      appendCrumbText("›", "browser-crumb-sep");
+      const isLast = i === crumbs.length - 1;
+      const el = appendCrumbText(
+        crumb.name,
+        isLast ? "browser-crumb browser-crumb--current" : "browser-crumb browser-crumb--link"
+      );
+      if (!isLast) el.addEventListener("click", () => navigateTo(crumb.path));
+    });
+    if (listError) appendCrumbText("— couldn't be read", "browser-crumb-error");
+  }
+
+  // ---- Right pane: numbered rows ---------------------------------------
+
   function renderRows() {
+    const query = searchEl.value.trim().toLowerCase();
+    visibleEntries = query
+      ? entries.filter((entry) => entry.name.toLowerCase().includes(query))
+      : entries;
     listEl.innerHTML = "";
-    if (!entries.length) {
+    if (!visibleEntries.length) {
       const empty = document.createElement("div");
       empty.className = "browser-empty";
-      empty.textContent = "No folders or PDFs here.";
+      empty.textContent = query ? "No matches in this folder." : "No folders or PDFs here.";
       listEl.appendChild(empty);
       return;
     }
-    entries.forEach((entry, i) => {
+    visibleEntries.forEach((entry, i) => {
       const row = document.createElement("div");
       row.className = "browser-row";
 
@@ -86,25 +230,233 @@ function createFileBrowser({
     mountIcons(listEl);
   }
 
-  // A drive-root listing (`parent === null`) has nowhere for Up to go, so
-  // `list_directory` prepends a synthetic "Other Drives" row whose `path` is
-  // this sentinel rather than a real filesystem path — see
-  // `dialog_browser.DRIVES_ENTRY_PATH`. Recognizing it here, instead of the
-  // backend returning a different shape, keeps every row flowing through the
-  // same numbered-picker rendering/activation path.
-  const DRIVES_ENTRY_PATH = "__lector_drives__";
+  // ---- Left pane: Quick Access -----------------------------------------
+
+  function renderQuickAccess() {
+    quickEl.innerHTML = "";
+    for (const entry of quickAccess) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "browser-quick-chip";
+      chip.dataset.path = entry.path;
+
+      const icon = document.createElement("span");
+      icon.className = "browser-quick-icon";
+      icon.dataset.icon = QUICK_ACCESS_ICONS[entry.name] || "folder";
+      chip.appendChild(icon);
+      chip.appendChild(document.createTextNode(entry.name));
+
+      chip.addEventListener("click", () => navigateTo(entry.path));
+      quickEl.appendChild(chip);
+    }
+    mountIcons(quickEl);
+  }
+
+  function goQuickAccess(name) {
+    const entry = quickAccess.find((e) => e.name === name);
+    if (entry) navigateTo(entry.path);
+  }
+
+  // ---- Left pane: directory tree ---------------------------------------
+
+  function createTreeNode(entry, depth, label, iconName) {
+    const wrap = document.createElement("div");
+    wrap.className = "tree-node";
+
+    const row = document.createElement("div");
+    row.className = "tree-row";
+    row.setAttribute("role", "treeitem");
+    row.setAttribute("aria-expanded", "false");
+    row.tabIndex = 0;
+
+    const chevron = document.createElement("span");
+    chevron.className = "tree-chevron";
+    chevron.dataset.icon = "chevron_right";
+    row.appendChild(chevron);
+    if (iconName) {
+      const icon = document.createElement("span");
+      icon.className = "tree-icon";
+      icon.dataset.icon = iconName;
+      row.appendChild(icon);
+    }
+    const text = document.createElement("span");
+    text.className = "tree-label";
+    text.textContent = label;
+    row.appendChild(text);
+
+    // Children wrapper: the grid-rows 0fr -> 1fr trick animates to the
+    // content's real height with no measured pixel value; the connector
+    // line and its accent overlay live inside it.
+    const children = document.createElement("div");
+    children.className = "tree-children";
+    const inner = document.createElement("div");
+    inner.className = "tree-children-inner";
+    const branch = document.createElement("div");
+    branch.className = "tree-branch";
+    const line = document.createElement("span");
+    line.className = "tree-line";
+    line.style.setProperty("--depth", String(depth));
+    const fill = document.createElement("span");
+    fill.className = "tree-line-fill";
+    line.appendChild(fill);
+    branch.appendChild(line);
+    inner.appendChild(branch);
+    children.appendChild(inner);
+
+    wrap.appendChild(row);
+    wrap.appendChild(children);
+
+    const node = {
+      path: entry.path,
+      depth,
+      row,
+      chevron,
+      childrenEl: children,
+      branchEl: branch,
+      lineEl: line,
+      expanded: false,
+      loadPromise: null,
+    };
+    treeNodes.set(pathKey(entry.path), node);
+    chevron.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      toggleNode(node);
+    });
+    row.addEventListener("click", () => activateTreeNode(node));
+    row.addEventListener("keydown", (ev) => onTreeKey(ev, node));
+    return wrap;
+  }
+
+  // Children are fetched the first time a node is expanded and then kept —
+  // re-expanding never re-fetches. A caller that already holds `node`'s
+  // directory listing (navigating into a folder lists it for the right pane)
+  // passes it as `knownListing` so the same folder is not listed twice.
+  function loadChildren(node, knownListing) {
+    if (!node.loadPromise) {
+      node.loadPromise = (async () => {
+        const listing = knownListing || (await callApi("browse_directory", node.path));
+        const folders = listing.entries.filter(
+          (e) => e.is_dir && !(profileFolderPath && isSamePath(e.path, profileFolderPath))
+        );
+        for (const folder of folders) {
+          node.branchEl.appendChild(createTreeNode(folder, node.depth + 1, folder.name, null));
+        }
+        node.chevron.classList.toggle("is-leaf", folders.length === 0);
+        mountIcons(node.branchEl);
+      })().catch((err) => {
+        node.loadPromise = null;
+        throw err;
+      });
+    }
+    return node.loadPromise;
+  }
+
+  function setExpanded(node, expanded) {
+    node.expanded = expanded;
+    node.childrenEl.classList.toggle("is-expanded", expanded);
+    node.chevron.classList.toggle("is-expanded", expanded);
+    node.row.setAttribute("aria-expanded", String(expanded));
+  }
+
+  async function expandNode(node, knownListing) {
+    if (node.expanded) return;
+    await loadChildren(node, knownListing);
+    setExpanded(node, true);
+  }
+
+  async function toggleNode(node) {
+    if (node.expanded) setExpanded(node, false);
+    else await expandNode(node);
+  }
+
+  // Clicking a folder navigates to it (which also expands it, see
+  // `revealCurrent`); clicking the already-current folder toggles it open or
+  // closed instead, so a folder behaves like an accordion header.
+  function activateTreeNode(node) {
+    if (currentDir && isSamePath(node.path, currentDir)) {
+      toggleNode(node);
+      return;
+    }
+    navigateTo(node.path);
+  }
+
+  function onTreeKey(ev, node) {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      activateTreeNode(node);
+    } else if (ev.key === "ArrowRight") {
+      ev.preventDefault();
+      expandNode(node);
+    } else if (ev.key === "ArrowLeft") {
+      ev.preventDefault();
+      setExpanded(node, false);
+    }
+  }
+
+  function buildTree() {
+    treeEl.innerHTML = "";
+    treeNodes.clear();
+    for (const drive of drives) {
+      treeEl.appendChild(createTreeNode(drive, 0, driveLabel(drive.path), "drive"));
+    }
+    mountIcons(treeEl);
+  }
+
+  // Expands the current folder's node and each tree ancestor above it that
+  // exists as a node (a folder under the hidden profile folder has none, so
+  // the walk simply stops there), so its immediate subfolders are visible.
+  // Stops early if a newer navigation has superseded this one. `listing` is
+  // the current folder's own listing, reused for its node instead of a second
+  // `browse_directory` call.
+  async function revealCurrent(id, listing) {
+    const drive = findDrive(currentDir);
+    if (!drive) return;
+    const chain = [drive.path, ...segmentsBelow(drive.path, currentDir).map((s) => s.path)];
+    for (const path of chain) {
+      const node = treeNodes.get(pathKey(path));
+      if (!node) return;
+      await expandNode(node, isSamePath(path, currentDir) ? listing : undefined);
+      if (id !== navigationId) return;
+    }
+  }
+
+  // Highlights the current node and Quick Access chip, and lights exactly the
+  // connector lines on the current folder's ancestor chain (each line's
+  // `--depth` delay makes the accent visibly travel down the path).
+  function updateSelection() {
+    for (const node of treeNodes.values()) {
+      const isCurrent = isSamePath(node.path, currentDir);
+      node.row.classList.toggle("is-current", isCurrent);
+      node.lineEl.classList.toggle("is-active-path", !isCurrent && isUnderPath(currentDir, node.path));
+    }
+    for (const chip of quickEl.children) {
+      chip.classList.toggle("is-active", isSamePath(chip.dataset.path, currentDir));
+    }
+  }
+
+  // ---- Navigation and actions ------------------------------------------
 
   async function navigateTo(dir) {
-    const listing =
-      dir === DRIVES_ENTRY_PATH
-        ? await callApi("list_drives")
-        : await callApi("browse_directory", dir);
+    const id = ++navigationId;
+    const listing = await callApi("browse_directory", dir);
+    if (id !== navigationId) return;
+    showingDrives = false;
     currentDir = listing.path;
     parentDir = listing.parent;
     entries = listing.entries;
-    pathLabel.textContent = listing.error ? `${currentDir} — couldn't be read` : currentDir;
-    upBtn.disabled = !parentDir;
+    listError = listing.error;
+    searchEl.value = "";
+    renderBreadcrumb();
     renderRows();
+    updateSelection();
+    // The right pane is already correct at this point; a failure expanding the
+    // tree must not turn a successful navigation into an unhandled rejection.
+    try {
+      await revealCurrent(id, listing);
+    } catch (err) {
+      console.error("file-browser: could not reveal folder in tree", err);
+    }
+    if (id === navigationId) updateSelection();
   }
 
   // A folder row navigates into it, in both modes. A PDF file row opens it
@@ -112,9 +464,10 @@ function createFileBrowser({
   // does" contract Milestone 8.6 established) — there is nothing to open in
   // `save` mode, so there it pre-fills the filename field instead, the same
   // convenience a native Save-As dialog offers when you click an existing
-  // file.
+  // file. `index` is into the *visible* (filtered) rows, so a spoken number
+  // always matches the badge on screen.
   function activateRow(index) {
-    const entry = entries[index];
+    const entry = visibleEntries[index];
     if (!entry) return;
     if (entry.is_dir) {
       navigateTo(entry.path);
@@ -127,12 +480,28 @@ function createFileBrowser({
     }
   }
 
+  // No button calls this any more — the breadcrumb and tree replaced Up —
+  // but "go up" (DIALOG_UP) is still voice-reachable. From a drive root there
+  // is no parent folder, so it lists the drives instead; that is the only
+  // voice route to another drive, since tree nodes have no spoken label.
   function goUp() {
     if (parentDir) navigateTo(parentDir);
+    else if (drives.length > 1) showDrives();
+  }
+
+  function showDrives() {
+    navigationId += 1; // supersede any navigation still in flight
+    showingDrives = true;
+    entries = drives.map((drive) => ({ name: driveLabel(drive.path), path: drive.path, is_dir: true }));
+    listError = null;
+    searchEl.value = "";
+    renderBreadcrumb();
+    renderRows();
   }
 
   function confirmSave() {
-    if (!filenameInput) return;
+    // Nothing to save into while the pane lists drives rather than a folder.
+    if (!filenameInput || showingDrives) return;
     let name = filenameInput.value.trim();
     if (!name) return;
     if (!name.toLowerCase().endsWith(".pdf")) name += ".pdf";
@@ -151,19 +520,37 @@ function createFileBrowser({
     return !scrim.hidden;
   }
 
+  async function loadSidebar() {
+    const [quick, driveListing] = await Promise.all([
+      callApi("list_quick_access"),
+      callApi("list_drives"),
+    ]);
+    quickAccess = quick.entries;
+    homePath = quickAccess.length ? quickAccess[0].path : null;
+    drives = driveListing.entries;
+    profileFolderPath = findProfileFolder();
+    renderQuickAccess();
+    buildTree();
+  }
+
   function open({ dir, filename }) {
     return new Promise((resolve) => {
       settleOpen = resolve;
       if (filenameInput) filenameInput.value = filename || "";
       scrim.hidden = false;
       callApi("set_voice_context", voiceContext);
-      navigateTo(dir);
+      // The sidebar is a convenience: if it fails to load the folder list must
+      // still appear, so its failure is swallowed rather than blocking navigation.
+      loadSidebar()
+        .catch((err) => console.error("file-browser: sidebar failed to load", err))
+        .then(() => navigateTo(dir));
     });
   }
 
-  // DIALOG_PICK/DIALOG_UP/CANCEL/DIALOG_CONFIRM only ever arrive while this
-  // dialog is the active voice context (router.py scopes them there), so the
-  // caller only needs to route to this while `isOpen()` is true.
+  // DIALOG_PICK/DIALOG_UP/DIALOG_HOME…DIALOG_DOWNLOADS/CANCEL/DIALOG_CONFIRM
+  // only ever arrive while this dialog is the active voice context (router.py
+  // scopes them there), so the caller only needs to route to this while
+  // `isOpen()` is true.
   function handleCommand(command) {
     switch (command.intent) {
       case "DIALOG_PICK":
@@ -178,10 +565,12 @@ function createFileBrowser({
       case "DIALOG_CONFIRM":
         confirmSave();
         break;
+      default:
+        if (QUICK_ACCESS_INTENTS[command.intent]) goQuickAccess(QUICK_ACCESS_INTENTS[command.intent]);
     }
   }
 
-  upBtn.addEventListener("click", goUp);
+  searchEl.addEventListener("input", renderRows);
   cancelBtn.addEventListener("click", () => closeWith({ cancelled: true }));
   if (confirmBtn) confirmBtn.addEventListener("click", confirmSave);
 
