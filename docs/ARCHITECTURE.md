@@ -8,7 +8,7 @@
 
 Code is organized by feature, not by technical layer (no repo-wide `models/`, `views/`, `controllers/` split), and this still holds on both sides of the Python/frontend split. Each feature folder owns its own view code, logic, and local state. Shared code is promoted to `shared/` only once a second feature needs it — not preemptively.
 
-Two pieces of shared code are justified from the start rather than waiting for a "second use," because they're app-wide by definition, not feature-specific: theme tokens (`docs/DESIGN_SYSTEM.md` is inherently cross-cutting) and icon assets (used in every feature's toolbar/nav). Under pywebview, `shared/theme.py` (Python-side constants) is joined by `frontend/shared/theme.css` (the actual CSS custom properties the HTML uses) — the Python copy exists for any Python-side logic that still needs the values (e.g. generating themed exports), not as the UI's source of truth. The CSS file is the UI's source of truth.
+Two pieces of shared code are justified from the start rather than waiting for a "second use," because they're app-wide by definition, not feature-specific: theme tokens (`docs/DESIGN_SYSTEM.md` is inherently cross-cutting) and icon assets (used in every feature's toolbar/nav). Under pywebview, `frontend/shared/theme.css` (the CSS custom properties the HTML uses) is the *only* place token values live — no other frontend file may contain a literal colour. Python code that needs a colour (the native title bar in `shared/window_chrome.py`, the app-icon build script) reads it from that file through `shared/theme.py`'s `token(theme, name)` rather than keeping a second copy that could drift; the Python-side colour dictionaries that used to live in `theme.py` were removed for that reason.
 
 ## Layout
 
@@ -43,32 +43,43 @@ lector/
 │       │                        #   mode selection
 │       │
 │       └── shared/
-│           ├── theme.py         # Color tokens, Python-side reference only
-│           │                    #   (not the UI's source of truth — see above)
+│           ├── theme.py         # Theme names + token(theme, name), which
+│           │                    #   reads values from frontend/shared/theme.css
+│           ├── window_chrome.py # Windows: app icon + theme-coloured title
+│           │                    #   bar via Win32/DWM (no-op elsewhere)
 │           └── settings_store.py # JSON settings read/write
 │
 ├── frontend/                    # HTML/CSS/JS side: all UI, no business logic
 │   ├── index.html
 │   ├── pages/                   # home.html, reading.html, settings.html, etc.
 │   ├── shared/
-│   │   ├── theme.css            # Source of truth for all color/spacing tokens
+│   │   ├── theme.css            # Only file with literal token values (colour,
+│   │   │                        #   radius, spacing, type, motion, shadows)
 │   │   ├── icons/               # SVG icon set
-│   │   └── components.css       # Shared dialog/card/button/radio styles
+│   │   ├── components.css       # Shared primitives: buttons, icon buttons,
+│   │   │                        #   toggle, radio card, checkbox, chip, tooltip,
+│   │   │                        #   toast, progress, skeleton, dialog frame
+│   │   └── file-browser.css     # Open/Save-As dialog body (imported by
+│   │                            #   components.css)
 │   └── js/
 │       ├── bridge.js            # Wraps calls to the Python api.py bridge
+│       ├── ui.js                # Tooltip + Toast behaviour, loaded on every page
 │       └── (per-page JS files, mirroring frontend/pages/)
 │
 ├── assets/
 │   ├── vosk_model/              # Offline speech model (~205 MB). Fetched by
 │   │                             #   scripts/fetch_vosk_model.py, not committed —
 │   │                             #   it is gitignored. Bundled at packaging time.
+│   ├── lector.ico               # App icon (committed). Built from logo.svg by
+│   │                             #   scripts/build_app_icon.py
 │   └── silero_vad.onnx          # Offline VAD model (~2 MB). Fetched by
 │                                 #   scripts/fetch_vad_model.py, not committed —
 │                                 #   it is gitignored. Bundled at packaging time.
 │
 ├── scripts/                     # Developer setup scripts, not shipped
 │   ├── fetch_vosk_model.py      # Downloads/extracts assets/vosk_model/
-│   └── fetch_vad_model.py       # Downloads/extracts assets/silero_vad.onnx
+│   ├── fetch_vad_model.py       # Downloads/extracts assets/silero_vad.onnx
+│   └── build_app_icon.py        # Rebuilds assets/lector.ico from the brand mark
 │
 ├── tests/                       # Mirrors src/lector/features/ structure
 │                                 #   (frontend has no automated tests yet —

@@ -13,25 +13,25 @@ html, body { height: 100%; }
   width: 232px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 22px 14px 14px;
-  background-color: var(--color-panel);
-  border-right: 1px solid var(--color-border-light);
+  gap: var(--space-1);
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  background-color: var(--surface-1);
+  border-right: 1px solid var(--border);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 8px 20px 8px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-5) var(--space-2);
 }
 
 .brand-mark {
   width: 26px;
   height: 26px;
-  border-radius: 7px;
-  background-color: var(--color-accent);
-  color: var(--color-surface);
+  border-radius: var(--radius-sm);
+  background-color: var(--accent);
+  color: var(--surface-2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -39,21 +39,21 @@ html, body { height: 100%; }
 
 .brand-mark svg { width: 15px; height: 15px; }
 
-.brand-name { font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
+.brand-name { font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
+  gap: var(--space-3);
+  padding: var(--space-3);
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 13.5px;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
   text-align: left;
-  transition: background-color var(--duration-base) var(--ease-standard),
-              color var(--duration-base) var(--ease-standard);
+  transition: background-color var(--dur-med) var(--ease-out),
+              color var(--dur-med) var(--ease-out);
 }
 
 .nav-item [data-icon] { width: 18px; height: 18px; display: block; }
@@ -62,79 +62,85 @@ html, body { height: 100%; }
    only works over a light background, so it did nothing at all in dark
    theme (see docs/DESIGN_SYSTEM.md "Motion & elevation foundation"). Now
    theme-aware: lightens in dark mode, darkens in light/sepia, via the
-   shared --color-panel-hover/-active tokens since the sidebar sits on
-   --color-panel, not --color-surface. */
-.nav-item:hover:not(:disabled) { background-color: var(--color-panel-hover); color: var(--color-text-primary); }
-.nav-item:active:not(:disabled) { background-color: var(--color-panel-active); }
-.nav-item.active { background-color: rgba(62, 98, 89, 0.12); color: var(--color-accent-dark); font-weight: 600; }
-.nav-item:disabled { color: var(--color-border-muted); cursor: default; }
-.nav-item:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+   shared --state-hover/--state-pressed washes. */
+.nav-item:hover:not(:disabled) { background-color: var(--state-hover); color: var(--text-primary); }
+.nav-item:active:not(:disabled) { background-color: var(--state-pressed); }
+.nav-item.active { background-color: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.nav-item:disabled { color: var(--text-tertiary); cursor: default; }
+.nav-item:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: -2px; }
 
 .sidebar-fill { flex: 1; }
 
+.sidebar-footnote {
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
 .voice-box {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border-subtle);
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .voice-status {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
-.voice-dot { width: 7px; height: 7px; border-radius: 50%; background-color: var(--color-accent); }
-.voice-status span { font-size: 11px; font-weight: 600; letter-spacing: 1px; color: var(--color-accent-dark); }
-.voice-box p { margin: 0; font-size: 11.5px; color: var(--color-text-muted); }
+.voice-dot { width: 7px; height: 7px; border-radius: 50%; background-color: var(--accent); }
+.voice-status span { font-size: var(--text-xs); font-weight: 600; letter-spacing: 1px; color: var(--accent-strong); }
+.voice-box p { margin: 0; font-size: var(--text-xs); color: var(--text-muted); }
 
 /* Listening state. Amber voice-focus token rather than the accent green,
    per docs/DESIGN_SYSTEM.md: amber is reserved for "the app is listening". */
 .voice-box.listening {
-  border-color: var(--color-voice-focus);
-  background-color: color-mix(in srgb, var(--color-voice-focus) 8%, var(--color-surface));
+  border-color: var(--voice);
+  background-color: color-mix(in srgb, var(--voice) 8%, var(--surface-2));
 }
-.voice-box.listening .voice-dot { background-color: var(--color-voice-focus); }
+.voice-box.listening .voice-dot { background-color: var(--voice); }
 /* Label text stays at the same high-contrast color as the idle "VOICE READY"
    state rather than switching to amber — no amber-text/amber-background
    pairing clears WCAG AA, so the dot's amber identity and the text's
    legibility are intentionally independent (docs/DESIGN_SYSTEM.md's
    contrast clarifications). */
-.voice-box.listening .voice-status span { color: var(--color-accent-dark); }
+.voice-box.listening .voice-status span { color: var(--accent-strong); }
 
-.voice-box.unavailable .voice-dot { background-color: var(--color-text-muted); }
-.voice-box.unavailable .voice-status span { color: var(--color-text-muted); }
+.voice-box.unavailable .voice-dot { background-color: var(--text-muted); }
+.voice-box.unavailable .voice-status span { color: var(--text-muted); }
 
 .content {
   flex: 1;
   overflow: auto;
-  padding: 24px 32px 32px;
-  background-color: var(--color-surface);
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  background-color: var(--surface-2);
 }
 
 .top-row {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: center;
-  margin-bottom: 18px;
+  margin-bottom: var(--space-4);
 }
 
 .search-input {
   flex: none;
   width: 420px;
   height: 40px;
-  padding: 0 13px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border-subtle);
-  background-color: var(--color-input-bg);
-  color: var(--color-text-primary);
-  font-size: 13.5px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
+  color: var(--text-primary);
+  font-size: var(--text-md);
 }
 
 .search-input:focus {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -143,8 +149,8 @@ html, body { height: 100%; }
 .recent-heading {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .recent-heading-fill { flex: 1; }
@@ -154,10 +160,10 @@ html, body { height: 100%; }
    rather than two independent switches. */
 .view-toggle {
   display: flex;
-  padding: 2px;
-  border-radius: 8px;
-  background-color: var(--color-panel);
-  border: 1px solid var(--color-border-light);
+  padding: var(--space-hair);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
 }
 
 .view-toggle-btn {
@@ -167,29 +173,22 @@ html, body { height: 100%; }
   width: 28px;
   height: 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   cursor: pointer;
-  transition: background-color var(--duration-base) var(--ease-standard),
-              color var(--duration-base) var(--ease-standard);
+  transition: background-color var(--dur-med) var(--ease-out),
+              color var(--dur-med) var(--ease-out);
 }
 .view-toggle-btn svg { width: 15px; height: 15px; }
-.view-toggle-btn:hover { color: var(--color-text-primary); }
+.view-toggle-btn:hover { color: var(--text-primary); }
 .view-toggle-btn[aria-pressed="true"] {
-  background-color: var(--color-surface);
-  color: var(--color-accent-dark);
-  box-shadow: var(--shadow-elevation-1);
+  background-color: var(--surface-2);
+  color: var(--accent-strong);
+  box-shadow: var(--shadow-1);
 }
-.view-toggle-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 
-.recent-heading h2 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  color: var(--color-text-primary);
-}
+.recent-heading .page-title { margin: 0 var(--space-1) 0 0; }
 
 /* Count pill (replaces a plain "N of last 10 files" text label) --
    shows how many cards are actually on screen right now, not the cap,
@@ -202,26 +201,26 @@ html, body { height: 100%; }
   justify-content: center;
   min-width: 20px;
   height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background-color: var(--color-panel);
-  border: 1px solid var(--color-border-light);
-  font-size: 11.5px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
+  font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
-.recent-heading .count-empty { font-size: 12.5px; color: var(--color-text-muted); }
+.recent-heading .count-empty { font-size: var(--text-sm); color: var(--text-muted); }
 
 .recent-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 268px);
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .recent-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 /* Shared interactive-surface contract for both a grid card and a list
@@ -230,24 +229,24 @@ html, body { height: 100%; }
    list-specific and lives below, scoped by container. */
 .recent-card {
   position: relative;
-  border-radius: 9px;
-  background-color: var(--color-input-bg);
-  border: 1px solid var(--color-elevation-border);
-  box-shadow: var(--shadow-elevation-1);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-input);
+  border: 1px solid var(--border-elevated);
+  box-shadow: var(--shadow-1);
   cursor: pointer;
-  transition: transform var(--duration-base) var(--ease-standard),
-              box-shadow var(--duration-base) var(--ease-standard),
-              border-color var(--duration-base) var(--ease-standard);
+  transition: transform var(--dur-med) var(--ease-out),
+              box-shadow var(--dur-med) var(--ease-out),
+              border-color var(--dur-med) var(--ease-out);
 }
 
-.recent-grid .recent-card { width: 268px; padding: 10px; }
+.recent-grid .recent-card { width: 268px; padding: var(--space-3); }
 
 .recent-list .recent-card {
   width: 100%;
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-4);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-4);
 }
 /* Rows sit directly above/below one another in a tight column, so the
    grid card's 2px lift (which reads fine with 20px of gap around it)
@@ -264,12 +263,12 @@ html, body { height: 100%; }
    (keyboard users get the same feedback mouse hover gives). */
 .recent-card:hover,
 .recent-card:focus-visible {
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-elevation-2);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-2);
   transform: translateY(-2px);
 }
-.recent-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.recent-card:active { transform: translateY(-1px); box-shadow: var(--shadow-elevation-1); }
+.recent-card:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: 2px; }
+.recent-card:active { transform: translateY(-1px); box-shadow: var(--shadow-1); }
 
 /* Numbered-overlay picker (Milestone 8.6, docs/DESIGN_SYSTEM.md). Only
    present while the `picker` voice context is active — see
@@ -288,14 +287,14 @@ html, body { height: 100%; }
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background-color: var(--color-voice-focus);
-  color: var(--color-surface);
+  background-color: var(--voice-fill);
+  color: var(--on-voice);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-2);
   pointer-events: none;
   z-index: 2;
 }
@@ -329,60 +328,60 @@ html, body { height: 100%; }
   right: 8px;
   width: 28px;
   height: 28px;
-  border-radius: 7px;
-  background-color: color-mix(in srgb, var(--color-panel) 55%, transparent);
-  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  background-color: color-mix(in srgb, var(--surface-1) 55%, transparent);
+  color: var(--text-muted);
   z-index: 2;
-  transition: background-color var(--duration-base) var(--ease-standard),
-              color var(--duration-base) var(--ease-standard);
+  transition: background-color var(--dur-med) var(--ease-out),
+              color var(--dur-med) var(--ease-out);
 }
 
 .recent-remove-btn svg { width: 15px; height: 15px; }
 
 .recent-card:hover .recent-remove-btn,
 .recent-remove-btn:focus-visible {
-  background-color: color-mix(in srgb, var(--color-panel) 88%, transparent);
-  color: var(--color-text-secondary);
+  background-color: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  color: var(--text-secondary);
 }
 
 .recent-remove-btn:hover {
-  background-color: color-mix(in srgb, var(--color-destructive) 16%, var(--color-panel));
-  color: var(--color-destructive);
+  background-color: color-mix(in srgb, var(--danger) 16%, var(--surface-1));
+  color: var(--danger);
 }
 
 .recent-remove-btn:active {
-  background-color: color-mix(in srgb, var(--color-destructive) 26%, var(--color-panel));
+  background-color: color-mix(in srgb, var(--danger) 26%, var(--surface-1));
 }
 
 /* Same 2px outline + offset every other focusable control in the app uses
    (docs/DESIGN_SYSTEM.md's contrast/focus clarifications). */
 .recent-remove-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: 2px;
 }
 
 .recent-thumb {
   height: 118px;
-  border-radius: 5px;
-  border: 1px solid var(--color-border-light);
-  background-color: white;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background-color: var(--paper);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex: none;
 }
-.recent-grid .recent-thumb { margin-bottom: 10px; }
+.recent-grid .recent-thumb { margin-bottom: var(--space-3); }
 
 /* List view: a small fixed-size thumbnail instead of the grid's full-
    width one -- there isn't room for a 118px-tall preview in a dense
    row, and the row already carries the title as the primary identifier. */
-.recent-list .recent-thumb { width: 34px; height: 44px; border-radius: 4px; }
+.recent-list .recent-thumb { width: 34px; height: 44px; border-radius: var(--radius-xs); }
 
 .recent-thumb img { max-width: 100%; max-height: 100%; }
 
-.recent-card .title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
-.recent-card .meta { font-size: 11.5px; color: var(--color-text-muted); margin-top: 4px; }
+.recent-card .title { font-size: var(--text-md); font-weight: 500; color: var(--text-primary); }
+.recent-card .meta { font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-1); }
 
 /* --- List view row columns ------------------------------------------ */
 .row-title {
@@ -395,30 +394,18 @@ html, body { height: 100%; }
 }
 .row-col {
   flex: none;
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 .row-last-opened { width: 100px; }
 .row-pages { width: 64px; text-align: right; }
 .row-progress { width: 116px; }
 
-.progress-bar {
-  height: 4px;
-  border-radius: 2px;
-  background-color: var(--color-border-subtle);
-  overflow: hidden;
-}
-.progress-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  background-color: var(--color-accent);
-  transition: width var(--duration-slow) var(--ease-standard);
-}
 .progress-label {
   display: block;
-  margin-top: 3px;
-  font-size: 11px;
-  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 
 /* The remove button is absolutely positioned for the grid card (a
@@ -431,20 +418,20 @@ html, body { height: 100%; }
 
 .empty-state {
   max-width: 520px;
-  margin: 40px auto;
-  padding: 44px;
+  margin: var(--space-7) auto;
+  padding: var(--space-8);
   text-align: center;
-  border-radius: 14px;
-  border: 1.5px dashed rgba(62, 98, 89, 0.4);
-  background-color: var(--color-input-bg);
+  border-radius: var(--radius-lg);
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  background-color: var(--surface-input);
 }
 
 .empty-state h2 {
-  font-family: var(--font-reading);
+  font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 24px;
-  margin: 18px 0 10px;
-  color: var(--color-text-primary);
+  font-size: var(--text-xl);
+  margin: var(--space-4) 0 var(--space-3);
+  color: var(--text-primary);
 }
 
-.empty-state p { margin: 0 0 20px; color: var(--color-text-dialog); font-size: 14px; }
+.empty-state p { margin: 0 0 var(--space-5); color: var(--text-secondary); font-size: var(--text-lg); }

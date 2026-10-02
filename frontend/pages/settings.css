@@ -4,47 +4,41 @@
 
 .content > * { max-width: 760px; }
 
-h1.page-title {
-  font-family: var(--font-reading);
-  font-weight: 400;
-  font-size: 25px;
-  margin: 0 0 20px;
-  color: var(--color-text-primary);
-}
+h1.page-title { margin: 0 0 var(--space-5); }
 
-.section { margin-bottom: 28px; }
-.section h3 { margin: 0 0 3px; font-size: 13.5px; font-weight: 600; color: var(--color-text-primary); }
-.section .sub { margin: 0 0 12px; font-size: 12.5px; color: var(--color-text-muted); }
+.section { margin-bottom: var(--space-6); }
+.section h3 { margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
+.section .sub { margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--text-muted); }
 
-.theme-cards { display: flex; gap: 16px; }
+.theme-cards { display: flex; gap: var(--space-4); }
 
 .theme-card {
   width: 210px;
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid var(--color-border-light);
-  background-color: var(--color-input-bg);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
   cursor: pointer;
 }
 
-.theme-card.selected { border: 2px solid var(--color-accent); }
+.theme-card.selected { border: 2px solid var(--accent); }
 
-.theme-preview { height: 104px; padding: 12px; }
+.theme-preview { height: 104px; padding: var(--space-3); }
 .theme-card-footer {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px; border-top: 1px solid var(--color-border-light);
+  padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border);
 }
-.theme-card-footer-label { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+.theme-card-footer-label { font-size: var(--text-md); font-weight: 500; color: var(--text-primary); }
 
 .theme-preview-mock {
-  border-radius: 3px;
-  padding: 10px;
+  border-radius: var(--radius-xs);
+  padding: var(--space-3);
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: var(--space-1);
 }
-.theme-preview-line { height: 5px; width: 100%; border-radius: 2px; }
+.theme-preview-line { height: 5px; width: 100%; border-radius: var(--radius-pill); }
 .theme-preview-line.title { height: 7px; width: 70%; }
 .theme-preview-line.accent { width: 44%; }
 
@@ -52,12 +46,12 @@ h1.page-title {
   width: 17px;
   height: 17px;
   border-radius: 50%;
-  background-color: var(--color-accent);
-  color: var(--color-surface);
+  background-color: var(--accent);
+  color: var(--surface-2);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 3px;
+  padding: var(--space-1);
 }
 .theme-card-check svg { width: 100%; height: 100%; }
 
@@ -71,46 +65,46 @@ h1.page-title {
 .voice-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .voice-card {
-  padding: 14px 16px;
-  border: 1px solid var(--color-border-light);
-  border-radius: 10px;
-  background-color: var(--color-surface);
+  padding: var(--space-4) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
 }
 
 .voice-card-head {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .voice-card-text {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-hair);
 }
 
 .voice-card-detail {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 14px 0 0;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 .key-chip {
-  padding: 4px 10px;
-  border: 1px solid var(--color-border-light);
-  border-radius: 6px;
-  background-color: var(--color-panel-tertiary);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-1);
   font: inherit;
-  font-size: 12.5px;
-  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
 }
 
-.voice-card-note { font-size: 11.5px; color: var(--color-text-muted); }
+.voice-card-note { font-size: var(--text-xs); color: var(--text-muted); }

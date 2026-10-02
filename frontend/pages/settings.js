@@ -12,12 +12,12 @@ function readThemeTokens(themeName) {
   document.body.appendChild(probe);
   const cs = getComputedStyle(probe);
   const tokens = {
-    canvas: cs.getPropertyValue("--color-canvas").trim(),
-    surface: cs.getPropertyValue("--color-surface").trim(),
-    border: cs.getPropertyValue("--color-border-light").trim(),
-    text: cs.getPropertyValue("--color-text-primary").trim(),
-    muted: cs.getPropertyValue("--color-border-muted").trim(),
-    highlight: cs.getPropertyValue("--color-highlight").trim(),
+    canvas: cs.getPropertyValue("--bg").trim(),
+    surface: cs.getPropertyValue("--surface-2").trim(),
+    border: cs.getPropertyValue("--border").trim(),
+    text: cs.getPropertyValue("--text-primary").trim(),
+    muted: cs.getPropertyValue("--border-strong").trim(),
+    highlight: cs.getPropertyValue("--highlight").trim(),
   };
   probe.remove();
   return tokens;

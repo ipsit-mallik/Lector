@@ -9,8 +9,8 @@ html, body { height: 100%; }
   height: 100vh;
 }
 
-.hline { height: 1px; background-color: var(--color-border-light); flex: none; }
-.vline { width: 1px; background-color: var(--color-border-light); flex: none; }
+.hline { height: 1px; background-color: var(--border); flex: none; }
+.vline { width: 1px; background-color: var(--border); flex: none; }
 .vline.short { height: 20px; }
 
 /* ------------------------------------------------------------------ */
@@ -22,38 +22,40 @@ html, body { height: 100%; }
   height: 46px;
   display: flex;
   align-items: center;
-  padding: 0 22px 0 14px;
+  padding: 0 var(--space-5) 0 var(--space-4);
   gap: 0;
-  background-color: var(--color-panel-tertiary);
+  background-color: var(--surface-1);
 }
 
 .back-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   height: 30px;
-  padding: 0 10px 0 6px;
+  padding: 0 var(--space-3) 0 var(--space-2);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .back-btn svg { width: 16px; height: 16px; }
-.back-btn:hover { background-color: rgba(20, 26, 22, 0.07); }
+.back-btn:hover { background-color: var(--state-hover); }
 
 .doc-title {
-  margin-left: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text-primary);
+  margin-left: var(--space-2);
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 400;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .spacer { flex: 1; }
+.topbar-gap { flex: none; width: var(--space-2); }
 
 .nav-btn { width: 30px; height: 30px; }
 .nav-btn svg { width: 16px; height: 16px; }
@@ -64,43 +66,43 @@ html, body { height: 100%; }
   padding: 0;
   line-height: 28px;
   text-align: center;
-  background-color: var(--color-input-bg);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: 13px;
-  font-family: var(--font-ui);
+  background-color: var(--surface-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-family: var(--font-sans);
 }
 
 .page-suffix {
   display: inline-flex;
   align-items: center;
   height: 30px;
-  margin-left: 6px;
-  margin-right: 10px;
-  color: var(--color-text-muted);
-  font-size: 13px;
+  margin-left: var(--space-2);
+  margin-right: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-md);
   line-height: 1;
 }
 
 .zoom-control {
   position: relative;
-  margin-left: 10px;
+  margin-left: var(--space-3);
 }
 
 .zoom-label {
   width: 44px;
   text-align: center;
-  color: var(--color-text-muted);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: var(--text-md);
   background: transparent;
   border: none;
-  padding: 4px 2px;
-  border-radius: 4px;
-  font-family: var(--font-ui);
+  padding: var(--space-1) var(--space-hair);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-sans);
 }
 
-.zoom-label:hover { background-color: rgba(20, 26, 22, 0.07); color: var(--color-text-primary); }
+.zoom-label:hover { background-color: var(--state-hover); color: var(--text-primary); }
 
 .zoom-popover {
   position: absolute;
@@ -108,11 +110,11 @@ html, body { height: 100%; }
   right: 0;
   display: flex;
   align-items: center;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background-color: var(--color-surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--color-border-light);
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  box-shadow: var(--shadow-2);
+  border: 1px solid var(--border);
   z-index: 10;
 }
 
@@ -120,7 +122,7 @@ html, body { height: 100%; }
 
 .zoom-slider {
   width: 140px;
-  accent-color: var(--color-accent);
+  accent-color: var(--accent);
 }
 
 /* ------------------------------------------------------------------ */
@@ -139,23 +141,23 @@ html, body { height: 100%; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 14px 8px;
-  background-color: var(--color-panel);
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-2);
+  background-color: var(--surface-1);
 }
 
 .rail-sep {
   width: 100%;
   height: 1px;
-  background-color: var(--color-border-subtle);
-  margin: 6px 0;
+  background-color: var(--border);
+  margin: var(--space-2) 0;
 }
 
 .rail-fill { flex: 1; }
 
 .offline-label {
-  color: var(--color-border-muted);
-  font-size: 9.5px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.5px;
   text-align: center;
@@ -165,7 +167,7 @@ html, body { height: 100%; }
 .page-area {
   flex: 1;
   position: relative;
-  background-color: var(--color-canvas);
+  background-color: var(--bg);
   min-width: 0;
 }
 
@@ -179,7 +181,7 @@ html, body { height: 100%; }
   overflow: auto;
   display: flex;
   justify-content: center;
-  padding: 24px 0;
+  padding: var(--space-5) 0;
 }
 
 /* Author rules always beat the UA stylesheet's [hidden]{display:none}, so
@@ -194,9 +196,11 @@ html, body { height: 100%; }
 .page-card {
   flex: none;
   height: fit-content;
-  background-color: white;
+  background-color: var(--paper);
+  /* A literal, not a --radius-* token: the scale starts at 4px, and a page is
+   * a sharp-cornered sheet. --radius-pill (999px) turned it into a capsule. */
   border-radius: 2px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.176);
+  box-shadow: var(--shadow-page);
 }
 
 .page-surface {
@@ -218,12 +222,12 @@ html, body { height: 100%; }
 }
 
 .strip-page {
-  background-color: white;
+  background-color: var(--paper);
   display: block;
-  border-radius: 2px;
+  border-radius: 2px; /* same literal as .page-card, for the same reason */
   /* Matches .page-card's shadow so book and strip layouts read as the same
    * "paper on a canvas" surface instead of strip pages looking flat. */
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.176);
+  box-shadow: var(--shadow-page);
 }
 
 .strip-gap { height: 20px; flex: none; }
@@ -245,8 +249,8 @@ html, body { height: 100%; }
 
 .selection-rect {
   position: absolute;
-  background-color: var(--color-selection);
-  border-radius: 1px;
+  background-color: var(--selection);
+  border-radius: 1px; /* sharp wash, matching the sharp applied highlight */
   /* Multiply rather than plain alpha so the glyphs underneath stay dark and
    * readable through the wash — the page is an image, so there is no real
    * text to re-color the way a browser's own selection would. */
@@ -259,7 +263,7 @@ html, body { height: 100%; }
  * removed once that re-rendered page image is on screen, and what it is
  * replaced by is the same shape in the same color. */
 .selection-rect.applied {
-  background-color: var(--color-highlight);
+  background-color: var(--highlight);
 }
 
 /* ------------------------------------------------------------------ */
@@ -280,10 +284,10 @@ html, body { height: 100%; }
 
 .voice-focus-rect {
   position: absolute;
-  border: 2px solid var(--color-voice-focus);
+  border: 2px solid var(--voice);
   border-left-width: 4px;
-  border-radius: 4px;
-  background-color: color-mix(in srgb, var(--color-voice-focus) 6%, transparent);
+  border-radius: var(--radius-xs);
+  background-color: color-mix(in srgb, var(--voice) 6%, transparent);
   box-sizing: border-box;
 }
 
@@ -292,11 +296,11 @@ html, body { height: 100%; }
   top: 0;
   right: 10px;
   transform: translateY(-50%);
-  padding: 2px 8px;
-  border-radius: 3px;
-  background-color: var(--color-voice-focus);
-  color: #FFFFFF;
-  font-size: 9.5px;
+  padding: var(--space-hair) var(--space-2);
+  border-radius: var(--radius-xs);
+  background-color: var(--voice-fill);
+  color: var(--on-voice);
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -311,21 +315,21 @@ html, body { height: 100%; }
   height: 54px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 22px;
-  background-color: var(--color-panel-tertiary);
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
+  background-color: var(--surface-1);
 }
 
 .mic-pill {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   height: 32px;
-  padding: 0 13px;
-  border-radius: 16px;
-  background-color: var(--color-canvas);
-  color: var(--color-text-secondary);
-  font-size: 12px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-xl);
+  background-color: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
@@ -344,40 +348,40 @@ html, body { height: 100%; }
    docs/DESIGN_SYSTEM.md's contrast clarifications) — the text reuses the
    same color as the idle "VOICE READY" state on Home. */
 .mic-pill.listening {
-  background-color: color-mix(in srgb, var(--color-voice-focus) 16%, transparent);
-  color: var(--color-accent-dark);
+  background-color: color-mix(in srgb, var(--voice) 16%, transparent);
+  color: var(--accent-strong);
 }
 
 .mic-pill.listening svg {
-  color: var(--color-voice-focus);
+  color: var(--voice);
 }
 
 /* Idle wake listening: the microphone is genuinely open, so the pill cannot
    look exactly like "off". It stays quieter than .listening, which is
    reserved for a command actually being captured. */
 .mic-pill.waking {
-  background-color: color-mix(in srgb, var(--color-voice-focus) 8%, var(--color-canvas));
-  color: var(--color-text-secondary);
+  background-color: color-mix(in srgb, var(--voice) 8%, var(--bg));
+  color: var(--text-secondary);
 }
 
-.mic-pill.unavailable { color: var(--color-text-muted); }
+.mic-pill.unavailable { color: var(--text-muted); }
 
 .footer .hint {
-  color: var(--color-text-muted);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: var(--text-md);
 }
 
 .highlight-count {
-  color: var(--color-text-muted);
-  font-size: 12.5px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 .what-btn {
   height: 32px;
-  padding: 0 13px;
-  font-size: 12.5px;
-  background-color: var(--color-input-bg);
-  color: var(--color-accent-dark);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  background-color: var(--surface-input);
+  color: var(--accent-strong);
 }
 
 /* ------------------------------------------------------------------ */
@@ -397,7 +401,7 @@ html, body { height: 100%; }
 }
 
 .reference-header {
-  padding: 26px 28px 16px;
+  padding: var(--space-5) var(--space-6) var(--space-4);
   align-items: flex-start;
 }
 
@@ -405,8 +409,8 @@ html, body { height: 100%; }
    keeps "this is about listening" and "this text is highlighted" in
    deliberately different colors, and this panel is entirely the former. */
 .reference-header .dialog-badge {
-  background-color: color-mix(in srgb, var(--color-voice-focus) 18%, transparent);
-  color: var(--color-voice-focus);
+  background-color: color-mix(in srgb, var(--voice) 18%, transparent);
+  color: var(--voice);
 }
 
 /* Pushed to the far corner so the title and its subtitle keep the full
@@ -417,13 +421,13 @@ html, body { height: 100%; }
   border: none;
   background: none;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 0 var(--space-hair);
   line-height: 1;
-  font-size: 22px;
-  color: var(--color-text-very-muted);
+  font-size: var(--text-xl);
+  color: var(--text-secondary);
 }
 
-.reference-close:hover { color: var(--color-text-primary); }
+.reference-close:hover { color: var(--text-primary); }
 
 /* The scrolling part. The header and footer stay put so the activation hint
    and the close control are reachable however far down the list goes. */
@@ -431,39 +435,39 @@ html, body { height: 100%; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 28px 22px;
+  padding: 0 var(--space-6) var(--space-5);
 }
 
 .reference-search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 36px;
-  padding: 0 11px;
-  margin-bottom: 18px;
-  border: 1px solid var(--color-border-light);
-  border-radius: 9px;
-  background-color: var(--color-input-bg);
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-input);
 }
 
 .reference-search:focus-within {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: 2px;
 }
 
 /* Milestone 8.8: "voice is paying attention here" while dictation mode is
-   active, the same --color-voice-focus convention .mic-pill.listening uses
+   active, the same --voice convention .mic-pill.listening uses
    (docs/DESIGN_SYSTEM.md) rather than the plain focus outline above, so a
    reader can tell "listening for a command" and "listening for dictated
    text" apart at a glance. */
 .reference-search.dictating {
-  border-color: var(--color-voice-focus);
-  outline: 2px solid var(--color-voice-focus);
+  border-color: var(--voice);
+  outline: 2px solid var(--voice);
   outline-offset: 2px;
-  background-color: color-mix(in srgb, var(--color-voice-focus) 6%, var(--color-input-bg));
+  background-color: color-mix(in srgb, var(--voice) 6%, var(--surface-input));
 }
 
-.reference-search-icon { display: flex; color: var(--color-text-very-muted); }
+.reference-search-icon { display: flex; color: var(--text-muted); }
 .reference-search-icon svg { width: 15px; height: 15px; }
 
 .reference-search input {
@@ -472,11 +476,11 @@ html, body { height: 100%; }
   outline: none;
   background: none;
   font: inherit;
-  font-size: 13px;
-  color: var(--color-text-body);
+  font-size: var(--text-md);
+  color: var(--text-primary);
 }
 
-.reference-search input::placeholder { color: var(--color-text-very-muted); }
+.reference-search input::placeholder { color: var(--text-muted); }
 
 /* Two columns, per docs/mockups/05 What can I say.png. Filtering hides whole
    categories, and the grid reflows around the gap rather than leaving a
@@ -484,65 +488,65 @@ html, body { height: 100%; }
 .reference-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px 24px;
+  gap: var(--space-5) var(--space-5);
   align-content: start;
 }
 
 .reference-category[hidden] { display: none; }
 
 .reference-category-title {
-  margin: 0 0 9px;
-  font-size: 11px;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--color-text-very-muted);
+  color: var(--text-muted);
 }
 
-.reference-list { display: flex; flex-direction: column; gap: 8px; }
+.reference-list { display: flex; flex-direction: column; gap: var(--space-2); }
 
 .reference-card-row {
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 9px;
-  background-color: var(--color-panel-tertiary);
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
 }
 
 .reference-card-row[hidden] { display: none; }
 
 .reference-phrases {
   margin: 0;
-  font-family: var(--font-reading);
-  font-size: 14px;
-  color: var(--color-text-primary);
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
 }
 
 .reference-desc {
-  margin: 3px 0 0;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 /* The parity promise made visible: every spoken command names the button or
    shortcut that does the same thing (docs/PRD.md). Set apart from the
    description so it reads as a footnote, not a second sentence. */
 .reference-equivalent {
-  margin: 5px 0 0;
-  font-size: 11.5px;
-  color: var(--color-text-very-muted);
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 
 .reference-empty {
   margin: 0;
-  padding: 26px 0;
+  padding: var(--space-5) 0;
   text-align: center;
-  font-size: 13px;
-  color: var(--color-text-muted);
+  font-size: var(--text-md);
+  color: var(--text-muted);
 }
 
 .reference-empty[hidden] { display: none; }
 
 .reference-footer .hint strong {
   font-weight: 600;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }

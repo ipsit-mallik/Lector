@@ -40,28 +40,77 @@ Calm, minimal, utilitarian. A focused reading tool, not a busy productivity suit
 
 **Both beats are drawn as plain rectangles**, sharply cornered and exactly as wide as the text they cover — again the Adobe Reader shape. This is worth stating because it is not what a PDF library gives you for free: MuPDF renders a `/Highlight` annotation marker-pen style, with rounded bezier end-caps that bulge sideways by roughly a sixth of the line height. Across a whole word that reads as a soft edge, but selection here is character-level, and a single character is narrower than the caps themselves — the highlight becomes an oval about twice the glyph's width that visibly tints the characters on either side, so the reader cannot tell which character they actually marked. Lector therefore rewrites the annotation's appearance stream as one rectangle per line (`_set_rectangular_appearance` in `features/annotations/highlighter.py`), keeping the multiply blend so the glyphs stay readable underneath, and leaving the annotation a real `/Highlight` that other viewers still list as one.
 
-## Color tokens — Dark and Sepia themes (provisional, not yet re-verified against final mockups)
+## Tokens (design-system foundation, premium UI pass Phase 0)
 
-The final mockup file includes a theme *selector* (on the Settings screen) but only fully renders the light theme end-to-end — dark and sepia are represented as an intent/toggle, not fully specified across every screen. The values below are the last working proposal from earlier design iteration and should be treated as a starting point to confirm, not as finalized as the light-theme table above:
+`frontend/shared/theme.css` is the **only** frontend file that contains literal colour values. Every other stylesheet, script and inline style consumes these custom properties. Python reads them from the same file through `src/lector/shared/theme.py`'s `token(theme, name)`, so nothing keeps a second copy. The light theme's *colours* are still the mockup-extracted values in the table above, with the contrast fixes noted below. The token *names* changed from the old `--color-*` set to role names (no aliases were kept): `canvas`→`bg`, `panel`→`surface-1`, `surface`→`surface-2`, `input-bg`→`surface-input`, `text-very-muted`→`text-muted`/`text-tertiary` by function, `border-light`/`-subtle`→`border`, `border-muted`→`border-strong`, `accent-dark`→`accent-strong` (text) / `accent-pressed` (button press), `voice-focus`→`voice`, `destructive`→`danger`.
 
-| Role | Dark | Sepia |
-|---|---|---|
-| Background | `#1C1A17` | `#F1E7D0` |
-| Text | `#EDE8DF` | `#3B2F20` |
-| Muted text | `#9C948A` | `#8A7859` |
-| Accent | `#6FA394` | `#4F6B5C` |
-| Border | `#3A362F` | `#DDCBA0` |
-| Surface | `#26231F` | `#F8F0DE` |
-| Highlight | `#6B5A24` | `#E8C468` |
-| Focus indicator | `#E0954F` | `#B5672E` |
+Every value was **solved to a measured contrast target** rather than eyeballed, against `--bg`, `--surface-1` and `--surface-2` in each theme. `tests/test_theme_tokens.py` asserts these minimums, so a future edit that breaks one fails the test suite. This closes the earlier action item to check dark and sepia readability: those two themes are no longer provisional.
 
-**Action item before implementation:** run the same "is this readable, is the focus/highlight distinction still clear" check against dark and sepia that the light theme already passed, since only light has actually been eyeballed across all 9 screens.
+| Token | Light | Dark | Sepia | Role / guarantee |
+|---|---|---|---|---|
+| `--bg` | `#E7E2D9` | `#171512` | `#F1E7D0` | Window background |
+| `--surface-1` | `#EFEAE2` | `#201C18` | `#EDE2C8` | Sidebar, rail, toolbars, dialog footers; also the native title-bar colour |
+| `--surface-2` | `#F6F3EE` | `#2A2621` | `#F8F0DE` | Content area, cards, modals |
+| `--surface-input` | `#FFFDF9` | `#322D26` | `#FCF7EA` | Inputs, list wells |
+| `--overlay` | `rgba(12,10,8,.55)` | `rgba(0,0,0,.65)` | `rgba(30,22,12,.5)` | Modal scrim (blur via `--overlay-blur`, 8px) |
+| `--text-primary` | `#161A18` | `#EDE8DF` | `#3B2F20` | Headings, body, *current* item |
+| `--text-secondary` | `#4A4F49` | `#B7B1A4` | `#5B4C38` | **Inactive** clickable controls; dialog body copy (≥ 6.4:1) |
+| `--text-muted` | `#616560` | `#9C948A` | `#716249` | Captions, metadata, hints (≥ 4.5:1) |
+| `--text-tertiary` | `#807C76` | `#7A7369` | `#867B66` | **Disabled** controls, decorative separators, unchecked control outlines only (≥ 3:1, never body text) |
+| `--border` / `--border-strong` | `#D2CCC2` / `#A8A6A0` | `#3A362F` / `#4A453C` | `#DDCBA0` / `#C9B78E` | Dividers / stronger dividers, scrollbar thumb |
+| `--border-elevated` | `#D2CCC2` | `#4A453C` | `#DDCBA0` | Card border. Dark uses the stronger value because shadows don't read there |
+| `--accent` / `-hover` / `-pressed` | `#3E6259` / `#33534B` / `#2C463F` | `#6FA394` / `#7FB3A4` / `#66998B` | `#4F6B5C` / `#43594D` / `#37483E` | Brand teal: primary actions, selection, focus ring. Button label (`--on-accent` = `--surface-2`) ≥ 4.5:1 on all three |
+| `--accent-strong` | `#2C463F` | `#7FB3A4` | `#37483E` | Accent-coloured *text* on tinted backgrounds (active nav, active tool) |
+| `--accent-soft` | accent at 14% | same | same | Active nav/tool background, dialog header tile |
+| `--voice` | `#B76F38` | `#E0954F` | `#B5672E` | Voice-only: listening outline, mic dot (≥ 3:1) |
+| `--voice-fill` / `--on-voice` | `#E0954F` / `#1A130C` | same | same | Numbered voice badges and filled voice pills: **7.5:1**, identical in every theme |
+| `--highlight` | `#F7DE7A` | `#6B5A24` | `#E8C468` | Highlight fill only |
+| `--danger` | `#B44137` | `#DD7A6F` | `#AA4137` | Destructive hover/text (≥ 4.5:1) |
+| `--state-hover` / `--state-pressed` | text-primary at 6% / 11% | same | same | Interaction washes. Because they're a tint of the theme's own text colour, they darken on light surfaces and lighten on dark ones with one rule |
+| `--shadow-1/2/3` | rest / popover / modal | `none` / faint / heavy | warm-tinted | Elevation. `--shadow-page` is the PDF page's own shadow |
 
-**Implementation note (Milestone 4):** `shared/theme.py`'s `DARK` and `SEPIA` dicts use these 8 values as-is, then interpolate the rest of the full token set (the light theme's 19 keys — `panel_bg`, `panel_tertiary`, `input_bg`, `accent_hover`, etc. aren't covered by this table) to make the themes actually usable end-to-end. That interpolation is this implementation's own guess, not a design decision from the mockups, and still needs the readability/contrast check above before being treated as settled — the action item isn't closed by having code that compiles.
+**Contrast fixes made in this pass (before → after):** `text-muted` on panel 4.27 → 4.96 (light) and 3.32 → 4.60 (sepia). Very-muted captions were 2.3–3.3:1 and are now `--text-muted` (≥ 4.5). Disabled icons using `border-muted` were 1.5–2.0:1 and now use `--text-tertiary` (≥ 3.2). Dark `accent-dark` as text was 4.39 and is now 7.16. Dark danger 4.39 → 5.07. Light voice ring 3.00 → 3.28. White numerals on orange (2.45–4.25) are replaced by `--on-voice` on `--voice-fill` (7.5). The Open-dialog header tile's `#5C4A15` on highlight (1.27 in dark) is replaced by `--accent-strong` on `--accent-soft`.
+
+**Scales (theme-independent):**
+- Radius: `--radius-xs/sm/md/lg/xl/pill` = 4/6/8/12/16/999px. This replaced 15 ad-hoc values.
+- Spacing: `--space-1…8` = 4/8/12/16/24/32/40/48px, plus `--space-hair` (2px) for stacked list items. Old values were rounded to the nearest step, with ties going to the larger step. This replaced 26 ad-hoc values.
+- Type: `--text-xs/sm/md/lg` = 11.5/12.5/13.5/15px for UI (13.5px is the UI base). `--text-xl` = `clamp(20px, 1vw + 12px, 24px)` for modal titles and `--text-2xl` = `clamp(24px, 1.4vw + 12px, 30px)` for page titles; both are serif and scale with the window. Nothing renders below 11.5px. The 9.5px labels are gone.
+- Motion: `--dur-fast` 150ms, `--dur-med` 220ms, `--dur-slow` 280ms (nothing over 300ms), `--stagger` 40ms. `--ease-out` = `cubic-bezier(.2,.8,.2,1)` for every transition. `--ease-spring` (the overshoot curve) is reserved for the toggle knob, radio dot, checkmark pop and tree chevron. The global `prefers-reduced-motion` rule also zeroes `transition-delay` now.
+
+**Colour roles:** teal = brand and actions. Orange = **voice only**: mic states, listening outlines, numbered voice badges. The tree's folder icons were orange and are now teal. Yellow = highlight content only, never chrome. The white page paper (`--paper`) and the selection wash (`--selection`) stay theme-independent for the reason given above.
+
+**Interaction states (applies everywhere):**
+- **Inactive** (clickable, not current): `--text-secondary`.
+- **Hover:** `--state-hover` background plus `--text-primary`.
+- **Pressed:** `--state-pressed`.
+- **Active/current:** `--accent-soft` background plus `--accent-strong` text, or a filled accent with `--on-accent`.
+- **Focus-visible:** a global 2px `--focus-ring` outline with a 2px offset. Components may tighten the offset, never drop the ring.
+- **Disabled:** `--text-tertiary`, `disabled` or `aria-disabled="true"`, and a tooltip saying why. Screens adopt the tooltip as each phase reaches them.
+
+## Shared components
+
+All live in `frontend/shared/components.css`. Behaviour that needs JavaScript is in `frontend/js/ui.js`, loaded on every page. The file browser's body styles are in `frontend/shared/file-browser.css`, which `components.css` imports.
+
+- **Button:** `.btn` (primary), `.btn-secondary`, `.btn-ghost`, and a `.btn-sm` size.
+- **IconButton:** `.icon-btn` is 44px and `.icon-btn--sm` is 32px. `.active` marks the current tool.
+- **Tooltip:** add `data-tooltip="Name"` (and optionally `data-shortcut="Ctrl K"`) to any control. A single shared floating tooltip shows after 450ms on hover, or immediately on keyboard focus, is linked via `aria-describedby`, and is dismissed with Esc. It has inverted colours (`--text-primary` background) so it needs no per-theme value. Controls inside `data-tooltip-side="right"` (the Reader rail) get it beside them instead of above.
+- **Toggle**, **RadioCard** (`.option-row`), **Checkbox** (`.checkbox-row input`): real inputs, restyled. Unchecked outlines are `--text-tertiary`, so they reach at least 3:1.
+- **Chip:** `.chip`, `.chip--accent`, `.chip--voice`.
+- **Toast:** `showToast(message, { actionLabel, onAction })`. Inverted colours, bottom-centre, announced through a polite live region. The timeout pauses while the toast is hovered or focused, so an Undo is never pulled out from under the pointer.
+- **ProgressBar:** `.progress-bar` / `.progress-bar-fill`.
+- **Skeleton:** `.skeleton` / `.skeleton-line`.
+- **Page title:** `.page-title`, the serif display face at `--text-2xl`. Used on Home ("Recent"), Settings and onboarding. The Reader's top-bar document title uses the same serif at `--text-lg`.
+- **Modal** and **VoiceStatus** are specified in the UI pass's Phase 2 and Phase 3 respectively. Until then the existing `.dialog-*` frame and per-page voice indicators remain.
+
+## Window chrome (Windows)
+
+The window shows Lector's own icon (`assets/lector.ico`: the sidebar's microphone mark on an accent tile, built from `logo.svg` by `scripts/build_app_icon.py`) rather than Python's. On Windows 11 the native title bar takes `--surface-1` and `--text-primary` of the current theme and follows theme changes. The native caption is kept deliberately rather than replaced with a frameless custom one, which would lose Snap Layouts, the resize border and the window shadow (see `docs/TECH_STACK.md`). The minimum window size is 880×600, so layouts are verified down to about 900px wide.
 
 ## Motion & elevation foundation
 
 Added after real-usage feedback on the Home/Library screen: cards, sidebar nav items, and interactive surfaces had **no hover state at all** (`.recent-card` had zero `:hover` rule defined, anywhere), and the one hover effect that did exist (`.nav-item:hover`) used a hardcoded `rgba(20, 26, 22, 0.06)` near-black wash — a darkening tint that only works over a *light* background, so it was silently doing nothing in dark theme. Separately, dark theme's `--color-canvas` (`#1C1A17`) and `--color-panel` (`#211E1A`) were only ~5 units per channel apart, making the sidebar nearly indistinguishable from the page behind it, and dark mode's card borders relied on the same black-alpha `box-shadow` recipe as light mode, which does not read against a near-black surface. None of this was a per-component bug to patch individually — the tokens for hover/elevation/motion simply didn't exist yet, so this section adds them once, as the foundation every component below should consume rather than re-inventing.
+
+> **Renamed in the Phase 0 token pass.** `--duration-fast/base/slow` → `--dur-fast/med/slow` (now 150/220/280ms), `--ease-standard` → `--ease-out`, `--ease-emphasized` → `--ease-spring`, `--color-surface-hover/active` and `--color-panel-hover/active` → `--state-hover`/`--state-pressed`, `--shadow-elevation-1/2` → `--shadow-1/2`, `--color-elevation-border` → `--border-elevated`. The rationale below still holds; see "Tokens" for the current values.
 
 **New theme-independent tokens** (`frontend/shared/theme.css`, one `:root` block, same across light/dark/sepia):
 
@@ -104,6 +153,7 @@ The ordering `canvas < panel < surface < input-bg` (darkest to lightest) now mir
 ## Typography
 
 - **Reading/body text:** `Charter, Georgia, serif` — a serif face for long-form reading content.
+- **Display (page and modal titles):** the same serif face (`--font-serif`), regular weight, on the `--text-xl`/`--text-2xl` clamp scale. Used for Home, Reader, Settings, onboarding and every dialog title. Everything else uses the UI face.
 - **UI chrome:** `system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Helvetica, sans-serif` — native system font, not a webfont, keeping the app lightweight and OS-native-feeling.
 - No Inter/Roboto/Arial as a deliberate choice, no emoji-as-icons — all icons are real stroke SVGs.
 
@@ -120,7 +170,7 @@ The ordering `canvas < panel < surface < input-bg` (darkest to lightest) now mir
 Mockup: `docs/mockups/09 Numbered picker overlay.png` (composited directly on the real Screen 01 export for pixel-accurate color/spacing, not a fresh drawing). This postdates the original 9-screen set, but follows a pattern the app already established rather than inventing a new one:
 
 - Same rule as the reading view's "Listening here" outline (Milestone 6): a marker that exists only while voice attention is actually scoped to that content, drawn in `--color-voice-focus` (`#C97A3D`) — never the highlight yellow or the accent green, per this doc's existing rule that those three stay visually distinct. This is a "the app is pointing here" state, not a highlight or a selection.
-- Each pickable card (starting with the Recent grid's `.recent-card`) gets a small circular badge in its top-left corner, overlapping the corner slightly like a notification count — ~24px diameter, `--color-voice-focus` fill, `--color-surface` numeral text, centered, `font-weight: 600`. A plain circle, not the card's own 9px corner radius — a numeral reads better in a circle than a rounded square at this size.
+- Each pickable card (starting with the Recent grid's `.recent-card`) gets a small circular badge in its top-left corner, overlapping the corner slightly like a notification count — ~24px diameter, `--voice-fill` fill, `--on-voice` numeral text (7.5:1 and identical in every theme; the earlier light numeral on orange measured 2.5–4.3:1), centered, `font-weight: 600`. A plain circle, not the card's own 9px corner radius — a numeral reads better in a circle than a rounded square at this size.
 - Badges render only while the `picker` context (Milestone 8.4's router) is active — e.g. after a voice command that needs disambiguation among more than one match — and disappear the instant a number is spoken/clicked or the picker is cancelled. No persistent chrome, exactly like the amber outline only existing for the duration of a push-to-talk hold.
 - No dimmed/blurred backdrop behind the grid — that treatment is reserved for modal dialogs (see Layout patterns above). The picker overlays in place on the still-fully-visible, still-clickable grid; voice and mouse/keyboard must stay simultaneously usable per the parity requirement.
 - Mouse/keyboard parity: clicking a card, or tabbing to it and pressing Enter, works identically whether or not the picker overlay happens to be showing. The badges are an additional voice affordance layered on top of existing behavior, never a mode that disables it.

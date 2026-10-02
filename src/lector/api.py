@@ -23,6 +23,7 @@ from lector.features.settings import store as settings
 from lector.features.voice import reference, router
 from lector.features.voice import engine as engine_module
 from lector.features.voice.engine import VoiceEngine
+from lector.shared import window_chrome
 
 
 def _pixmap_to_png_b64(pix) -> str:
@@ -375,6 +376,7 @@ class Api:
 
     def set_theme(self, name: str) -> None:
         settings.set_theme(name)
+        window_chrome.apply(window_chrome.WINDOW_TITLE, settings.get_theme(), icon=False)
 
     def get_recent_view(self) -> str:
         return settings.get_recent_view()

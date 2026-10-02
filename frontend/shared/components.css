@@ -1,23 +1,53 @@
-/* Shared dialog/card/button/radio styles reused across pages. */
+/* Shared UI primitives reused across pages. The file browser (Open /
+   Save-As dialogs) lives in its own file-browser.css, imported here so
+   every page that has components gets it too. */
+@import "file-browser.css";
 
 button {
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   cursor: pointer;
 }
+
+/* Default focus ring for anything focusable. Components that need a tighter
+   offset (rows inside a scrolling list) override the offset, never the ring
+   itself (docs/DESIGN_SYSTEM.md: "All focus indicators use 2px outline +
+   outline-offset"). */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Page title: serif display face, scales with the window. Shared by Home,
+   Settings and onboarding; the Reader's topbar title uses the same face at
+   a smaller size (reading.css .doc-title). */
+.page-title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: var(--text-2xl);
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+/* ------------------------------------------------------------------ */
+/* Button — primary (.btn), secondary, ghost, and icon (.icon-btn)    */
+/* ------------------------------------------------------------------ */
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
   height: 38px;
-  padding: 0 18px;
-  border-radius: 8px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
   border: none;
-  font-size: 13.5px;
+  font-size: var(--text-md);
   font-weight: 600;
-  background-color: var(--color-accent);
-  color: var(--color-surface);
+  background-color: var(--accent);
+  color: var(--on-accent);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
 }
 
 /* `display: inline-flex` above is an author rule, and author rules beat the
@@ -27,18 +57,39 @@ button {
 .btn[hidden] { display: none; }
 
 .btn [data-icon] { width: 17px; height: 17px; display: block; }
-.btn:hover { background-color: var(--color-accent-hover); }
-.btn:active { background-color: var(--color-accent-dark); }
-.btn:disabled { background-color: var(--color-border-light); color: var(--color-text-very-muted); cursor: default; }
+.btn:hover { background-color: var(--accent-hover); }
+.btn:active { background-color: var(--accent-pressed); }
+.btn:disabled,
+.btn[aria-disabled="true"] { background-color: var(--border); color: var(--text-muted); cursor: default; }
 
 .btn-secondary {
   background-color: transparent;
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-light);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   font-weight: 500;
 }
 
-.btn-secondary:hover { background-color: rgba(20, 26, 22, 0.05); color: var(--color-text-primary); }
+.btn-secondary:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.btn-secondary:active { background-color: var(--state-pressed); }
+
+/* Ghost: no chrome at rest, for low-emphasis actions next to a primary
+   (toast "Undo", inline "Clear"). Still secondary-text at rest, so it
+   reads as clickable at >= 4.5:1. */
+.btn-ghost {
+  background-color: transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.btn-ghost:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.btn-ghost:active { background-color: var(--state-pressed); }
+
+.btn-secondary:disabled, .btn-secondary[aria-disabled="true"],
+.btn-ghost:disabled, .btn-ghost[aria-disabled="true"] {
+  background-color: transparent;
+  color: var(--text-tertiary);
+}
+
+.btn-sm { height: 30px; padding: 0 var(--space-3); font-size: var(--text-sm); }
 
 .icon-btn {
   display: inline-flex;
@@ -47,18 +98,26 @@ button {
   width: 44px;
   height: 44px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background-color: transparent;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   padding: 0;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 
 .icon-btn svg { width: 20px; height: 20px; }
 
-.icon-btn:hover { background-color: rgba(20, 26, 22, 0.07); }
-.icon-btn:active { background-color: var(--color-border-light); }
-.icon-btn.active { background-color: rgba(62, 98, 89, 0.14); color: var(--color-accent-dark); }
-.icon-btn:disabled { color: var(--color-border-muted); cursor: default; background-color: transparent; }
+.icon-btn:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.icon-btn:active { background-color: var(--state-pressed); }
+.icon-btn.active,
+.icon-btn.active:hover { background-color: var(--accent-soft); color: var(--accent-strong); }
+.icon-btn:disabled,
+.icon-btn[aria-disabled="true"] { color: var(--text-tertiary); cursor: default; background-color: transparent; }
+
+/* Compact icon button for dense rows and dialog headers. */
+.icon-btn--sm { width: 32px; height: 32px; }
+.icon-btn--sm svg { width: 17px; height: 17px; }
 
 /* Frameless dialog overlay: dimmed backdrop + centered card. Deliberately a
  * plain dim, no backdrop blur — deferred per docs/DESIGN_SYSTEM.md's modal
@@ -66,7 +125,7 @@ button {
 .dialog-scrim {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.35);
+  background-color: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -78,9 +137,9 @@ button {
 .dialog-card {
   width: 560px;
   max-width: calc(100vw - 48px);
-  background-color: var(--color-surface);
-  border-radius: 14px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+  background-color: var(--surface-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
   overflow: hidden;
 }
 
@@ -90,60 +149,61 @@ button {
 .dialog-card--wide { width: 940px; }
 
 .dialog-body {
-  padding: 26px 28px 20px;
+  padding: var(--space-5) var(--space-6) var(--space-5);
 }
 
 .dialog-header {
   display: flex;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .dialog-badge {
   flex: none;
   width: 36px;
   height: 36px;
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--color-highlight);
-  color: #5C4A15;
+  background-color: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .dialog-badge svg { width: 19px; height: 19px; }
 
 .dialog-title {
-  margin: 0 0 6px;
-  font-family: var(--font-reading);
-  font-size: 22px;
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
   font-weight: 400;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .dialog-desc {
   margin: 0;
-  font-size: 13.5px;
-  color: var(--color-text-dialog);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 
 .option-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 18px;
-  border-radius: 9px;
-  background-color: var(--color-input-bg);
-  border: 1px solid var(--color-border-light);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-input);
+  border: 1px solid var(--border);
   cursor: pointer;
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
-.option-row:first-of-type { margin-top: 18px; }
+.option-row:first-of-type { margin-top: var(--space-4); }
+.option-row + .option-row { margin-top: var(--space-2); }
 
 .option-row.selected {
-  border: 2px solid var(--color-accent);
-  padding: 17px; /* compensate for the 1px extra border width so layout doesn't shift */
+  border: 2px solid var(--accent);
+  padding: calc(var(--space-4) - 1px); /* compensate for the 1px extra border width so layout doesn't shift */
 }
 
 .option-radio {
@@ -151,12 +211,12 @@ button {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid var(--color-border-light);
+  border: 2px solid var(--text-tertiary);
   position: relative;
 }
 
 .option-row.selected .option-radio {
-  border-color: var(--color-accent);
+  border-color: var(--accent);
 }
 
 .option-row.selected .option-radio::after {
@@ -164,41 +224,41 @@ button {
   position: absolute;
   inset: 3px;
   border-radius: 50%;
-  background-color: var(--color-accent);
+  background-color: var(--accent);
 }
 
-.option-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.option-text { flex: 1; display: flex; flex-direction: column; gap: var(--space-hair); }
 
-.option-title { font-size: 13.5px; font-weight: 500; color: var(--color-text-primary); }
-.option-subtitle { font-size: 12.5px; color: var(--color-text-muted); }
+.option-title { font-size: var(--text-md); font-weight: 500; color: var(--text-primary); }
+.option-subtitle { font-size: var(--text-sm); color: var(--text-muted); }
 
 .checkbox-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 14px;
-  font-size: 13px;
-  color: var(--color-text-secondary);
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
 }
 
 .checkbox-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: var(--color-accent);
+  accent-color: var(--accent);
 }
 
 .dialog-footer {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 28px;
-  background-color: var(--color-panel);
-  border-top: 1px solid var(--color-border-light);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background-color: var(--surface-1);
+  border-top: 1px solid var(--border);
 }
 
 .dialog-footer .hint {
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
   margin-right: auto;
 }
 
@@ -231,9 +291,9 @@ button {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 12px;
-  background-color: var(--color-border-muted);
-  transition: background-color 120ms ease;
+  border-radius: var(--radius-lg);
+  background-color: var(--text-tertiary);
+  transition: background-color var(--dur-fast) var(--ease-out);
   pointer-events: none;
 }
 
@@ -245,16 +305,16 @@ button {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background-color: #FFFFFF;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform 120ms ease;
+  background-color: var(--knob);
+  box-shadow: var(--shadow-knob);
+  transition: transform var(--dur-fast) var(--ease-spring);
 }
 
-.toggle input:checked + .toggle-track { background-color: var(--color-accent); }
+.toggle input:checked + .toggle-track { background-color: var(--accent); }
 .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
 
 .toggle input:focus-visible + .toggle-track {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -266,323 +326,207 @@ button {
 }
 
 /* ------------------------------------------------------------------ */
-/* In-app file browser (Milestone 8.7) — Open and Save-As dialogs      */
+/* Radio card + checkbox motion                                        */
 /* ------------------------------------------------------------------ */
 
-/* Shares the `.dialog-scrim`/`.dialog-card` frame above; only the body
-   contents are specific to browsing. */
-.dialog-body--browser { padding-bottom: 16px; }
-.dialog-body--browser .dialog-header { align-items: center; }
-.dialog-body--browser .dialog-title { margin: 0; }
-
-/* Breadcrumb above the two panes: ancestors are plain clickable text; the
-   current folder is bold, primary-colored text with no badge. */
-.browser-crumbs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 28px;
-  border-top: 1px solid var(--color-border-light);
-  border-bottom: 1px solid var(--color-border-light);
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.browser-crumb--link { cursor: pointer; }
-.browser-crumb--link:hover { color: var(--color-text-primary); text-decoration: underline; }
-
-.browser-crumb--current {
-  font-weight: 700;
-  color: var(--color-text-primary);
-}
-
-.browser-crumb-sep { color: var(--color-text-very-muted); }
-.browser-crumb-error { color: var(--color-destructive); }
-
-.browser-panes {
-  display: flex;
-  height: min(440px, calc(100vh - 260px));
-  min-height: 240px;
-}
-
-.browser-side {
-  flex: none;
-  width: 268px;
-  padding: 14px 12px;
-  overflow-y: auto;
-  background-color: var(--color-panel);
-  border-right: 1px solid var(--color-border-light);
-}
-
-.browser-side-label {
-  margin: 4px 8px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.browser-quick {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 14px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--color-border-light);
-}
-
-.browser-quick-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  font-family: var(--font-ui);
-  font-size: 13.5px;
-  color: var(--color-text-secondary);
-  text-align: left;
-  cursor: pointer;
-}
-
-.browser-quick-chip:hover { background-color: rgba(20, 26, 22, 0.06); }
-.browser-quick-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
-
-.browser-quick-chip.is-active {
-  background-color: var(--color-accent);
-  color: var(--color-surface);
-  font-weight: 600;
-}
-
-.browser-quick-icon { flex: none; width: 17px; height: 17px; }
-.browser-quick-icon svg { width: 100%; height: 100%; }
-
-/* Directory tree. Each folder's children sit in a grid wrapper that animates
-   from `0fr` to `1fr` (auto height with no measured pixel value — `max-height`
-   does not animate cleanly to real content height). Branch connectors are a
-   1px base line plus an accent overlay that grows to full height on the
-   current folder's ancestor chain, delayed per depth so it visibly travels
-   down. Hand-built rather than adopting reactbits.dev's React component — see
-   docs/DESIGN_SYSTEM.md. */
-.tree-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 13.5px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.tree-row:hover { background-color: rgba(20, 26, 22, 0.06); }
-.tree-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
-
-.tree-row.is-current {
-  background-color: var(--color-accent);
-  color: var(--color-surface);
-  font-weight: 600;
-  cursor: default;
-}
-
-.tree-chevron {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  color: var(--color-text-muted);
-}
-
-.tree-chevron svg { width: 100%; height: 100%; }
-.tree-chevron.is-expanded { transform: rotate(90deg); }
-.tree-chevron.is-leaf { visibility: hidden; }
-.tree-row.is-current .tree-chevron { color: inherit; }
-
-.tree-icon { flex: none; width: 15px; height: 15px; color: var(--color-voice-focus); }
-.tree-icon svg { width: 100%; height: 100%; }
-
-.tree-label {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tree-children { display: grid; grid-template-rows: 0fr; }
-.tree-children.is-expanded { grid-template-rows: 1fr; }
-
-.tree-children-inner { min-height: 0; overflow: hidden; }
-.tree-children:not(.is-expanded) > .tree-children-inner { visibility: hidden; }
-
-.tree-branch {
-  position: relative;
-  margin-left: 14px;
-  padding-left: 8px;
-}
-
-.tree-line {
+/* The radio dot is always present and scales in, rather than appearing
+   only once selected, so selection has a small physical "pop". */
+.option-radio::after {
+  content: "";
   position: absolute;
-  top: 0;
-  bottom: 4px;
-  left: 0;
-  width: 1px;
-  background-color: var(--color-border-light);
-}
-
-.tree-line-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 0;
-  background-color: var(--color-accent);
-}
-
-.tree-line.is-active-path .tree-line-fill { height: 100%; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .tree-children {
-    transition: grid-template-rows 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-
-  .tree-children:not(.is-expanded) > .tree-children-inner {
-    transition: visibility 0s linear 260ms;
-  }
-
-  .tree-chevron {
-    transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-
-  .tree-line-fill {
-    transition: height 220ms ease-out;
-    transition-delay: calc(var(--depth, 0) * 60ms);
-  }
-}
-
-.browser-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 14px 20px 16px;
-}
-
-.browser-search {
-  position: relative;
-  flex: none;
-  margin-bottom: 12px;
-}
-
-.browser-search [data-icon] {
-  position: absolute;
-  top: 50%;
-  left: 12px;
-  width: 16px;
-  height: 16px;
-  transform: translateY(-50%);
-  color: var(--color-text-muted);
-  pointer-events: none;
-}
-
-.browser-search [data-icon] svg { width: 100%; height: 100%; }
-
-.browser-search input,
-.browser-filename-row input {
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 7px;
-  border: 1px solid var(--color-border-light);
-  background-color: var(--color-input-bg);
-  font-size: 13.5px;
-  color: var(--color-text-primary);
-  font-family: var(--font-ui);
-}
-
-.browser-search input { width: 100%; padding-left: 36px; box-sizing: border-box; }
-
-.browser-search input:focus-visible,
-.browser-filename-row input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
-.browser-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  border: 1px solid var(--color-border-light);
-  border-radius: 8px;
-  background-color: var(--color-input-bg);
-}
-
-.browser-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  cursor: pointer;
-  border-bottom: 1px solid var(--color-border-light);
-}
-
-.browser-row:last-child { border-bottom: none; }
-.browser-row:hover { background-color: rgba(20, 26, 22, 0.05); }
-
-.browser-row-icon { flex: none; width: 18px; height: 18px; color: var(--color-text-secondary); }
-.browser-row-icon svg { width: 100%; height: 100%; }
-
-.browser-row-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 13.5px;
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Every row gets a badge, unlike the Recent grid's picker overlay: nothing
-   here has a natural spoken label, so the number is not an opt-in fallback
-   but the only way a row can be picked by voice — see file-browser.js's
-   header comment. Inline rather than the Recent grid's absolutely-positioned
-   corner overlay, since these are list rows, not cards. `pointer-events:
-   none` keeps the same "purely decorative, click still lands on the row"
-   contract Milestone 8.6 established. */
-.browser-row-badge {
-  flex: none;
-  width: 22px;
-  height: 22px;
+  inset: 3px;
   border-radius: 50%;
-  background-color: var(--color-voice-focus);
-  color: var(--color-surface);
+  background-color: var(--accent);
+  transform: scale(0);
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+.option-row.selected .option-radio::after { transform: scale(1); }
+.option-row { transition: border-color var(--dur-fast) var(--ease-out); }
+.option-row:hover:not(.selected) { border-color: var(--border-strong); }
+
+/* Checkbox: a real <input type="checkbox">, restyled. The outline is
+   --text-tertiary so the unchecked box clears 3:1 against every surface. */
+.checkbox-row input[type="checkbox"] {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 2px solid var(--text-tertiary);
+  border-radius: var(--radius-xs);
+  background-color: var(--surface-input);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+.checkbox-row input[type="checkbox"]::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  margin-top: -2px;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+.checkbox-row input[type="checkbox"]:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+.checkbox-row input[type="checkbox"]:checked::after { transform: rotate(45deg) scale(1); }
+
+/* ------------------------------------------------------------------ */
+/* Chip — small status/label pill                                      */
+/* ------------------------------------------------------------------ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background-color: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chip [data-icon] { display: flex; width: 13px; height: 13px; }
+.chip [data-icon] svg { width: 100%; height: 100%; }
+.chip--accent { border-color: transparent; background-color: var(--accent-soft); color: var(--accent-strong); }
+.chip--voice { border-color: var(--voice); background-color: var(--voice-soft); color: var(--text-primary); }
+
+/* ------------------------------------------------------------------ */
+/* Tooltip — one floating element, positioned by shared/ui.js          */
+/* ------------------------------------------------------------------ */
+
+/* Inverted colours (text-primary background) so it reads as chrome above
+   the page in every theme without a per-theme value. */
+.tooltip {
+  position: fixed;
+  z-index: 300;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 11.5px;
+  gap: var(--space-2);
+  max-width: 280px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background-color: var(--text-primary);
+  color: var(--surface-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.35;
+  box-shadow: var(--shadow-2);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+.tooltip.is-visible { opacity: 1; transform: none; }
+.tooltip[hidden] { display: none; }
+
+kbd,
+.tooltip kbd {
+  display: inline-flex;
+  align-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
   font-weight: 600;
+}
+.tooltip kbd {
+  background-color: color-mix(in srgb, var(--surface-2) 18%, transparent);
+  color: var(--surface-2);
+}
+
+/* ------------------------------------------------------------------ */
+/* Toast — transient confirmation with an optional Undo                */
+/* ------------------------------------------------------------------ */
+
+.toast-region {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
-.browser-empty {
-  padding: 24px 12px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--color-text-muted);
-}
-
-.browser-filename-row {
+.toast {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 14px;
+  gap: var(--space-3);
+  min-height: 40px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background-color: var(--text-primary);
+  color: var(--surface-2);
+  font-size: var(--text-md);
+  box-shadow: var(--shadow-3);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity var(--dur-med) var(--ease-out),
+              transform var(--dur-med) var(--ease-out);
+}
+.toast.is-visible { opacity: 1; transform: none; }
+.toast-action {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: color-mix(in srgb, var(--surface-2) 16%, transparent);
+  color: var(--surface-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.toast-action:hover { background-color: color-mix(in srgb, var(--surface-2) 26%, transparent); }
+.toast-action:focus-visible { outline-color: var(--surface-2); }
+
+/* ------------------------------------------------------------------ */
+/* Progress bar                                                        */
+/* ------------------------------------------------------------------ */
+
+.progress-bar {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background-color: var(--border);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background-color: var(--accent);
+  transition: width var(--dur-slow) var(--ease-out);
 }
 
-.browser-filename-row label {
-  flex: none;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-}
+/* ------------------------------------------------------------------ */
+/* Skeleton — placeholder while content (thumbnails, rows) loads       */
+/* ------------------------------------------------------------------ */
 
-.browser-filename-row input { flex: 1; }
+.skeleton {
+  border-radius: var(--radius-sm);
+  background-color: var(--state-hover);
+  background-image: linear-gradient(90deg, transparent, var(--state-hover), transparent);
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep 1.4s var(--ease-out) infinite;
+}
+.skeleton-line { height: 10px; margin: var(--space-1) 0; }
+
+@keyframes skeleton-sweep {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
