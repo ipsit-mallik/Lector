@@ -89,6 +89,44 @@ function driveLabel(path) {
   return path.split("/").filter(Boolean).pop() || path;
 }
 
+// How far from the pane's edge a row is left when the tree has to scroll to it
+// (so it doesn't sit flush against the edge, half under the focus ring).
+const TREE_SCROLL_EDGE_PAD = 8;
+
+// Where to scroll the tree's own scroll container so the active row is on
+// screen, or null when nothing needs to move. All inputs are in the tree's
+// scroll-content coordinates. Pure so the rules can be tested under Node.
+//
+//   * `center` (the dialog just opened): put the row in the middle of the pane.
+//     Always returns a position, even if the row is already visible.
+//   * otherwise: leave it alone when the row is already fully visible, else
+//     the *minimum* movement that brings it into view with a small pad, so the
+//     tree does not jump while someone is clicking around in it.
+//
+// The result is clamped to the scrollable range. In a pane barely taller than
+// a row the pad shrinks rather than pushing the row out of view, and a row
+// taller than the pane is aligned by its top.
+function treeScrollTarget({
+  nodeTop,
+  nodeHeight,
+  viewTop,
+  viewHeight,
+  contentHeight,
+  center,
+  edgePad = TREE_SCROLL_EDGE_PAD,
+}) {
+  const maxScroll = Math.max(0, contentHeight - viewHeight);
+  const clamp = (value) => Math.min(maxScroll, Math.max(0, value));
+  if (center) return clamp(nodeTop - (viewHeight - nodeHeight) / 2);
+
+  const nodeBottom = nodeTop + nodeHeight;
+  if (nodeTop >= viewTop && nodeBottom <= viewTop + viewHeight) return null;
+
+  const pad = Math.max(0, Math.min(edgePad, (viewHeight - nodeHeight) / 2));
+  if (nodeTop < viewTop || nodeHeight >= viewHeight) return clamp(nodeTop - pad);
+  return clamp(nodeBottom - viewHeight + pad);
+}
+
 function createFileBrowser({
   scrimId,
   listId,
@@ -395,6 +433,8 @@ function createFileBrowser({
 
   function buildTree() {
     treeEl.innerHTML = "";
+    treeEl.scrollTop = 0;
+    pendingTreeScrollTop = null;
     treeNodes.clear();
     for (const drive of drives) {
       treeEl.appendChild(createTreeNode(drive, 0, driveLabel(drive.path), "drive"));
@@ -409,15 +449,121 @@ function createFileBrowser({
   // the current folder's own listing, reused for its node instead of a second
   // `browse_directory` call.
   async function revealCurrent(id, listing) {
-    const drive = findDrive(currentDir);
-    if (!drive) return;
-    const chain = [drive.path, ...segmentsBelow(drive.path, currentDir).map((s) => s.path)];
-    for (const path of chain) {
+    for (const path of pathChainToCurrent()) {
       const node = treeNodes.get(pathKey(path));
       if (!node) return;
       await expandNode(node, isSamePath(path, currentDir) ? listing : undefined);
       if (id !== navigationId) return;
     }
+  }
+
+  // ---- Tree follows the active folder -----------------------------------
+  //
+  // After every folder change, however it was made (tree click, breadcrumb,
+  // file list, Quick Access, a spoken number or name), the tree scrolls its own
+  // container so the active folder's row is on screen: centred when the dialog
+  // has just opened, otherwise only if it isn't already fully visible and by
+  // the minimum amount. Quick Access sits outside the scrolling tree, so this
+  // never moves it, and only `treeEl` is ever scrolled — not the modal, the
+  // page or the file list.
+
+  // The folder path from its drive down to the current folder, inclusive.
+  function pathChainToCurrent() {
+    const drive = findDrive(currentDir);
+    if (!drive) return [];
+    return [drive.path, ...segmentsBelow(drive.path, currentDir).map((s) => s.path)];
+  }
+
+  // The row to bring into view: the current folder's own, or — when it has no
+  // node (a folder under the hidden OS profile folder) — its nearest ancestor
+  // that does, so at least the drive that contains it is on screen.
+  function activeTreeNode() {
+    const chain = pathChainToCurrent();
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const node = treeNodes.get(pathKey(chain[i]));
+      if (node) return node;
+    }
+    return null;
+  }
+
+  // `el`'s top within the tree's scroll content, or null if `el` is not inside
+  // it (or not laid out, e.g. the dialog is hidden). Summed from layout
+  // offsets up the offsetParent chain rather than read from
+  // getBoundingClientRect: the dialog card can be mid-transform, which would
+  // skew a client rect, and layout offsets also ignore the expand animation's
+  // clipping. `treeEl` is `position: relative` so it terminates the chain.
+  function offsetWithinTree(el) {
+    let top = 0;
+    let cur = el;
+    while (cur && cur !== treeEl) {
+      top += cur.offsetTop;
+      cur = cur.offsetParent;
+    }
+    return cur === treeEl ? top : null;
+  }
+
+  function prefersReducedMotion() {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  // Resolves once the tree has stopped changing height. Expanding or
+  // collapsing a node runs a grid-rows transition, and until it ends a row's
+  // offset — and the tree's scrollHeight, which caps how far it can scroll — is
+  // mid-way to its final value, so a target measured or applied then lands in
+  // the wrong place. That includes a transition an *earlier* folder change
+  // started, which a navigation that expanded nothing itself would otherwise
+  // not know about. `getAnimations()` flushes pending style first, so a
+  // transition begun a moment ago is included; under reduced motion there are
+  // none and this resolves at once. The cap is only a backstop.
+  const TREE_LAYOUT_SETTLE_CAP_MS = 1500;
+
+  function layoutTransitionsSettled() {
+    const running = treeEl
+      .getAnimations({ subtree: true })
+      .filter((animation) => animation.transitionProperty === "grid-template-rows");
+    if (!running.length) return Promise.resolve();
+    return Promise.race([
+      Promise.allSettled(running.map((animation) => animation.finished)),
+      new Promise((resolve) => setTimeout(resolve, TREE_LAYOUT_SETTLE_CAP_MS)),
+    ]);
+  }
+
+  // Where a smooth scroll that is still running is heading. A second folder
+  // change arriving mid-animation is judged against that destination, not the
+  // position the animation happens to be passing through: a row momentarily in
+  // view as it passes would otherwise count as "already visible", no new scroll
+  // would start, and the running one would carry on past it.
+  let pendingTreeScrollTop = null;
+  treeEl.addEventListener("scrollend", () => {
+    pendingTreeScrollTop = null;
+  });
+  // Someone scrolling the tree themselves takes over from any running scroll.
+  treeEl.addEventListener("wheel", () => {
+    pendingTreeScrollTop = null;
+  }, { passive: true });
+  treeEl.addEventListener("pointerdown", () => {
+    pendingTreeScrollTop = null;
+  });
+
+  async function scrollTreeToCurrent(id, { initial }) {
+    await layoutTransitionsSettled();
+    if (id !== navigationId) return;
+    const node = activeTreeNode();
+    if (!node) return;
+    const top = offsetWithinTree(node.row);
+    if (top === null) return;
+    const target = treeScrollTarget({
+      nodeTop: top,
+      nodeHeight: node.row.offsetHeight,
+      viewTop: pendingTreeScrollTop ?? treeEl.scrollTop,
+      viewHeight: treeEl.clientHeight,
+      contentHeight: treeEl.scrollHeight,
+      center: initial,
+    });
+    if (target === null) return;
+    const smooth = !initial && !prefersReducedMotion();
+    pendingTreeScrollTop = smooth ? target : null;
+    treeEl.scrollTo({ top: target, behavior: smooth ? "smooth" : "instant" });
   }
 
   // Highlights the current node and Quick Access chip, and lights exactly the
@@ -436,7 +582,10 @@ function createFileBrowser({
 
   // ---- Navigation and actions ------------------------------------------
 
-  async function navigateTo(dir) {
+  // The one place the current folder changes, whatever caused it. `initial` is
+  // set only by `open()`: the tree is then centred on the folder instead of
+  // scrolled the minimum amount.
+  async function navigateTo(dir, { initial = false } = {}) {
     const id = ++navigationId;
     const listing = await callApi("browse_directory", dir);
     if (id !== navigationId) return;
@@ -456,7 +605,13 @@ function createFileBrowser({
     } catch (err) {
       console.error("file-browser: could not reveal folder in tree", err);
     }
-    if (id === navigationId) updateSelection();
+    if (id !== navigationId) return;
+    updateSelection();
+    try {
+      await scrollTreeToCurrent(id, { initial });
+    } catch (err) {
+      console.error("file-browser: could not scroll the tree to the folder", err);
+    }
   }
 
   // A folder row navigates into it, in both modes. A PDF file row opens it
@@ -543,7 +698,7 @@ function createFileBrowser({
       // still appear, so its failure is swallowed rather than blocking navigation.
       loadSidebar()
         .catch((err) => console.error("file-browser: sidebar failed to load", err))
-        .then(() => navigateTo(dir));
+        .then(() => navigateTo(dir, { initial: true }));
     });
   }
 

@@ -1,0 +1,74 @@
+/* Auto-hiding scrollbars — the only place scrollbars are styled.
+ *
+ * Applies to every scroller in the app (Reader, Home, the Open/Save dialogs'
+ * tree and list, "What can I say?", Settings, onboarding, and the root) with no
+ * per-element class. The logic that decides *when* they show is
+ * js/scrollbars.js; it toggles `scrollbars-active` on <html>. tests/
+ * test_scrollbars.py fails if scrollbar styling appears anywhere else.
+ *
+ * Only ::-webkit-scrollbar is used. `scrollbar-color` and `scrollbar-width`
+ * must never appear anywhere in the frontend: in current Chromium they take
+ * precedence over these rules and would leave a permanently visible thumb that
+ * ignores the fade.
+ *
+ * Hiding is done by making the thumb transparent, never by removing the
+ * scrollbar or toggling overflow, so the gutter stays reserved and layout does
+ * not shift when scrollbars appear or fade.
+ *
+ * The visible thumb uses theme tokens that clear 3:1 against --bg, --surface-1
+ * and --surface-2 in all three themes (checked by tests/test_scrollbars.py).
+ */
+
+:root {
+  --scrollbar-size: 6px;
+  --scrollbar-thumb: var(--text-tertiary);
+  --scrollbar-thumb-hover: var(--text-muted);
+}
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Idle: invisible. */
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: var(--radius-xs);
+  transition: background-color var(--dur-slow) var(--ease-out);
+}
+
+/* Any activity anywhere shows every scrollbar. The second selector covers the
+ * root element's own (viewport) scrollbar, which a descendant selector cannot
+ * reach. */
+:root.scrollbars-active ::-webkit-scrollbar-thumb,
+:root.scrollbars-active::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+/* Hovered or being dragged: stays visible regardless of the idle timer. */
+:root ::-webkit-scrollbar-thumb:hover,
+:root::-webkit-scrollbar-thumb:hover,
+:root ::-webkit-scrollbar-thumb:active,
+:root::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::-webkit-scrollbar-thumb {
+    transition: none;
+  }
+}
+
+/* Forced colors (Windows High Contrast): scrollbars never hide. */
+@media (forced-colors: active) {
+  :root ::-webkit-scrollbar-thumb,
+  :root::-webkit-scrollbar-thumb {
+    background-color: CanvasText;
+    transition: none;
+  }
+}

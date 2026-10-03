@@ -222,23 +222,3 @@ body {
     scroll-behavior: auto !important;
   }
 }
-
-/* Thin, understated scrollbar. Apply this class to any element that
- * scrolls, rather than duplicating the rule. */
-.themed-scroll::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.themed-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.themed-scroll::-webkit-scrollbar-thumb {
-  background-color: var(--border-strong);
-  border-radius: var(--radius-xs);
-}
-
-.themed-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-muted);
-}

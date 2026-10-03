@@ -19,6 +19,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDFs some tests open
+
 from lector import api as api_module  # noqa: E402
 from lector.features.settings import store  # noqa: E402
 
@@ -171,6 +173,107 @@ class CloseAppTests(unittest.TestCase):
             self.api.close_app()  # must not raise
 
         self.window.destroy.assert_not_called()
+
+
+class OpenPdfDefaultsTests(unittest.TestCase):
+    """What a newly opened PDF starts with, when opened after another one.
+
+    `Api` keeps one `PdfDocument` for the whole process, so anything that
+    `open_pdf` does not reset is inherited from whichever file was open before.
+    A PDF with no saved position must open with the defaults (book layout, 100%
+    zoom), never with the previous file's zoom.
+    """
+
+    def setUp(self):
+        self.settings_dir = tempfile.TemporaryDirectory(prefix="lector-settings-")
+        patcher = mock.patch.object(
+            store, "_settings_path", lambda: Path(self.settings_dir.name) / "settings.json"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.settings_dir.cleanup)
+
+        self.pdf_dir = tempfile.TemporaryDirectory(prefix="lector-pdfs-")
+        self.addCleanup(self.pdf_dir.cleanup)
+        self.first = self._make_pdf("first.pdf")
+        self.second = self._make_pdf("second.pdf")
+
+        self.api = api_module.Api()
+        self.addCleanup(self.api.shutdown_voice)
+        self.addCleanup(self.api._doc.close)
+
+    def _make_pdf(self, name: str) -> str:
+        path = str(Path(self.pdf_dir.name) / name)
+        doc = fitz.open()
+        for _ in range(3):
+            doc.new_page()
+        doc.save(path)
+        doc.close()
+        return path
+
+    def _read_first_at(self, zoom: float, layout: str = store.BOOK) -> None:
+        self.api.open_pdf(self.first)
+        self.api.set_zoom(zoom)
+        self.api.set_layout_mode(layout)
+
+    def test_a_new_pdf_does_not_inherit_the_previous_pdfs_zoom(self):
+        self._read_first_at(1.2)
+
+        state = self.api.open_pdf(self.second)
+
+        self.assertEqual(state["zoom"], 1.0)
+        self.assertEqual(state["zoom_pct"], 100)
+
+    def test_a_new_pdf_does_not_inherit_the_previous_pdfs_layout(self):
+        self._read_first_at(1.2, store.STRIP)
+
+        state = self.api.open_pdf(self.second)
+
+        self.assertEqual(state["layout_mode"], store.BOOK)
+
+    def test_a_new_pdf_opens_on_its_first_page(self):
+        self._read_first_at(1.2)
+        self.api.goto_page(2)
+
+        state = self.api.open_pdf(self.second)
+
+        self.assertEqual(state["page_index"], 0)
+
+    def test_the_default_zoom_is_also_used_when_resuming_is_switched_off(self):
+        store.set_reopen_behavior(store.START)
+        self._read_first_at(1.2)
+
+        state = self.api.open_pdf(self.second)
+
+        self.assertEqual(state["zoom"], 1.0)
+
+    def test_the_previous_zoom_is_not_saved_as_the_new_pdfs_own_position(self):
+        # open_pdf persists the position it ends up with, so a leaked zoom would
+        # not just show once: it would be written to the new file's record and
+        # restored on every later open.
+        self._read_first_at(1.2)
+
+        self.api.open_pdf(self.second)
+
+        position = store.get_document_position(self.second)
+        self.assertIsNotNone(position)
+        self.assertEqual(position["zoom"], 1.0)
+
+    def test_a_pdf_with_a_saved_position_still_restores_its_own_zoom(self):
+        self._read_first_at(1.2)
+        self.api.open_pdf(self.second)
+
+        state = self.api.open_pdf(self.first)
+
+        self.assertEqual(state["zoom"], 1.2)
+
+    def test_zooming_the_new_pdf_starts_from_100_percent(self):
+        self._read_first_at(1.2)
+        self.api.open_pdf(self.second)
+
+        state = self.api.zoom_in()
+
+        self.assertEqual(state["zoom_pct"], 125)
 
 
 class BrowseAndSaveDialogTests(unittest.TestCase):

@@ -60,12 +60,12 @@
       <div class="vline"></div>
 
       <div class="page-area" id="pageArea">
-        <div class="book-scroll themed-scroll" id="bookScroll">
+        <div class="book-scroll" id="bookScroll">
           <div class="page-card" id="pageCard">
             <img class="page-surface" id="pageSurface" draggable="false">
           </div>
         </div>
-        <div class="strip-scroll themed-scroll" id="stripScroll" hidden>
+        <div class="strip-scroll" id="stripScroll" hidden>
           <div class="strip-container" id="stripContainer"></div>
         </div>
         <!-- Live selection wash painted while a highlight is being dragged
@@ -166,7 +166,7 @@
                 aria-label="Close">&times;</button>
       </div>
 
-      <div class="reference-body themed-scroll">
+      <div class="reference-body">
         <div class="reference-search">
           <span class="reference-search-icon" data-icon="search"></span>
           <input type="search" id="referenceSearch" autocomplete="off"
@@ -199,7 +199,7 @@
       </div>
       <div class="browser-crumbs" id="saveAsDialogPath"></div>
       <div class="browser-panes">
-        <div class="browser-side themed-scroll">
+        <div class="browser-side">
           <p class="browser-side-label">Quick access</p>
           <div class="browser-quick" id="saveAsDialogQuick"></div>
           <p class="browser-side-label">This PC</p>
@@ -210,7 +210,7 @@
             <span data-icon="search"></span>
             <input type="text" id="saveAsDialogSearch" placeholder="Search this folder…" autocomplete="off" aria-label="Search this folder">
           </div>
-          <div class="browser-list themed-scroll" id="saveAsDialogList"></div>
+          <div class="browser-list" id="saveAsDialogList"></div>
           <div class="browser-filename-row">
             <label for="saveAsDialogFilename">File name</label>
             <input type="text" id="saveAsDialogFilename" autocomplete="off">
@@ -227,6 +227,7 @@
 
   <script src="../js/icons.js"></script>
   <script src="../js/ui.js"></script>
+  <script src="../js/scrollbars.js"></script>
   <script src="../js/bridge.js"></script>
   <script src="../js/voice.js"></script>
   <script src="../js/file-browser.js"></script>

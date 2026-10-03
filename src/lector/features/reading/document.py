@@ -33,6 +33,10 @@ class PdfDocument:
         self._doc = fitz.open(path)
         self._path = path
         self._page_index = 0
+        # Per-document state: a PDF with no saved position must start at the
+        # default zoom, not at whatever the previously open one was left on.
+        # `Api._restore_position` overrides this when a record exists.
+        self._zoom = self.DEFAULT_ZOOM
         self._dirty = False
         self._undo_stack.clear()
         self._redo_stack.clear()

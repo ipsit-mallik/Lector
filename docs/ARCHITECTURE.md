@@ -59,11 +59,15 @@ lector/
 │   │   ├── components.css       # Shared primitives: buttons, icon buttons,
 │   │   │                        #   toggle, radio card, checkbox, chip, tooltip,
 │   │   │                        #   toast, progress, skeleton, dialog frame
-│   │   └── file-browser.css     # Open/Save-As dialog body (imported by
-│   │                            #   components.css)
+│   │   ├── file-browser.css     # Open/Save-As dialog body (imported by
+│   │   │                        #   components.css)
+│   │   └── scrollbars.css       # The only place scrollbars are styled
+│   │                            #   (auto-hide; imported by components.css)
 │   └── js/
 │       ├── bridge.js            # Wraps calls to the Python api.py bridge
 │       ├── ui.js                # Tooltip + Toast behaviour, loaded on every page
+│       ├── scrollbars.js        # Shows/hides every scrollbar on activity,
+│       │                        #   loaded on every page
 │       └── (per-page JS files, mirroring frontend/pages/)
 │
 ├── assets/

@@ -1,7 +1,9 @@
 /* Shared UI primitives reused across pages. The file browser (Open /
    Save-As dialogs) lives in its own file-browser.css, imported here so
-   every page that has components gets it too. */
+   every page that has components gets it too — as does scrollbars.css, the
+   one place the app's auto-hiding scrollbars are styled. */
 @import "file-browser.css";
+@import "scrollbars.css";
 
 button {
   font-family: var(--font-sans);

@@ -171,9 +171,6 @@ html, body { height: 100%; }
   min-width: 0;
 }
 
-/* .themed-scroll (see shared/theme.css) gives these their thin scrollbar —
- * applied via the markup so it matches every other scrollable surface in
- * the app, not just this one. */
 .book-scroll,
 .strip-scroll {
   position: absolute;
