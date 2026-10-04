@@ -83,7 +83,7 @@ def _command(examples: list[str], description: str, equivalent: str) -> dict:
 # screen so the reader learns them once. Undo/redo are global too but only act
 # in the reading view, so they stay under that view's own headings.
 _ANYWHERE: tuple[tuple[str, str, str], ...] = (
-    (router.OPEN_PDF, "Opens the Open PDF dialog.", "Click Open PDF on the Home screen"),
+    (router.OPEN_PDF, "Opens the Open PDF dialog.", "Press Ctrl+O, or click Open PDF on the Home screen"),
     (router.GO_RECENT, "Goes to your recent files.", "Click Recent in the sidebar"),
     (router.OPEN_SETTINGS, "Opens Settings.", "Click Settings in the sidebar"),
     (router.HELP, "Shows this list.", 'Click "What can I say?"'),

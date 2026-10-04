@@ -53,6 +53,15 @@ function openPdfFromSettings() {
   goHome();
 }
 
+// Ctrl+O, the keyboard route to the same hand-off. Not while a confirmation or
+// the commands panel is up: they own the keyboard.
+document.addEventListener("keydown", (ev) => {
+  if ((ev.key || "").toLowerCase() !== "o" || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+  ev.preventDefault();
+  if (document.querySelector(".dialog-scrim:not([hidden])")) return;
+  openPdfFromSettings();
+});
+
 // A PDF dropped anywhere on the window (frontend/js/filedrop.js) opens in the
 // reader, the same as picking it from Recent. Not while a dialog is up: that
 // would navigate away from a prompt the reader is mid-way through answering.
