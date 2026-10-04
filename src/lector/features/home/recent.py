@@ -67,25 +67,42 @@ def _load_document_info(path: str, height: int) -> tuple[str | None, int, str | 
 def list_recent(thumbnail_height: int = 116) -> list[dict]:
     """Recent files enriched with thumbnail/page-count/relative-time data,
     ready for the frontend's card grid and list view."""
-    entries = []
-    for entry in settings.get_recent_files():
-        path = entry["path"]
-        name = os.path.splitext(os.path.basename(path))[0]
-        thumbnail, page_count, title = _load_document_info(path, thumbnail_height)
-        entries.append({
-            "path": path,
-            "name": name,
-            # List view's Name column: the PDF's own title when it carries
-            # one, the filename otherwise. The grid keeps showing `name`.
-            "title": title or name,
-            "thumbnail": thumbnail,
-            "page_count": page_count,
-            # Raw ISO timestamp alongside the display string, so the list
-            # view can sort by "Last active" without parsing "52 min ago".
-            "opened_at": entry["opened_at"],
-            "relative_time": settings.format_relative_time(entry["opened_at"]),
-        })
-    return entries
+    favorite_paths = {e["path"] for e in settings.get_favorites()}
+    return [
+        _build_entry(e["path"], e["opened_at"], e["path"] in favorite_paths, thumbnail_height)
+        for e in settings.get_recent_files()
+    ]
+
+
+def list_favorites(thumbnail_height: int = 116) -> list[dict]:
+    """The Favorites view's entries, newest-favorited first, in the same shape
+    as `list_recent()`. A favorite outlives its Recent entry, so "Last active"
+    comes from the Recent entry when there still is one and is empty (shown as
+    a dash) when the file has since fallen off the list."""
+    opened_at = {e["path"]: e["opened_at"] for e in settings.get_recent_files()}
+    return [
+        _build_entry(e["path"], opened_at.get(e["path"], ""), True, thumbnail_height)
+        for e in settings.get_favorites()
+    ]
+
+
+def _build_entry(path: str, opened_at: str, favorite: bool, thumbnail_height: int) -> dict:
+    name = os.path.splitext(os.path.basename(path))[0]
+    thumbnail, page_count, title = _load_document_info(path, thumbnail_height)
+    return {
+        "path": path,
+        "name": name,
+        # List view's Name column: the PDF's own title when it carries
+        # one, the filename otherwise. The grid keeps showing `name`.
+        "title": title or name,
+        "thumbnail": thumbnail,
+        "page_count": page_count,
+        # Raw ISO timestamp alongside the display string, so the list
+        # view can sort by "Last active" without parsing "52 min ago".
+        "opened_at": opened_at,
+        "relative_time": settings.format_relative_time(opened_at) if opened_at else "",
+        "favorite": favorite,
+    }
 
 
 def reveal_in_file_manager(path: str) -> None:

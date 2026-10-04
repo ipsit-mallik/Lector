@@ -173,14 +173,40 @@ function syncNameTooltip(row, entry) {
   else delete name.dataset.tooltip;
 }
 
-// One tab stop for the whole list instead of two per row: only the current
-// row (and its "⋯") is tabbable, and the arrow keys move between rows.
+// One tab stop for the whole list instead of one per control: only the
+// current row (and its star and "⋯") is tabbable, and the arrow keys move
+// between rows.
 function setActiveRow(table, row) {
   table.querySelectorAll(".recent-item").forEach((item) => {
     const isActive = item === row;
     item.tabIndex = isActive ? 0 : -1;
-    item.querySelector(".recent-more-btn").tabIndex = isActive ? 0 : -1;
+    item.querySelectorAll(".recent-fav-btn, .recent-more-btn").forEach((btn) => {
+      btn.tabIndex = isActive ? 0 : -1;
+    });
   });
+}
+
+// The favorite star, shared by the list rows here and home.js's grid cards
+// (CSS positions it per view). A real button whose label says what it will
+// do, not what state it is in. A favorited star stays visible at rest — it is
+// state, not an action, and is how you tell what is pinned at a glance — an
+// unfavorited one appears with the rest of the row's actions. `label` is the
+// name the reader sees: the title in the list, the filename on a grid card.
+function buildFavoriteBtn(entry, label, onToggle) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "icon-btn icon-btn--sm recent-fav-btn";
+  btn.classList.toggle("is-favorite", entry.favorite);
+  btn.dataset.favPath = entry.path;
+  btn.dataset.icon = entry.favorite ? "favorites_filled" : "favorites";
+  const action = entry.favorite ? "Remove from Favorites" : "Add to Favorites";
+  btn.dataset.tooltip = action;
+  btn.setAttribute("aria-label", entry.favorite ? `Remove ${label} from Favorites` : `Add ${label} to Favorites`);
+  btn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    onToggle(entry);
+  });
+  return btn;
 }
 
 function focusSiblingRow(row, key) {
@@ -195,22 +221,27 @@ function focusSiblingRow(row, key) {
 // or Space), and its one nested control — the "⋯" button — never also
 // triggers that. A focusable role="row" inside role="grid" rather than
 // role="button", since this is a table: screen readers keep the cells.
-function buildBodyRow(entry, handlers) {
+function buildBodyRow(entry, handlers, section) {
   const row = document.createElement("div");
   row.className = "recent-table-row recent-item";
   row.setAttribute("role", "row");
   row.tabIndex = -1;
-  // What a screen reader announces on landing here; Enter then opens it.
+  // What a screen reader announces on landing here; Enter then opens it. A
+  // favorite that has fallen off Recent has no "last active" to read out.
   const pageLabel = formatPageCount(entry.page_count);
-  row.setAttribute("aria-label", `Open ${entry.title}, ${entry.relative_time}, ${pageLabel}`);
+  const spoken = [entry.relative_time, pageLabel].filter(Boolean).join(", ");
+  row.setAttribute("aria-label", `Open ${entry.title}, ${spoken}`);
 
   row.appendChild(buildNameCell(entry));
-  row.appendChild(buildTextCell("recent-col-when", entry.relative_time));
+  row.appendChild(buildTextCell("recent-col-when", entry.relative_time || "—"));
   row.appendChild(buildTextCell("recent-col-pages", formatPageCount(entry.page_count)));
 
   const actions = document.createElement("div");
   actions.className = "recent-col-actions";
   actions.setAttribute("role", "gridcell");
+  const fav = buildFavoriteBtn(entry, entry.title, handlers.onToggleFavorite);
+  fav.tabIndex = -1;
+  actions.appendChild(fav);
   const more = document.createElement("button");
   more.type = "button";
   more.className = "icon-btn icon-btn--sm recent-more-btn";
@@ -222,7 +253,7 @@ function buildBodyRow(entry, handlers) {
   more.addEventListener("click", (ev) => {
     ev.stopPropagation();
     if (openRowMenuState && openRowMenuState.trigger === more) closeRowMenu();
-    else openRowMenu(more, row, entry, handlers);
+    else openRowMenu(more, row, entry, handlers, section);
   });
   actions.appendChild(more);
   row.appendChild(actions);
@@ -243,16 +274,17 @@ function buildBodyRow(entry, handlers) {
   return row;
 }
 
-// `entries` arrive already sorted (sortRecentEntries); `handlers` are
-// home.js's onSort(key), onOpen(entry), onShowInFolder(entry) and
-// onRemove(entry, rowIndex).
-function buildRecentTable(entries, sort, handlers) {
+// `entries` arrive already sorted (sortRecentEntries); `section` is "recent"
+// or "favorites" (the menu differs: Favorites has nothing to remove from
+// Recent); `handlers` are home.js's onSort(key), onOpen(entry),
+// onShowInFolder(entry), onToggleFavorite(entry) and onRemove(entry, rowIndex).
+function buildRecentTable(entries, sort, handlers, section) {
   const table = document.createElement("div");
   table.className = "recent-table";
   table.setAttribute("role", "grid");
-  table.setAttribute("aria-label", "Recent documents");
+  table.setAttribute("aria-label", section === "favorites" ? "Favorite documents" : "Recent documents");
   table.appendChild(buildHeaderRow(sort, handlers.onSort));
-  entries.forEach((entry) => table.appendChild(buildBodyRow(entry, handlers)));
+  entries.forEach((entry) => table.appendChild(buildBodyRow(entry, handlers, section)));
   const firstRow = table.querySelector(".recent-item");
   if (firstRow) setActiveRow(table, firstRow);
   mountIcons(table);
@@ -326,18 +358,10 @@ function handleMenuKeydown(ev) {
   }
 }
 
-function openRowMenu(trigger, row, entry, handlers) {
-  closeRowMenu();
-  const menu = document.createElement("div");
-  menu.className = "recent-menu";
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", `Actions for ${entry.title}`);
-
-  const select = (action) => () => {
-    closeRowMenu({ restoreFocus: true });
-    action();
-  };
-  const rowIndex = Array.from(row.parentElement.querySelectorAll(".recent-item")).indexOf(row);
+// Remove from Recent, below a separator, with the note that the file stays on
+// disk. Only offered in Recent: in Favorites the file may not be listed in
+// Recent at all, and "Remove from Favorites" is the star item above.
+function buildRemoveItems(entry, rowIndex, handlers, select) {
   const note = document.createElement("p");
   note.className = "recent-menu-note";
   note.id = "recentMenuNote";
@@ -349,13 +373,32 @@ function openRowMenu(trigger, row, entry, handlers) {
   const separator = document.createElement("div");
   separator.className = "recent-menu-separator";
   separator.setAttribute("role", "separator");
+  return [separator, remove, note];
+}
+
+function openRowMenu(trigger, row, entry, handlers, section) {
+  closeRowMenu();
+  const menu = document.createElement("div");
+  menu.className = "recent-menu";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", `Actions for ${entry.title}`);
+
+  const select = (action) => () => {
+    closeRowMenu({ restoreFocus: true });
+    action();
+  };
+  const rowIndex = Array.from(row.parentElement.querySelectorAll(".recent-item")).indexOf(row);
+  const favoriteItem = buildMenuItem(
+    entry.favorite ? "favorites_filled" : "favorites",
+    entry.favorite ? "Remove from Favorites" : "Add to Favorites",
+    select(() => handlers.onToggleFavorite(entry))
+  );
 
   menu.append(
     buildMenuItem("open_pdf", "Open", select(() => handlers.onOpen(entry))),
+    favoriteItem,
     buildMenuItem("folder", "Show in folder", select(() => handlers.onShowInFolder(entry))),
-    separator,
-    remove,
-    note
+    ...(section === "recent" ? buildRemoveItems(entry, rowIndex, handlers, select) : [])
   );
   menu.addEventListener("keydown", handleMenuKeydown);
   document.body.appendChild(menu);

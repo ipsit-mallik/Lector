@@ -103,6 +103,33 @@ def _home_categories() -> list[dict]:
             ],
         },
         {
+            "title": "Favorites",
+            "commands": [
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.OPEN_FAVORITES),
+                    "Shows your favorite files.",
+                    "Click Favorites in the sidebar",
+                ),
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.SHOW_RECENT),
+                    "Goes back to your recent files.",
+                    "Click Recent in the sidebar",
+                ),
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.FAVORITE_RECENT),
+                    "Adds the most recent file to your favorites, or removes it if it "
+                    "already is one.",
+                    "Click the star on the first file in Recent",
+                ),
+                _command(
+                    _examples_from(router.HOME_PHRASES, router.FAVORITE_PICKER),
+                    "Numbers every file so you can say which one to add to or remove "
+                    "from your favorites.",
+                    "Click the star on any file",
+                ),
+            ],
+        },
+        {
             "title": "The app itself",
             "commands": [
                 _command(

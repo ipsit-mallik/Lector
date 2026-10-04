@@ -43,6 +43,14 @@ function goHome() {
 
 recentNav.addEventListener("click", goHome);
 
+// Home opens on Recent unless told otherwise; this hands it the section to
+// open on (home.js reads and clears the key), the same localStorage route the
+// theme already takes between pages.
+document.getElementById("favoritesNav").addEventListener("click", () => {
+  localStorage.setItem("lector-home-section", "favorites");
+  goHome();
+});
+
 // The voice "close app"/"quit" command (Milestone 8.11) — see reading.js's
 // identical closeApp() for why there is no separate click/keyboard wiring.
 async function closeApp() {

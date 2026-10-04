@@ -47,13 +47,26 @@ async function openMostRecent() {
   if (entries.length) await openPath(entries[0].path);
 }
 
-function buildEmptyState() {
+const EMPTY_STATE_COPY = {
+  recent: {
+    heading: "Nothing open yet",
+    body: "Open a PDF and Lector will keep it here. Everything stays on this computer.",
+  },
+  favorites: {
+    heading: "No favorites yet",
+    body: "Star a PDF in Recent and it will be kept here, even after it leaves the Recent list.",
+  },
+};
+
+function buildEmptyState(section) {
+  const copy = EMPTY_STATE_COPY[section];
   const el = document.createElement("div");
   el.className = "empty-state";
-  el.innerHTML = `
-    <h2>Nothing open yet</h2>
-    <p>Open a PDF and Lector will keep it here. Everything stays on this computer.</p>
-  `;
+  const heading = document.createElement("h2");
+  heading.textContent = copy.heading;
+  const body = document.createElement("p");
+  body.textContent = copy.body;
+  el.append(heading, body);
   return el;
 }
 
@@ -116,7 +129,12 @@ function buildCard(entry) {
     : entry.relative_time;
   card.appendChild(meta);
 
-  card.appendChild(buildRemoveBtn(entry));
+  const favBtn = buildFavoriteBtn(entry, entry.name, toggleFavorite);
+  mountIcon(favBtn, favBtn.dataset.icon);
+  card.appendChild(favBtn);
+  // Removing from Recent only makes sense in Recent: a favorite may not be
+  // listed there at all, and unstarring it is the star's job.
+  if (homeSection === "recent") card.appendChild(buildRemoveBtn(entry));
 
   card.addEventListener("click", () => openPath(entry.path));
   card.addEventListener("keydown", (ev) => {
@@ -134,6 +152,67 @@ function buildCard(entry) {
 // differently — and is what the picker below maps a spoken number onto.
 let recentEntries = [];
 let displayedEntries = [];
+
+// Which list the content area shows: "recent" (the default) or "favorites",
+// chosen by the sidebar, voice, or the Settings page's Favorites item. The
+// two share everything — the grid/list toggle, sorting, the row menu, the
+// numbered picker — so one render path serves both and `recentEntries` simply
+// holds whichever list is on screen.
+const sectionTitle = document.getElementById("sectionTitle");
+const recentNav = document.getElementById("recentNav");
+const favoritesNav = document.getElementById("favoritesNav");
+const SECTION_TITLES = { recent: "Recent", favorites: "Favorites" };
+const SECTION_LOADERS = { recent: "get_recent_files", favorites: "get_favorites" };
+let homeSection = "recent";
+
+function syncSectionChrome() {
+  sectionTitle.textContent = SECTION_TITLES[homeSection];
+  [[recentNav, "recent"], [favoritesNav, "favorites"]].forEach(([nav, section]) => {
+    const active = homeSection === section;
+    nav.classList.toggle("active", active);
+    if (active) nav.setAttribute("aria-current", "page");
+    else nav.removeAttribute("aria-current");
+  });
+}
+
+async function setHomeSection(section) {
+  if (section === homeSection) return;
+  hidePicker();
+  homeSection = section;
+  syncSectionChrome();
+  await loadSection();
+}
+
+recentNav.addEventListener("click", () => setHomeSection("recent"));
+favoritesNav.addEventListener("click", () => setHomeSection("favorites"));
+
+// Stars or unstars `entry`, then reloads whichever list is showing. Focus
+// follows the reader: if it was inside the list, it goes back to the same
+// star (the re-render replaced it), or — when unstarring made the row leave
+// the Favorites list — to the row that took its place. A voice-triggered
+// toggle (`announce`) has no pointer or focus to show it worked, so it says so
+// in a toast instead, and never moves focus.
+async function toggleFavorite(entry, { announce = false } = {}) {
+  const hadFocus = recentArea.contains(document.activeElement);
+  const rowIndex = displayedEntries.findIndex((e) => e.path === entry.path);
+  const { favorite, error } = await callApi("set_favorite", entry.path, !entry.favorite);
+  if (error) {
+    showToast(error);
+    return;
+  }
+  await loadSection();
+  if (announce) showToast(favorite ? "Added to Favorites." : "Removed from Favorites.");
+  if (!hadFocus) return;
+  const star = Array.from(recentArea.querySelectorAll(".recent-fav-btn"))
+    .find((btn) => btn.dataset.favPath === entry.path);
+  if (star) {
+    star.focus();
+    return;
+  }
+  const items = recentArea.querySelectorAll(".recent-item");
+  if (items.length) items[Math.min(Math.max(rowIndex, 0), items.length - 1)].focus();
+  else favoritesNav.focus();
+}
 
 // List view's sort (recent-list.js). Session-only: every visit to Home
 // starts back at "Last active, newest first".
@@ -179,6 +258,7 @@ const recentListHandlers = {
     recentArea.querySelector(`[data-sort-key="${key}"]`).focus();
   },
   onOpen: (entry) => openPath(entry.path),
+  onToggleFavorite: toggleFavorite,
   onShowInFolder: async (entry) => {
     const { error } = await callApi("show_in_folder", entry.path);
     if (error) showToast(error);
@@ -206,12 +286,14 @@ function renderRecent(entries) {
   recentArea.innerHTML = "";
   if (!entries.length) {
     displayedEntries = [];
-    recentArea.appendChild(buildEmptyState());
+    recentArea.appendChild(buildEmptyState(homeSection));
     return;
   }
   if (recentViewMode === "list") {
     displayedEntries = sortRecentEntries(entries, recentSort);
-    recentArea.appendChild(buildRecentTable(displayedEntries, recentSort, recentListHandlers));
+    recentArea.appendChild(
+      buildRecentTable(displayedEntries, recentSort, recentListHandlers, homeSection)
+    );
     return;
   }
   displayedEntries = entries;
@@ -221,8 +303,8 @@ function renderRecent(entries) {
   recentArea.appendChild(grid);
 }
 
-async function loadRecent() {
-  renderRecent(await callApi("get_recent_files"));
+async function loadSection() {
+  renderRecent(await callApi(SECTION_LOADERS[homeSection]));
 }
 
 // --- Remove-from-Recent confirmation (Milestone 8.9) --------------------- //
@@ -285,8 +367,10 @@ const UNDO_FAILURE_MESSAGES = {
 };
 
 async function undoRemoval() {
-  const { entries, status } = await callApi("undo_remove_recent_file");
-  renderRecent(entries);
+  const { status } = await callApi("undo_remove_recent_file");
+  // Reload what is on screen rather than render the returned Recent list: the
+  // reader may have switched to Favorites since the toast appeared.
+  await loadSection();
   if (UNDO_FAILURE_MESSAGES[status]) showToast(UNDO_FAILURE_MESSAGES[status]);
 }
 
@@ -307,6 +391,22 @@ async function removeEntry(entry) {
 // card, the only one with a natural spoken label.
 async function removeMostRecent() {
   if (recentEntries.length) await removeEntry(recentEntries[0]);
+}
+
+// "remove recent" / "remove a file" mean Recent. While Favorites is showing
+// they would be ambiguous (the file may not even be in Recent), so they ask
+// for Recent first instead of guessing.
+function requireRecentSection() {
+  if (homeSection === "recent") return true;
+  showToast("Say “show recent files” first, then remove it from Recent.");
+  return false;
+}
+
+// "favorite recent": the single most recently opened file, whichever list is
+// showing — the same natural spoken label "open recent" uses.
+async function favoriteMostRecent() {
+  const [latest] = await callApi("get_recent_files");
+  if (latest) await toggleFavorite(latest, { announce: true });
 }
 
 // --- Numbered-overlay picker (Milestone 8.6) ------------------------------ //
@@ -359,6 +459,7 @@ async function handlePickerCommand(command) {
     hidePicker();
     if (!entry) return;
     if (mode === "remove") await removeEntry(entry);
+    else if (mode === "favorite") await toggleFavorite(entry, { announce: true });
     else await openPath(entry.path);
     return;
   }
@@ -462,7 +563,12 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
   recentViewMode = await callApi("get_recent_view");
   recentViewGridBtn.setAttribute("aria-pressed", String(recentViewMode === "grid"));
   recentViewListBtn.setAttribute("aria-pressed", String(recentViewMode === "list"));
-  await loadRecent();
+  // Settings' Favorites item sends the reader here already pointed at that
+  // list; the hand-off is one-shot, so a later plain visit starts on Recent.
+  if (localStorage.getItem("lector-home-section") === "favorites") homeSection = "favorites";
+  localStorage.removeItem("lector-home-section");
+  syncSectionChrome();
+  await loadSection();
   voice = initVoice(renderVoiceBox);
 })();
 
@@ -483,8 +589,14 @@ const VOICE_ACTIONS = {
   OPEN_RECENT: () => openMostRecent(),
   OPEN_PICKER: () => showPicker("open"),
   // Milestone 8.9: same OPEN_RECENT/OPEN_PICKER split, for removal instead.
-  REMOVE_RECENT: () => removeMostRecent(),
-  REMOVE_PICKER: () => showPicker("remove"),
+  REMOVE_RECENT: () => requireRecentSection() && removeMostRecent(),
+  REMOVE_PICKER: () => requireRecentSection() && showPicker("remove"),
+  // Favorites: navigation between the two lists, and starring by voice,
+  // split into "the most recent" and "pick one" like open/remove above.
+  OPEN_FAVORITES: () => setHomeSection("favorites"),
+  SHOW_RECENT: () => setHomeSection("recent"),
+  FAVORITE_RECENT: () => favoriteMostRecent(),
+  FAVORITE_PICKER: () => showPicker("favorite"),
   CLOSE_APP: () => closeApp(),
 };
 

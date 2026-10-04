@@ -358,7 +358,7 @@ html, body { height: 100%; }
    template is declared once on the table, so the header and every row
    line up. */
 .recent-table {
-  --recent-columns: minmax(0, 1fr) 120px 96px 44px;
+  --recent-columns: minmax(0, 1fr) 120px 96px 76px;
   border-radius: var(--radius-lg);
   background-color: var(--surface-input);
   border: 1px solid var(--border-elevated);
@@ -485,23 +485,58 @@ html, body { height: 100%; }
   color: var(--text-muted);
 }
 
-/* Row actions appear only while the row is hovered or keyboard-focused
-   (or its menu is open), never at rest. The button stays in the tab order
-   while invisible, and shows the moment it takes focus itself. */
-.recent-col-actions { justify-self: end; }
-.recent-more-btn {
+/* Row actions (the star and the "⋯") appear only while the row is hovered or
+   keyboard-focused (or its menu is open), never at rest. They stay in the tab
+   order while invisible, and show the moment one takes focus itself. The one
+   exception is a favorited row's star, which stays up: it is state, not an
+   action, and is how the list shows what is pinned. */
+.recent-col-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-hair);
+  justify-self: end;
+}
+.recent-more-btn,
+.recent-table .recent-fav-btn {
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-out),
               background-color var(--dur-fast) var(--ease-out),
               color var(--dur-fast) var(--ease-out);
 }
-.recent-table .recent-item:hover .recent-more-btn,
-.recent-table .recent-item:focus-visible .recent-more-btn,
-.recent-table .recent-item.is-menu-open .recent-more-btn,
-.recent-more-btn:focus-visible { opacity: 1; }
+.recent-table .recent-item:hover :is(.recent-more-btn, .recent-fav-btn),
+.recent-table .recent-item:focus-visible :is(.recent-more-btn, .recent-fav-btn),
+.recent-table .recent-item.is-menu-open :is(.recent-more-btn, .recent-fav-btn),
+.recent-more-btn:focus-visible,
+.recent-table .recent-fav-btn:focus-visible,
+.recent-table .recent-fav-btn.is-favorite { opacity: 1; }
 .recent-table .recent-item.is-menu-open .recent-more-btn {
   background-color: var(--state-pressed);
   color: var(--text-primary);
+}
+
+/* The favorite star, in both views: muted until favorited, then the accent
+   (filled by the icon itself, favorites_filled). The accent is the app's
+   "selected" colour — amber is reserved for voice, yellow for highlights. */
+.recent-fav-btn { color: var(--text-muted); }
+.recent-fav-btn.is-favorite { color: var(--accent); }
+.recent-fav-btn.is-favorite:hover { color: var(--accent-hover); }
+
+/* On a grid card it sits beside the remove button, in the thumbnail's
+   corner, with the same low-key always-rendered treatment. */
+.recent-grid .recent-fav-btn {
+  position: absolute;
+  top: 8px;
+  right: 40px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background-color: color-mix(in srgb, var(--surface-1) 55%, transparent);
+  z-index: 2;
+}
+.recent-grid .recent-fav-btn svg { width: 15px; height: 15px; }
+.recent-card:hover .recent-fav-btn,
+.recent-grid .recent-fav-btn:focus-visible {
+  background-color: color-mix(in srgb, var(--surface-1) 88%, transparent);
 }
 
 /* The thumbnail's corner, as on a grid card, pulled in a little so it
@@ -510,7 +545,7 @@ html, body { height: 100%; }
 
 /* Narrow windows keep Name and Actions only. */
 @media (max-width: 860px) {
-  .recent-table { --recent-columns: minmax(0, 1fr) 44px; }
+  .recent-table { --recent-columns: minmax(0, 1fr) 76px; }
   .recent-table .recent-col-when,
   .recent-table .recent-col-pages { display: none; }
 }

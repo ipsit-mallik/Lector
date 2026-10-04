@@ -176,6 +176,24 @@ REMOVE_PICKER = "REMOVE_PICKER"
 HOME_PHRASES[REMOVE_RECENT] = ("remove recent", "delete recent")
 HOME_PHRASES[REMOVE_PICKER] = ("remove a file", "delete a file")
 
+# Favorites. Two navigation intents for the sidebar's Recent/Favorites pair,
+# and the same two-step split OPEN_RECENT/OPEN_PICKER and REMOVE_RECENT/
+# REMOVE_PICKER already use for starring a file: "favorite recent" acts on the
+# single most-recent file (the one with a natural spoken label), "favorite a
+# file" puts the numbered-overlay picker into a favoriting mode for any other.
+# Both toggle — starring an already-starred file un-stars it — and neither
+# needs a confirmation: unlike removal, it is undone by saying it again. Phrases
+# are kept clear of the existing "recent"/"a file" ones so the fuzzy matcher
+# can't mistake one for another.
+OPEN_FAVORITES = "OPEN_FAVORITES"
+SHOW_RECENT = "SHOW_RECENT"
+FAVORITE_RECENT = "FAVORITE_RECENT"
+FAVORITE_PICKER = "FAVORITE_PICKER"
+HOME_PHRASES[OPEN_FAVORITES] = ("open favorites", "show favorites")
+HOME_PHRASES[SHOW_RECENT] = ("show recent files",)
+HOME_PHRASES[FAVORITE_RECENT] = ("favorite recent", "star recent")
+HOME_PHRASES[FAVORITE_PICKER] = ("favorite a file", "star a file")
+
 # Settings context (Milestone 8.5): theme switching and the existing
 # save/reopen preference toggles, per docs/TASKS.md. Three single-phrase
 # theme intents rather than one intent with a parsed "which theme" argument

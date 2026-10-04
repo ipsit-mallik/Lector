@@ -13,13 +13,13 @@
         <div class="brand-mark" data-icon="logo"></div>
         <span class="brand-name">Lector</span>
       </div>
-      <button class="nav-item active">
+      <button class="nav-item active" id="recentNav" aria-current="page">
         <span data-icon="recent"></span> Recent
       </button>
       <button class="nav-item" disabled>
         <span data-icon="all_pdfs"></span> All PDFs
       </button>
-      <button class="nav-item" disabled>
+      <button class="nav-item" id="favoritesNav">
         <span data-icon="favorites"></span> Favorites
       </button>
       <button class="nav-item" id="settingsNav">
@@ -45,7 +45,7 @@
       </div>
 
       <div class="recent-heading">
-        <h1 class="page-title">Recent</h1>
+        <h1 class="page-title" id="sectionTitle">Recent</h1>
         <span id="recentCount" class="count-empty">no files yet</span>
         <div class="recent-heading-fill"></div>
         <div class="view-toggle" role="group" aria-label="Recent view">

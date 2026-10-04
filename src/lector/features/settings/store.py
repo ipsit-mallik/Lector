@@ -233,6 +233,54 @@ def remove_recent_file(path: str) -> tuple[int, dict] | None:
     return index, removed
 
 
+# Favorites: files the reader pinned, kept in their own list rather than as a
+# flag on the recent-files entry. Recent is a 20-item rolling history that
+# forgets files (and their reading positions) on purpose; a favorite is the
+# opposite — it must survive falling off that list, or "favorite" would mean
+# "recent for a bit longer". No cap: the reader decides how many to keep.
+_FAVORITES_KEY = "favorites"
+
+
+def get_favorites() -> list[dict]:
+    """Newest-favorited-first list of {"path": str, "added_at": ISO 8601 str}.
+    Malformed items (settings.json is a plain file a reader can edit) are
+    skipped rather than raised on."""
+    raw = _load().get(_FAVORITES_KEY, [])
+    if not isinstance(raw, list):
+        return []
+    return [
+        entry for entry in raw
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str) and "added_at" in entry
+    ]
+
+
+def is_favorite(path: str) -> bool:
+    return any(e["path"] == path for e in get_favorites())
+
+
+def add_favorite(path: str) -> bool:
+    """Pin `path` at the front. False (and no write) if it already was."""
+    if is_favorite(path):
+        return False
+    data = _load()
+    entry = {"path": path, "added_at": datetime.datetime.now().isoformat()}
+    data[_FAVORITES_KEY] = [entry, *get_favorites()]
+    _save(data)
+    return True
+
+
+def remove_favorite(path: str) -> bool:
+    """Unpin `path`. False (and no write) if it wasn't a favorite."""
+    favorites = get_favorites()
+    kept = [e for e in favorites if e["path"] != path]
+    if len(kept) == len(favorites):
+        return False
+    data = _load()
+    data[_FAVORITES_KEY] = kept
+    _save(data)
+    return True
+
+
 RESTORED = "restored"
 ALREADY_LISTED = "already_listed"
 LIST_FULL = "full"

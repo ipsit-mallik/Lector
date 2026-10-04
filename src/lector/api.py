@@ -116,6 +116,26 @@ class Api:
             status = settings.restore_recent_file(index, entry)
         return {"entries": home_recent.list_recent(), "status": status}
 
+    def get_favorites(self) -> list[dict]:
+        """The Favorites view's entries, in the same shape as
+        `get_recent_files`."""
+        return home_recent.list_favorites()
+
+    def set_favorite(self, path: str, favorite: bool) -> dict:
+        """Pins or unpins `path`. Only a file the reader can see — one in
+        Recent or already a favorite — can be pinned, so the frontend can't
+        use this to put an arbitrary path into settings.json. Returns
+        `{"favorite": bool, "error": str | None}`, `favorite` being the state
+        after the call."""
+        if favorite:
+            listed = any(e["path"] == path for e in settings.get_recent_files())
+            if not listed and not settings.is_favorite(path):
+                return {"favorite": False, "error": "That file is no longer in Recent."}
+            settings.add_favorite(path)
+        else:
+            settings.remove_favorite(path)
+        return {"favorite": settings.is_favorite(path), "error": None}
+
     def show_in_folder(self, path: str) -> dict:
         """Opens the OS file manager with `path` selected (Recent list's
         "Show in folder"). Only for a path that is in the Recent list and
