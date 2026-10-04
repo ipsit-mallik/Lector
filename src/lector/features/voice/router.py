@@ -92,13 +92,21 @@ REMOVE_CONFIRM = "remove_confirm"
 # (Milestone 8.7) and already owns that name; this is the separate, older
 # copy/overwrite/discard/cancel prompt reading.js's `promptSaveIfDirty` opens.
 SAVE_CONFIRM = "save_confirm"
+# Milestone 8.12: the "What can I say?" panel as a modal scope. It used to leave
+# the screen beneath it listening, so "next page" kept turning pages behind an
+# open help panel; now the panel swaps to its own tiny grammar on open and the
+# previous screen's grammar is restored on close (`Api.push_voice_context`/
+# `pop_voice_context`).
+REFERENCE = "reference"
+# Milestone 8.12: Settings' spoken confirmation for "overwrite the original".
+OVERWRITE_CONFIRM = "overwrite_confirm"
 
 # Every context a page or dialog may declare itself as, via `Api.set_voice_context`.
 # Extendable: 8.6-8.9 add screens that need no new entry here beyond what is
 # already listed, since `docs/ARCHITECTURE.md` names the full set up front.
 CONTEXTS: tuple[str, ...] = (
     HOME, READING, SETTINGS, SAVE_DIALOG, OPEN_DIALOG, PICKER, DICTATION,
-    REMOVE_CONFIRM, SAVE_CONFIRM,
+    REMOVE_CONFIRM, SAVE_CONFIRM, REFERENCE, OVERWRITE_CONFIRM,
 )
 
 # What a fresh `VoiceEngine`/`Api` should behave as before any page has made
@@ -132,6 +140,13 @@ START_DICTATION = "START_DICTATION"
 # 8.1's close gatekeeper (`Api.handle_window_closing`) to invoke — see
 # `Api.close_app()`.
 CLOSE_APP = "CLOSE_APP"
+# Milestone 8.12: the navigation commands every screen shares. Each screen
+# decides what the intent *does* there (Home opens its dialog, Settings
+# navigates to Home first, Reading asks about unsaved highlights first), the
+# same split `HELP` and `GO_HOME` already use.
+OPEN_PDF = "OPEN_PDF"
+OPEN_SETTINGS = "OPEN_SETTINGS"
+GO_RECENT = "GO_RECENT"
 
 # Phrasings per global intent — the exact wording `docs/TASKS.md` and
 # `docs/ARCHITECTURE.md` name for 8.4 (and, for CLOSE_APP, 8.11). Unlike
@@ -144,23 +159,24 @@ CLOSE_APP = "CLOSE_APP"
 GLOBAL_PHRASES: dict[str, tuple[str, ...]] = {
     UNDO: ("undo",),
     REDO: ("redo",),
-    HELP: ("help", "what can i say"),
+    HELP: ("what can i say", "help"),
     GO_HOME: ("go home",),
     START_DICTATION: ("start search",),
     CLOSE_APP: ("close app", "quit"),
+    OPEN_PDF: ("open a pdf", "open pdf"),
+    OPEN_SETTINGS: ("open settings",),
+    GO_RECENT: ("go to recent", "show recent files"),
 }
 
-# Home context (Milestone 8.5): sidebar navigation and opening a PDF from
-# Recent. "Which specific card" has no natural spoken label and is 8.6's
+# Home context (Milestone 8.5): opening a PDF from Recent. (`OPEN_SETTINGS`
+# started here and became global in Milestone 8.12.) "Which specific card" has no natural spoken label and is 8.6's
 # numbered-overlay picker to solve (see docs/ARCHITECTURE.md); "the most
 # recent one" does have one — "recent" already means "most recent" in
 # `docs/PRD.md`'s own Recent-list language — so only that single card is
 # reachable by voice until 8.6 lands.
-OPEN_SETTINGS = "OPEN_SETTINGS"
 OPEN_RECENT = "OPEN_RECENT"
 
 HOME_PHRASES: dict[str, tuple[str, ...]] = {
-    OPEN_SETTINGS: ("open settings",),
     OPEN_RECENT: ("open recent", "resume reading"),
 }
 
@@ -176,7 +192,8 @@ REMOVE_PICKER = "REMOVE_PICKER"
 HOME_PHRASES[REMOVE_RECENT] = ("remove recent", "delete recent")
 HOME_PHRASES[REMOVE_PICKER] = ("remove a file", "delete a file")
 
-# Favorites. Two navigation intents for the sidebar's Recent/Favorites pair,
+# Favorites. Navigation to the Favorites list (back to Recent is the global
+# `GO_RECENT` since Milestone 8.12). Two intents also exist for starring a file,
 # and the same two-step split OPEN_RECENT/OPEN_PICKER and REMOVE_RECENT/
 # REMOVE_PICKER already use for starring a file: "favorite recent" acts on the
 # single most-recent file (the one with a natural spoken label), "favorite a
@@ -186,11 +203,9 @@ HOME_PHRASES[REMOVE_PICKER] = ("remove a file", "delete a file")
 # are kept clear of the existing "recent"/"a file" ones so the fuzzy matcher
 # can't mistake one for another.
 OPEN_FAVORITES = "OPEN_FAVORITES"
-SHOW_RECENT = "SHOW_RECENT"
 FAVORITE_RECENT = "FAVORITE_RECENT"
 FAVORITE_PICKER = "FAVORITE_PICKER"
 HOME_PHRASES[OPEN_FAVORITES] = ("open favorites", "show favorites")
-HOME_PHRASES[SHOW_RECENT] = ("show recent files",)
 HOME_PHRASES[FAVORITE_RECENT] = ("favorite recent", "star recent")
 HOME_PHRASES[FAVORITE_PICKER] = ("favorite a file", "star a file")
 
@@ -226,6 +241,13 @@ SETTINGS_PHRASES: dict[str, tuple[str, ...]] = {
 # caller existing.
 OPEN_PICKER = "OPEN_PICKER"
 HOME_PHRASES[OPEN_PICKER] = ("pick a file", "choose a file")
+
+# Milestone 8.12: "open number N" opens the Nth row of whatever Recent or
+# Favorites is showing, in on-screen order, without first asking for the
+# badges. Not a fixed phrase (the number varies), so, like `GOTO_PAGE`, it is
+# parsed: a lead from `OPEN_NUMBER_PREFIXES`, then a spoken number.
+OPEN_NUMBER = "OPEN_NUMBER"
+OPEN_NUMBER_PREFIXES: tuple[str, ...] = ("open number",)
 
 # Picker context (Milestone 8.6): docs/ARCHITECTURE.md's "Numbered-overlay
 # picker" — a list item with no natural single-word voice label (a specific
@@ -350,6 +372,37 @@ SAVE_CONFIRM_PHRASES: dict[str, tuple[str, ...]] = {
     CANCEL: ("cancel", "never mind"),
 }
 
+# "What can I say?" panel (Milestone 8.12). Reuses CANCEL, the same "leave
+# without doing anything" the other modal scopes use. Deliberately no bare
+# "close": it sits one misheard word from the global "close app".
+REFERENCE_PHRASES: dict[str, tuple[str, ...]] = {
+    CANCEL: ("got it", "go back", "cancel", "never mind"),
+}
+
+# Settings' overwrite confirmation (Milestone 8.12). The confirming phrase is
+# a deliberate two-word one: a bare "yes"/"okay" is too easy to produce by
+# accident for something that rewrites the reader's own PDFs.
+CONFIRM_OVERWRITE = "CONFIRM_OVERWRITE"
+
+OVERWRITE_CONFIRM_PHRASES: dict[str, tuple[str, ...]] = {
+    CONFIRM_OVERWRITE: ("confirm overwrite",),
+    CANCEL: ("cancel", "never mind"),
+}
+
+
+# Modal scopes that do not let screen-level globals through (Milestone 8.12),
+# mapped to the few they do. Every other context matches the whole global set
+# first, so "open settings" or "quit" resolved behind these dialogs and was
+# only inert because each page's listener happened to swallow it; a page that
+# forgot would navigate or quit behind an open modal. Refusing them here makes
+# "modal" a property of the router, not of three separate page guards. Also
+# narrows what the recognizer listens for: a misheard word cannot become
+# "quit" when "quit" is not in the grammar at all.
+MODAL_ALLOWED_GLOBALS: dict[str, frozenset[str]] = {
+    REFERENCE: frozenset({HELP, START_DICTATION}),
+    OVERWRITE_CONFIRM: frozenset(),
+}
+
 
 def _flatten_phrases(phrases: dict[str, tuple[str, ...]]) -> tuple[tuple[str, ...], dict[str, str]]:
     """Shared by every fixed-phrase table here (global, home, settings):
@@ -372,6 +425,10 @@ _SAVE_DIALOG_ORDERED_PHRASES, _SAVE_DIALOG_PHRASE_TO_INTENT = _flatten_phrases(S
 _DICTATION_ORDERED_PHRASES, _DICTATION_PHRASE_TO_INTENT = _flatten_phrases(DICTATION_PHRASES)
 _REMOVE_CONFIRM_ORDERED_PHRASES, _REMOVE_CONFIRM_PHRASE_TO_INTENT = _flatten_phrases(REMOVE_CONFIRM_PHRASES)
 _SAVE_CONFIRM_ORDERED_PHRASES, _SAVE_CONFIRM_PHRASE_TO_INTENT = _flatten_phrases(SAVE_CONFIRM_PHRASES)
+_REFERENCE_ORDERED_PHRASES, _REFERENCE_PHRASE_TO_INTENT = _flatten_phrases(REFERENCE_PHRASES)
+_OVERWRITE_CONFIRM_ORDERED_PHRASES, _OVERWRITE_CONFIRM_PHRASE_TO_INTENT = _flatten_phrases(
+    OVERWRITE_CONFIRM_PHRASES
+)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
 # except `READING` (which delegates to `command_grammar` instead) and
@@ -389,6 +446,8 @@ _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     SAVE_DIALOG: (_SAVE_DIALOG_ORDERED_PHRASES, _SAVE_DIALOG_PHRASE_TO_INTENT),
     REMOVE_CONFIRM: (_REMOVE_CONFIRM_ORDERED_PHRASES, _REMOVE_CONFIRM_PHRASE_TO_INTENT),
     SAVE_CONFIRM: (_SAVE_CONFIRM_ORDERED_PHRASES, _SAVE_CONFIRM_PHRASE_TO_INTENT),
+    REFERENCE: (_REFERENCE_ORDERED_PHRASES, _REFERENCE_PHRASE_TO_INTENT),
+    OVERWRITE_CONFIRM: (_OVERWRITE_CONFIRM_ORDERED_PHRASES, _OVERWRITE_CONFIRM_PHRASE_TO_INTENT),
 }
 
 
@@ -402,6 +461,13 @@ def _vocabulary_from_phrases(phrases: dict[str, tuple[str, ...]]) -> list[str]:
 
 GLOBAL_VOCABULARY: list[str] = _vocabulary_from_phrases(GLOBAL_PHRASES)
 
+# What a modal scope in `MODAL_ALLOWED_GLOBALS` is allowed to hear of the
+# globals, instead of all of `GLOBAL_VOCABULARY`.
+_MODAL_GLOBAL_VOCABULARY: dict[str, list[str]] = {
+    context: _vocabulary_from_phrases({i: GLOBAL_PHRASES[i] for i in allowed})
+    for context, allowed in MODAL_ALLOWED_GLOBALS.items()
+}
+
 # Per-context scoped vocabulary, on top of the globals every context gets.
 # `DICTATION`'s entry here is never actually handed to the recognizer — Api.
 # _refresh_voice_vocabulary special-cases this context to run Vosk
@@ -412,7 +478,11 @@ GLOBAL_VOCABULARY: list[str] = _vocabulary_from_phrases(GLOBAL_PHRASES)
 # scoped set for a context that does, in fact, have one.
 _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     READING: command_grammar.VOCABULARY,
-    HOME: _vocabulary_from_phrases(HOME_PHRASES),
+    HOME: sorted(
+        set(_vocabulary_from_phrases(HOME_PHRASES))
+        | {word for prefix in OPEN_NUMBER_PREFIXES for word in prefix.split()}
+        | set(_PICKER_NUMBER_WORDS)
+    ),
     SETTINGS: _vocabulary_from_phrases(SETTINGS_PHRASES),
     PICKER: sorted(set(_vocabulary_from_phrases(PICKER_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
     OPEN_DIALOG: sorted(set(_vocabulary_from_phrases(OPEN_DIALOG_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
@@ -420,6 +490,8 @@ _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     DICTATION: _vocabulary_from_phrases(DICTATION_PHRASES),
     REMOVE_CONFIRM: _vocabulary_from_phrases(REMOVE_CONFIRM_PHRASES),
     SAVE_CONFIRM: _vocabulary_from_phrases(SAVE_CONFIRM_PHRASES),
+    REFERENCE: _vocabulary_from_phrases(REFERENCE_PHRASES),
+    OVERWRITE_CONFIRM: _vocabulary_from_phrases(OVERWRITE_CONFIRM_PHRASES),
 }
 
 
@@ -432,7 +504,8 @@ def vocabulary_for(context: str) -> list[str]:
     the result to `VoiceEngine.set_vocabulary`.
     """
     scoped = _CONTEXT_VOCABULARY.get(context, [])
-    return sorted(set(GLOBAL_VOCABULARY) | set(scoped))
+    globals_heard = _MODAL_GLOBAL_VOCABULARY.get(context, GLOBAL_VOCABULARY)
+    return sorted(set(globals_heard) | set(scoped))
 
 
 def _match_phrases(
@@ -458,8 +531,12 @@ def _match_phrases(
     }
 
 
-def _match_global(text: str) -> dict | None:
-    return _match_phrases(text, _GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT)
+def _match_global(text: str, context: str | None = None) -> dict | None:
+    command = _match_phrases(text, _GLOBAL_ORDERED_PHRASES, _GLOBAL_PHRASE_TO_INTENT)
+    allowed = MODAL_ALLOWED_GLOBALS.get(context)
+    if command is not None and allowed is not None and command["intent"] not in allowed:
+        return None
+    return command
 
 
 def _parse_spoken_number(text: str) -> tuple[int, str] | None:
@@ -499,6 +576,41 @@ def _parse_picker_number(text: str) -> dict | None:
         return None
     index, phrase = parsed
     return {"intent": PICK, "index": index, "phrase": phrase, "matched": "<number>", "score": 1.0}
+
+
+def _parse_open_number(text: str) -> dict | None:
+    """"open number three" -> `OPEN_NUMBER` with `index` 3.
+
+    Splits a trailing spoken number off the utterance and fuzzy-matches what
+    precedes it against `OPEN_NUMBER_PREFIXES`, the way `command_grammar.
+    _parse_goto` does for "go to page N". Unlike a picker's bare number this
+    needs its lead phrase: nothing on screen tells the reader numbers are
+    live, so a stray "three" must not open a file.
+    """
+    words = command_grammar._normalize(text)
+    split = len(words)
+    while split > 0 and (
+        command_grammar._is_number_word(words[split - 1])
+        or words[split - 1] == command_grammar._FILLER
+    ):
+        split -= 1
+    lead, number_words = words[:split], words[split:]
+    if not lead or not any(command_grammar._is_number_word(w) for w in number_words):
+        return None
+    index = command_grammar._words_to_number(number_words)
+    if index is None or index < 1:
+        return None
+    match = fuzzy.best_match(" ".join(lead), OPEN_NUMBER_PREFIXES)
+    if match is None:
+        return None
+    matched, score = match
+    return {
+        "intent": OPEN_NUMBER,
+        "index": index,
+        "phrase": " ".join(words),
+        "matched": f"{matched} <number>",
+        "score": score,
+    }
 
 
 def _parse_dialog_number(text: str) -> dict | None:
@@ -558,7 +670,7 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
         return {"command": None, "clarify": None}
 
     for candidate in (text, *(alternatives or ())):
-        command = _match_global(candidate)
+        command = _match_global(candidate, context)
         if command is not None:
             return {"command": command, "clarify": None}
 
@@ -568,6 +680,12 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
     if context == PICKER:
         for candidate in (text, *(alternatives or ())):
             command = _parse_picker_number(candidate)
+            if command is not None:
+                return {"command": command, "clarify": None}
+
+    if context == HOME:
+        for candidate in (text, *(alternatives or ())):
+            command = _parse_open_number(candidate)
             if command is not None:
                 return {"command": command, "clarify": None}
 

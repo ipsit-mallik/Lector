@@ -25,12 +25,15 @@ def _all_commands(context: str = router.READING) -> list[dict]:
 
 class ExampleTruthfulnessTests(unittest.TestCase):
     def test_every_advertised_phrase_is_understood(self):
+        # Through the router, not `command_grammar.parse` alone: the router is
+        # what actually runs, and it also answers the global commands the
+        # reading grammar has never heard of.
         for command in _all_commands():
             for phrase in command["examples"]:
                 with self.subTest(phrase=phrase):
                     self.assertIsNotNone(
-                        command_grammar.parse(phrase),
-                        f"the panel offers {phrase!r} but the grammar rejects it",
+                        router.resolve(router.READING, phrase)["command"],
+                        f"the panel offers {phrase!r} but the router rejects it",
                     )
 
     def test_the_page_number_example_parses_as_a_jump(self):
@@ -145,7 +148,12 @@ class ContextScopingTests(unittest.TestCase):
                         resolved, f"the Home panel offers {phrase!r} but the router rejects it"
                     )
                     advertised_intents.add(resolved["intent"])
-        self.assertEqual(advertised_intents, set(router.HOME_PHRASES))
+        # Home's own table, plus the parsed "open number N" (not a fixed
+        # phrase, so not in the table), plus whichever globals are listed.
+        self.assertEqual(
+            advertised_intents - set(router.GLOBAL_PHRASES),
+            set(router.HOME_PHRASES) | {router.OPEN_NUMBER},
+        )
 
     def test_every_settings_phrase_is_advertised_and_understood(self):
         advertised_intents = set()
@@ -157,7 +165,22 @@ class ContextScopingTests(unittest.TestCase):
                         resolved, f"the Settings panel offers {phrase!r} but the router rejects it"
                     )
                     advertised_intents.add(resolved["intent"])
-        self.assertEqual(advertised_intents, set(router.SETTINGS_PHRASES))
+        self.assertEqual(
+            advertised_intents - set(router.GLOBAL_PHRASES), set(router.SETTINGS_PHRASES)
+        )
+
+    def test_every_screen_lists_the_global_commands_it_handles(self):
+        for context in (router.HOME, router.SETTINGS, router.READING):
+            intents = set()
+            for command in _all_commands(context):
+                for phrase in command["examples"]:
+                    resolved = router.resolve(context, phrase)["command"]
+                    intents.add(resolved["intent"])
+            with self.subTest(context=context):
+                self.assertTrue(
+                    {router.OPEN_PDF, router.GO_RECENT, router.OPEN_SETTINGS, router.HELP}
+                    <= intents
+                )
 
     def test_no_home_or_settings_category_is_empty(self):
         for context in (router.HOME, router.SETTINGS):
@@ -179,6 +202,44 @@ class ContextScopingTests(unittest.TestCase):
                     [c["title"] for c in reference.panel(context)["categories"]],
                     [c["title"] for c in reference.categories(context)],
                 )
+
+
+class TrySayingTests(unittest.TestCase):
+    """The empty state's "TRY SAYING" chips come from the same registry as the
+    panel, so a chip can never be a command that does not work."""
+
+    def test_home_suggests_the_three_mockup_phrases(self):
+        self.assertEqual(
+            reference.try_saying(router.HOME),
+            ["open a PDF", "what can I say", "open settings"],
+        )
+
+    def test_every_suggestion_resolves_through_the_router(self):
+        for context in (router.HOME, router.SETTINGS, router.READING):
+            for phrase in reference.try_saying(context):
+                with self.subTest(context=context, phrase=phrase):
+                    self.assertIsNotNone(router.resolve(context, phrase)["command"])
+
+    def test_every_suggestion_is_also_listed_in_the_panel(self):
+        listed = {
+            phrase.lower()
+            for command in _all_commands(router.HOME)
+            for phrase in command["examples"]
+        }
+        for phrase in reference.try_saying(router.HOME):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase.lower(), listed)
+
+    def test_a_context_with_no_suggestions_returns_none_rather_than_guessing(self):
+        self.assertEqual(reference.try_saying(router.SETTINGS), [])
+
+    def test_the_panel_payload_carries_them(self):
+        self.assertEqual(
+            reference.panel(router.HOME)["try_saying"], reference.try_saying(router.HOME)
+        )
+
+    def test_pdf_is_written_as_an_initialism(self):
+        self.assertIn("open a PDF", reference.try_saying(router.HOME))
 
 
 if __name__ == "__main__":

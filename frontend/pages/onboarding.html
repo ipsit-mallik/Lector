@@ -100,6 +100,10 @@
   <script src="../js/ui.js"></script>
   <script src="../js/scrollbars.js"></script>
   <script src="../js/bridge.js"></script>
+  <!-- No drop handler is registered here, so a dropped file is ignored — but
+       the script still has to be loaded: it is what cancels `dragover`, and
+       without that a dropped PDF would navigate the whole window to it. -->
+  <script src="../js/filedrop.js"></script>
   <script src="onboarding.js"></script>
 </body>
 </html>

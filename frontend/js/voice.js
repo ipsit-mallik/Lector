@@ -36,12 +36,36 @@ const TYPING_TAGS = ["INPUT", "TEXTAREA", "SELECT"];
 // looking at the page, long enough not to spin the bridge.
 const STATUS_RETRY_MS = 300;
 
+// Inputs that are activated like a button (Space toggles them) rather than
+// typed into, so they follow the button rule below instead of owning Space.
+const BUTTON_LIKE_INPUT_TYPES = ["checkbox", "radio", "button", "submit", "reset"];
+
+// Whether focus got to `el` by keyboard. Browsers expose exactly this as
+// :focus-visible — it matches a button reached by Tab but not one the reader
+// just clicked. A host without it fails safe: the element is treated as
+// keyboard-focused, which is the old, conservative behaviour.
+function focusedByKeyboard(el) {
+  if (typeof el.matches !== "function") return true;
+  return el.matches(":focus-visible");
+}
+
+// Space is both "hold to talk" and the key that activates a focused button or
+// checkbox, and the two can't both win. Typing fields always keep it. A
+// button or checkbox keeps it only when the reader *reached* it by keyboard —
+// then Space is how they mean to press it, and docs/PRD.md's mouse/keyboard
+// parity says that must keep working. One they merely clicked is a different
+// story: Home and Settings are nearly all buttons, so giving way to every
+// focused button meant that after any click in the sidebar, holding Space did
+// nothing at all, and voice looked broken while working fine.
 function shouldIgnoreKey() {
   const el = document.activeElement;
   if (!el) return false;
-  if (TYPING_TAGS.includes(el.tagName)) return true;
+  const buttonLikeInput = el.tagName === "INPUT" && BUTTON_LIKE_INPUT_TYPES.includes(el.type);
+  if (TYPING_TAGS.includes(el.tagName) && !buttonLikeInput) return true;
   if (el.isContentEditable) return true;
-  if (el.tagName === "BUTTON" || el.tagName === "A") return true;
+  if (el.tagName === "BUTTON" || el.tagName === "A" || buttonLikeInput) {
+    return focusedByKeyboard(el);
+  }
   return false;
 }
 
@@ -55,6 +79,68 @@ function shouldIgnoreKey() {
 // here rather than suppressing push-to-talk while they're open.
 function dialogIsOpen() {
   return Boolean(document.querySelector(".dialog-scrim:not([hidden]):not(.voice-dialog)"));
+}
+
+// One queue for every scope's bridge calls, not one per scope: scopes nest
+// (dictation sits on top of the "What can I say?" panel), and closing the panel
+// while dictating pops dictation first and then the panel. Separate queues
+// would let those two pops overtake each other.
+let voiceScopeQueue = Promise.resolve();
+
+/**
+ * A modal's claim on the recognizer's grammar (Milestone 8.12): `enter()` when
+ * it opens, `leave()` when it closes. Wraps `push_voice_context` /
+ * `pop_voice_context`, which have to arrive in that order — but each is an
+ * async bridge call that pywebview runs on its own thread, so a close that
+ * lands while the open's push is still in flight used to send its pop first
+ * (or skip it), leaving the recognizer stuck on the modal's tiny grammar with
+ * the screen's own commands dead until the page was left. Here every step is
+ * chained behind the one before it, so a push always finishes before its pop is
+ * sent, and:
+ *   - entering twice pushes once, and leaving twice pops once;
+ *   - a push that failed is never popped (that pop would take off a scope that
+ *     belongs to something else).
+ *
+ * @param {string} context  A router context name, e.g. "reference".
+ * @returns {{enter: () => Promise<boolean>, leave: () => Promise<void>}}
+ *   `enter()` resolves true once the scope is actually in force, false if the
+ *   push failed (the modal still works by mouse and keyboard; only voice
+ *   scoping is lost).
+ */
+function createVoiceScope(context) {
+  let wanted = false;
+  let taken = false;
+
+  return {
+    enter() {
+      if (wanted) return voiceScopeQueue.then(() => taken);
+      wanted = true;
+      voiceScopeQueue = voiceScopeQueue.then(async () => {
+        try {
+          await callApi("push_voice_context", context);
+          taken = true;
+        } catch (err) {
+          taken = false;
+          console.error(`Could not scope voice to ${context}:`, err);
+        }
+      });
+      return voiceScopeQueue.then(() => taken);
+    },
+    leave() {
+      if (!wanted) return voiceScopeQueue;
+      wanted = false;
+      voiceScopeQueue = voiceScopeQueue.then(async () => {
+        if (!taken) return;
+        taken = false;
+        try {
+          await callApi("pop_voice_context");
+        } catch (err) {
+          console.error(`Could not restore the screen's voice commands from ${context}:`, err);
+        }
+      });
+      return voiceScopeQueue;
+    },
+  };
 }
 
 /**

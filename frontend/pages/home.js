@@ -6,7 +6,15 @@ const recentViewGridBtn = document.getElementById("recentViewGridBtn");
 const recentViewListBtn = document.getElementById("recentViewListBtn");
 
 async function openPath(path) {
-  await callApi("open_pdf", path);
+  try {
+    await callApi("open_pdf", path);
+  } catch (err) {
+    // A dropped or listed file can be gone or damaged by now. Say so rather
+    // than leave the reader on a screen where nothing happened.
+    console.error("open_pdf failed:", err);
+    showToast("Couldn't open that PDF. It may be damaged or no longer there.");
+    return;
+  }
   window.location.href = "pages/reading.html";
 }
 
@@ -25,9 +33,30 @@ const openDialog = createFileBrowser({
   restingContext: "home",
 });
 
-openPdfBtn.addEventListener("click", async () => {
+// One flow for every way to ask "open a PDF": the top-row button, the empty
+// state's button, the voice command, and a hand-off from another screen.
+async function openPdfFlow() {
+  if (openDialog.isOpen()) return;
   const result = await openDialog.open({ dir: null });
   if (result && result.path) await openPath(result.path);
+}
+
+openPdfBtn.addEventListener("click", openPdfFlow);
+
+// Set by Settings or Reading when the reader says "open a PDF" there: the Open
+// dialog only exists on Home, so they navigate here and leave this note (the
+// same one-shot localStorage route the Favorites section already uses).
+const OPEN_DIALOG_HANDOFF_KEY = "lector-open-dialog";
+
+// A PDF dropped anywhere on the window (frontend/js/filedrop.js). Opens it
+// unless a dialog is up: a file arriving mid-decision would navigate away from
+// a prompt the reader is in the middle of answering.
+onFileDrop((path) => {
+  if (document.querySelector(".dialog-scrim:not([hidden])")) {
+    showToast("Close this window first, then drop the file again.");
+    return;
+  }
+  openPath(path);
 });
 
 // Shared by the sidebar click and the voice OPEN_SETTINGS command
@@ -58,15 +87,92 @@ const EMPTY_STATE_COPY = {
   },
 };
 
+// The "TRY SAYING" chips. Not typed here: they come from the voice command
+// registry (reference.try_saying, via get_command_reference) so a chip can only
+// ever be a phrase the router accepts and this page handles. Filled in by
+// init() before the first render; if the registry can't be reached the row is
+// left out rather than guessed at.
+let trySayingPhrases = [];
+
+function buildEmptyIcon(name) {
+  const circle = document.createElement("div");
+  circle.className = "empty-state-icon";
+  circle.dataset.icon = name;
+  circle.setAttribute("aria-hidden", "true");
+  mountIcon(circle, name);
+  return circle;
+}
+
+function buildTrySaying() {
+  if (!trySayingPhrases.length) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "empty-state-voice";
+
+  const label = document.createElement("p");
+  label.className = "empty-state-voice-label";
+  const micIcon = document.createElement("span");
+  micIcon.dataset.icon = "mic";
+  micIcon.setAttribute("aria-hidden", "true");
+  mountIcon(micIcon, "mic");
+  label.append(micIcon, "Try saying");
+
+  const chips = document.createElement("ul");
+  chips.className = "empty-state-chips";
+  trySayingPhrases.forEach((phrase) => {
+    const chip = document.createElement("li");
+    chip.textContent = `\u201C${phrase}\u201D`;
+    chips.appendChild(chip);
+  });
+  wrap.append(label, chips);
+  return wrap;
+}
+
+// Recent's empty state doubles as onboarding (docs/mockups/02): the card shows
+// the three ways in — the button, a dropped file, and voice. Favorites keeps
+// the plainer card, since "star something in Recent" has nothing to open.
 function buildEmptyState(section) {
   const copy = EMPTY_STATE_COPY[section];
-  const el = document.createElement("div");
+  const el = document.createElement("section");
   el.className = "empty-state";
+  el.setAttribute("aria-labelledby", "emptyStateTitle");
+
   const heading = document.createElement("h2");
+  heading.id = "emptyStateTitle";
   heading.textContent = copy.heading;
   const body = document.createElement("p");
+  body.className = "empty-state-body";
   body.textContent = copy.body;
-  el.append(heading, body);
+  el.append(buildEmptyIcon(section === "recent" ? "empty_doc" : "favorites"), heading, body);
+
+  // Favorites' only way forward is back to Recent, where the stars are. The
+  // empty state is a dead end without it (docs/DESIGN_SYSTEM.md: a message
+  // *and* an action), and it is the mouse equivalent of "go to Recent".
+  if (section !== "recent") {
+    const toRecent = document.createElement("button");
+    toRecent.className = "btn btn-secondary empty-state-action";
+    toRecent.type = "button";
+    toRecent.textContent = "Go to Recent";
+    toRecent.addEventListener("click", () => setHomeSection("recent"));
+    el.appendChild(toRecent);
+    return el;
+  }
+
+  const openBtn = document.createElement("button");
+  openBtn.className = "btn empty-state-open";
+  openBtn.type = "button";
+  const openIcon = document.createElement("span");
+  openIcon.dataset.icon = "open_pdf";
+  mountIcon(openIcon, "open_pdf");
+  openBtn.append(openIcon, "Open PDF");
+  openBtn.addEventListener("click", openPdfFlow);
+
+  const dropHint = document.createElement("p");
+  dropHint.className = "empty-state-drop";
+  dropHint.textContent = "or drop a file anywhere in this window";
+
+  el.append(openBtn, dropHint);
+  const voice = buildTrySaying();
+  if (voice) el.appendChild(voice);
   return el;
 }
 
@@ -474,76 +580,20 @@ document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && pickerActive) hidePicker();
 });
 
-// --- Push-to-talk indicator (Milestone 5) -------------------------------- //
-// The sidebar's voice box was static copy until now; it reports the real
-// engine state here. Home has nothing to *do* with a recognized phrase yet —
-// it echoes it so push-to-talk can be verified without opening a PDF first.
-
-// Set once voice is wired, below; `rest()` is how a lingering
-// "heard" message hands the indicator back.
+// --- Voice status ---------------------------------------------------------- //
+// The sidebar box reports the real engine state (frontend/js/voice-box.js,
+// shared with Settings) and starts as "checking" rather than "ready".
 let voice = { rest: () => {} };
 
-const voiceBox = document.getElementById("voiceBox");
-const voiceState = document.getElementById("voiceState");
-const voiceDetail = document.getElementById("voiceDetail");
+const voiceBox = createVoiceBox({
+  box: document.getElementById("voiceBox"),
+  state: document.getElementById("voiceState"),
+  detail: document.getElementById("voiceDetail"),
+  live: document.getElementById("voiceLive"),
+});
 
-const VOICE_IDLE_DETAIL =
-  "Hold Space and say what you want. Offline — nothing leaves this machine.";
-
-// The resting copy has to name the way in that the reader actually has: a
-// reader who turned push-to-talk off and the wake phrase on is told to hold
-// Space by the old wording, which is advice that does nothing.
-function idleDetail(wake, pushToTalk) {
-  if (wake && pushToTalk) {
-    return "Hold Space, or say “Hey Lector”. Offline — nothing leaves this machine.";
-  }
-  if (wake) {
-    return "Say “Hey Lector”, then your command. Offline — nothing leaves this machine.";
-  }
-  return VOICE_IDLE_DETAIL;
-}
-const HEARD_LINGER_MS = 2500;
-let heardTimer = null;
-
-function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
-  clearTimeout(heardTimer);
-  voiceBox.classList.toggle("listening", state === "listening");
-  voiceBox.classList.toggle("unavailable", state === "unavailable" || state === "off");
-
-  switch (state) {
-    case "unavailable":
-      voiceState.textContent = "VOICE UNAVAILABLE";
-      // Naming the fix in place of the generic copy: this is the one screen
-      // where the reader can act on it before opening anything.
-      voiceDetail.textContent = error || "No speech model installed.";
-      break;
-    case "listening":
-      voiceState.textContent = "LISTENING";
-      voiceDetail.textContent = text
-        ? `"${text}"`
-        : viaWake
-          ? "Go ahead — say your command."
-          : "Go ahead — release Space when you're done.";
-      break;
-    case "heard":
-      voiceState.textContent = "HEARD";
-      voiceDetail.textContent = text ? `"${text}"` : "Didn't catch that.";
-      // Back to rest through the engine rather than by rendering "idle"
-      // directly: only it knows whether resting means ready, off, or
-      // unavailable, and which activation modes to word the copy for.
-      heardTimer = setTimeout(() => voice.rest(), HEARD_LINGER_MS);
-      break;
-    case "off":
-      // Not a failure: docs/PRD.md makes voice an accelerator, and switching
-      // it off is a supported choice rather than something to nag about.
-      voiceState.textContent = "VOICE OFF";
-      voiceDetail.textContent = "Turn on push-to-talk or the wake phrase in Settings.";
-      break;
-    default:
-      voiceState.textContent = "VOICE READY";
-      voiceDetail.textContent = idleDetail(wake, pushToTalk);
-  }
-}
+// The mouse/keyboard way to the same panel "what can I say" opens.
+document.getElementById("voiceHelpBtn").addEventListener("click", openCommandReference);
 
 (async function init() {
   // First run goes to the onboarding stub before anything else renders, so
@@ -552,14 +602,30 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
     window.location.href = "pages/onboarding.html";
     return;
   }
+  // A hand-off from Settings/Reading ("open a PDF" said there): consumed at
+  // once, so a later visit can never open the dialog by surprise if this init
+  // fails or redirects before reaching the end.
+  const openDialogRequested = localStorage.getItem(OPEN_DIALOG_HANDOFF_KEY) === "1";
+  localStorage.removeItem(OPEN_DIALOG_HANDOFF_KEY);
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("lector-theme", theme);
-  // Narrow the recognizer to Home's context (Milestone 8.4), which now
-  // (Milestone 8.5) carries its own scoped commands — see VOICE_ACTIONS
-  // below — on top of the always-on global ones (undo/redo/help/go home).
-  await callApi("set_voice_context", "home");
+  // Narrow the recognizer to Home's context (Milestone 8.4), which carries its
+  // own scoped commands — see VOICE_ACTIONS below — on top of the global ones.
+  // If that fails the box must say so below, not claim voice is ready.
+  let voiceScopeError = null;
+  try {
+    await callApi("set_voice_context", "home");
+  } catch (err) {
+    voiceScopeError = `Voice commands couldn't start on this screen. ${err}`;
+    console.error(voiceScopeError);
+  }
+  try {
+    trySayingPhrases = (await callApi("get_command_reference")).try_saying || [];
+  } catch (err) {
+    console.error("Couldn't load the suggested phrases:", err);
+  }
   recentViewMode = await callApi("get_recent_view");
   recentViewGridBtn.setAttribute("aria-pressed", String(recentViewMode === "grid"));
   recentViewListBtn.setAttribute("aria-pressed", String(recentViewMode === "list"));
@@ -569,7 +635,14 @@ function renderVoiceBox({ state, text, error, wake, pushToTalk, viaWake }) {
   localStorage.removeItem("lector-home-section");
   syncSectionChrome();
   await loadSection();
-  voice = initVoice(renderVoiceBox);
+  if (voiceScopeError) {
+    voiceBox.showUnavailable(voiceScopeError);
+  } else {
+    voice = initVoice(voiceBox.render);
+    voiceBox.attach(voice);
+  }
+  // "Open a PDF" said on Settings or Reading lands here with the dialog due.
+  if (openDialogRequested) openPdfFlow();
 })();
 
 // --- Voice commands (Milestone 8.5, OPEN_PICKER added in 8.6) ------------- //
@@ -584,8 +657,25 @@ async function closeApp() {
   await callApi("close_app");
 }
 
+// "open number N": the Nth row of what is on screen, in the order shown — the
+// same numbering the picker's badges use, so the two can never disagree.
+function openNumbered(index) {
+  const entry = displayedEntries[index - 1];
+  if (!entry) {
+    showToast(`There's no number ${index} on screen.`);
+    return;
+  }
+  openPath(entry.path);
+}
+
 const VOICE_ACTIONS = {
+  // Global commands (Milestone 8.12), reaching the same functions their
+  // buttons do.
+  OPEN_PDF: () => openPdfFlow(),
   OPEN_SETTINGS: () => openSettings(),
+  GO_RECENT: () => setHomeSection("recent"),
+  HELP: () => openCommandReference(),
+  OPEN_NUMBER: (command) => openNumbered(command.index),
   OPEN_RECENT: () => openMostRecent(),
   OPEN_PICKER: () => showPicker("open"),
   // Milestone 8.9: same OPEN_RECENT/OPEN_PICKER split, for removal instead.
@@ -594,7 +684,6 @@ const VOICE_ACTIONS = {
   // Favorites: navigation between the two lists, and starring by voice,
   // split into "the most recent" and "pick one" like open/remove above.
   OPEN_FAVORITES: () => setHomeSection("favorites"),
-  SHOW_RECENT: () => setHomeSection("recent"),
   FAVORITE_RECENT: () => favoriteMostRecent(),
   FAVORITE_PICKER: () => showPicker("favorite"),
   CLOSE_APP: () => closeApp(),
@@ -603,6 +692,9 @@ const VOICE_ACTIONS = {
 window.addEventListener("lector:command", (ev) => {
   const { command } = ev.detail || {};
   if (!command) return;
+  // The "What can I say?" panel is a modal scope with its own listener
+  // (command-reference.js), so nothing here should act behind it.
+  if (!referenceDialog.hidden) return;
   // CONFIRM_REMOVE/CANCEL only ever arrive while the remove-confirmation
   // dialog is the active voice context (router.py scopes them there), so
   // it is checked first, the same way openDialog/pickerActive already are

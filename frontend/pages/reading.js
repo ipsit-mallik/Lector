@@ -1211,7 +1211,41 @@ const VOICE_ACTIONS = {
   HELP: () => openCommandReference(),
   GO_HOME: () => goHome(),
   CLOSE_APP: () => closeApp(),
+  // Global navigation (Milestone 8.12). Each leaves the document, so each goes
+  // through the same unsaved-highlights check the back button does.
+  GO_RECENT: () => goHome(),
+  OPEN_SETTINGS: () => leaveReadingTo("settings.html"),
+  OPEN_PDF: () => leaveReadingTo("../index.html", { openDialog: true }),
 };
+
+// Leaves for another screen, but only once any unsaved highlights have been
+// dealt with. `openDialog` asks Home to open its Open dialog on arrival (the
+// dialog only exists there) via the one-shot note home.js reads and clears.
+async function leaveReadingTo(url, { openDialog = false } = {}) {
+  if (!(await promptSaveIfDirty(true))) return;
+  if (openDialog) localStorage.setItem("lector-open-dialog", "1");
+  window.location.href = url;
+}
+
+// A PDF dropped anywhere on the window (frontend/js/filedrop.js) replaces the
+// open document, after the same unsaved-highlights check as leaving. Not while
+// a dialog is up: the reader is mid-decision about something else.
+onFileDrop(async (path) => {
+  if (document.querySelector(".dialog-scrim:not([hidden])")) {
+    showToast("Close this window first, then drop the file again.");
+    return;
+  }
+  if (!(await promptSaveIfDirty(true))) return;
+  try {
+    await callApi("open_pdf", path);
+  } catch (err) {
+    console.error("open_pdf failed:", err);
+    showToast("Couldn't open that PDF. It may be damaged or no longer there.");
+    return;
+  }
+  // The page reads the open document on load, so reloading shows the new one.
+  window.location.reload();
+});
 
 window.addEventListener("lector:command", (ev) => {
   const { command } = ev.detail || {};

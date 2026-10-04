@@ -33,7 +33,17 @@ without its own categories yet (the dialog/picker/dictation contexts, none
 of which wire "help" to open this panel today), fall back to the reading
 categories — the same content this module has always returned, kept as the
 default so every existing caller's behavior is unchanged.
+
+Milestone 8.12 makes this module the one registry the rest of the UI reads:
+the panel's categories, and the "TRY SAYING" chips on Home's empty state
+(`try_saying`), are both built here from `router`'s phrase tables. A chip is
+therefore a phrase that resolves through `router.resolve` for its context, and
+`tests/test_milestone_8_12_integration.py` additionally checks that the page
+handles that intent, so neither surface can advertise a command that does
+not work.
 """
+import re
+
 from lector.features.voice import command_grammar as grammar
 from lector.features.voice import router, wake
 
@@ -49,15 +59,69 @@ def _examples(intent: str) -> list[str]:
     return list(grammar.PHRASES[intent][:_EXAMPLES_SHOWN])
 
 
+def _display(phrase: str) -> str:
+    """How a phrase is written for a reader. The grammar is lowercase because
+    recognition is; "pdf" is an initialism and "i" is a pronoun, and
+    `router.resolve` is case-insensitive, so the nicer form resolves exactly
+    the same."""
+    return re.sub(r"\bi\b", "I", re.sub(r"\bpdf\b", "PDF", phrase))
+
+
 def _examples_from(phrases: dict[str, tuple[str, ...]], intent: str) -> list[str]:
     """Same as `_examples`, for a `router` phrase table instead of
     `command_grammar.PHRASES` — `HOME`/`SETTINGS`'s commands live there, not
     in the reading grammar."""
-    return list(phrases[intent][:_EXAMPLES_SHOWN])
+    return [_display(p) for p in phrases[intent][:_EXAMPLES_SHOWN]]
 
 
 def _command(examples: list[str], description: str, equivalent: str) -> dict:
     return {"examples": examples, "description": description, "equivalent": equivalent}
+
+
+# The commands every screen shares (`router.GLOBAL_PHRASES`), with what they
+# do and their mouse/keyboard equivalent. Listed under one heading on every
+# screen so the reader learns them once. Undo/redo are global too but only act
+# in the reading view, so they stay under that view's own headings.
+_ANYWHERE: tuple[tuple[str, str, str], ...] = (
+    (router.OPEN_PDF, "Opens the Open PDF dialog.", "Click Open PDF on the Home screen"),
+    (router.GO_RECENT, "Goes to your recent files.", "Click Recent in the sidebar"),
+    (router.OPEN_SETTINGS, "Opens Settings.", "Click Settings in the sidebar"),
+    (router.HELP, "Shows this list.", 'Click "What can I say?"'),
+    (
+        router.CLOSE_APP,
+        "Quits Lector, asking about unsaved highlights first.",
+        "Click the window's close button, or Alt+F4",
+    ),
+)
+
+
+def _anywhere_category() -> dict:
+    return {
+        "title": "Anywhere in the app",
+        "commands": [
+            _command(
+                _examples_from(router.GLOBAL_PHRASES, intent), description, equivalent
+            )
+            for intent, description, equivalent in _ANYWHERE
+        ],
+    }
+
+
+# Which global commands the empty-state "TRY SAYING" chips suggest, per
+# context, in display order. Only the first phrasing of each is shown.
+_TRY_SAYING: dict[str, tuple[str, ...]] = {
+    router.HOME: (router.OPEN_PDF, router.HELP, router.OPEN_SETTINGS),
+}
+
+
+def try_saying(context: str) -> list[str]:
+    """Phrases worth suggesting to a reader who has nothing open yet.
+
+    Read from `router.GLOBAL_PHRASES` rather than typed beside the UI, so a
+    chip can only ever be a phrase the router accepts. `[]` for a context with
+    no suggestions, and the frontend then shows no "TRY SAYING" row at all.
+    """
+    return [_display(router.GLOBAL_PHRASES[intent][0]) for intent in _TRY_SAYING.get(context, ())]
 
 
 def categories(context: str = router.READING) -> list[dict]:
@@ -90,6 +154,13 @@ def _home_categories() -> list[dict]:
                     "Click any card in Recent",
                 ),
                 _command(
+                    ["open number 3"],
+                    "Opens that numbered file, counting in the order shown. Say "
+                    f"\"{_display(router.HOME_PHRASES[router.OPEN_PICKER][0])}\" "
+                    "first to see the numbers.",
+                    "Click the file",
+                ),
+                _command(
                     _examples_from(router.HOME_PHRASES, router.REMOVE_RECENT),
                     "Removes the most recent file from Recent, after confirming — "
                     "the file on disk is never touched.",
@@ -111,11 +182,6 @@ def _home_categories() -> list[dict]:
                     "Click Favorites in the sidebar",
                 ),
                 _command(
-                    _examples_from(router.HOME_PHRASES, router.SHOW_RECENT),
-                    "Goes back to your recent files.",
-                    "Click Recent in the sidebar",
-                ),
-                _command(
                     _examples_from(router.HOME_PHRASES, router.FAVORITE_RECENT),
                     "Adds the most recent file to your favorites, or removes it if it "
                     "already is one.",
@@ -129,16 +195,7 @@ def _home_categories() -> list[dict]:
                 ),
             ],
         },
-        {
-            "title": "The app itself",
-            "commands": [
-                _command(
-                    _examples_from(router.HOME_PHRASES, router.OPEN_SETTINGS),
-                    "Opens Settings.",
-                    "Click Settings in the sidebar",
-                ),
-            ],
-        },
+        _anywhere_category(),
     ]
 
 
@@ -174,7 +231,8 @@ def _settings_categories() -> list[dict]:
                 ),
                 _command(
                     _examples_from(router.SETTINGS_PHRASES, router.SAVE_OVERWRITE),
-                    'Sets "overwrite the original" as the default.',
+                    'Sets "overwrite the original" as the default, after you say '
+                    '"confirm overwrite" — it rewrites your own PDFs, so it asks first.',
                     'Click "Overwrite the original"',
                 ),
             ],
@@ -194,6 +252,7 @@ def _settings_categories() -> list[dict]:
                 ),
             ],
         },
+        _anywhere_category(),
     ]
 
 
@@ -259,6 +318,7 @@ def _reading_categories() -> list[dict]:
                 ),
             ],
         },
+        _anywhere_category(),
     ]
 
 
@@ -276,6 +336,7 @@ def panel(context: str = router.READING) -> dict:
     """
     return {
         "categories": categories(context),
+        "try_saying": try_saying(context),
         "wake_phrase": wake.WAKE_PHRASE,
         "wake_phrase_display": wake.WAKE_PHRASE_DISPLAY,
         "push_to_talk_key": "Space",

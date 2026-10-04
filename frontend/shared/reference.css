@@ -1,0 +1,170 @@
+/* The "What can I say?" panel, shared by Home, Settings and Reading
+   (frontend/pages/command-reference.js builds it on each). Moved out of
+   reading.css in Milestone 8.12 when the panel stopped being reading-only. */
+
+/* ------------------------------------------------------------------ */
+/* "What can I say?" command reference                                 */
+/* ------------------------------------------------------------------ */
+
+/* Built on the shared .dialog-scrim / .dialog-card pattern rather than a
+   second modal style, so dismissal, dim and shadow stay identical to the
+   save dialog. Only the proportions differ: this one carries two columns of
+   commands instead of a sentence and two buttons, so it overrides the
+   560px card width and lets the list scroll rather than the page. */
+.reference-card {
+  width: 760px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+
+.reference-header {
+  padding: var(--space-5) var(--space-6) var(--space-4);
+  align-items: flex-start;
+}
+
+/* Amber rather than the save dialog's highlight yellow: docs/DESIGN_SYSTEM.md
+   keeps "this is about listening" and "this text is highlighted" in
+   deliberately different colors, and this panel is entirely the former. */
+.reference-header .dialog-badge {
+  background-color: color-mix(in srgb, var(--voice) 18%, transparent);
+  color: var(--voice);
+}
+
+/* Pushed to the far corner so the title and its subtitle keep the full
+   column width. There is no close icon in frontend/shared/icons/, so this
+   is a text glyph rather than an .icon-btn. */
+.reference-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0 var(--space-hair);
+  line-height: 1;
+  font-size: var(--text-xl);
+  color: var(--text-secondary);
+}
+
+.reference-close:hover { color: var(--text-primary); }
+
+/* The scrolling part. The header and footer stay put so the activation hint
+   and the close control are reachable however far down the list goes. */
+.reference-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-6) var(--space-5);
+}
+
+.reference-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-input);
+}
+
+.reference-search:focus-within {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Milestone 8.8: "voice is paying attention here" while dictation mode is
+   active, the same --voice convention .mic-pill.listening uses
+   (docs/DESIGN_SYSTEM.md) rather than the plain focus outline above, so a
+   reader can tell "listening for a command" and "listening for dictated
+   text" apart at a glance. */
+.reference-search.dictating {
+  border-color: var(--voice);
+  outline: 2px solid var(--voice);
+  outline-offset: 2px;
+  background-color: color-mix(in srgb, var(--voice) 6%, var(--surface-input));
+}
+
+.reference-search-icon { display: flex; color: var(--text-muted); }
+.reference-search-icon svg { width: 15px; height: 15px; }
+
+.reference-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.reference-search input::placeholder { color: var(--text-muted); }
+
+/* Two columns, per docs/mockups/05 What can I say.png. Filtering hides whole
+   categories, and the grid reflows around the gap rather than leaving a
+   column-shaped hole. */
+.reference-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5) var(--space-5);
+  align-content: start;
+}
+
+.reference-category[hidden] { display: none; }
+
+.reference-category-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.reference-list { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.reference-card-row {
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+}
+
+.reference-card-row[hidden] { display: none; }
+
+.reference-phrases {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.reference-desc {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* The parity promise made visible: every spoken command names the button or
+   shortcut that does the same thing (docs/PRD.md). Set apart from the
+   description so it reads as a footnote, not a second sentence. */
+.reference-equivalent {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.reference-empty {
+  margin: 0;
+  padding: var(--space-5) 0;
+  text-align: center;
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.reference-empty[hidden] { display: none; }
+
+.reference-footer .hint strong {
+  font-weight: 600;
+  color: var(--text-secondary);
+}

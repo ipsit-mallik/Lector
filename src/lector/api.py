@@ -12,10 +12,12 @@ import os
 import threading
 
 import webview
+from webview.dom import DOMEventHandler
 
 from lector.features.annotations import highlight_matcher
 from lector.features.annotations.highlighter import words_between
 from lector.features.dialogs import browser as dialog_browser
+from lector.features.home import file_drop
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading.document import PdfDocument
@@ -61,6 +63,15 @@ class Api:
         # keeps hearing exactly the grammar it did before this router
         # existed. Pages narrow this explicitly once they load.
         self._voice_context = router.DEFAULT_CONTEXT
+        # The contexts a modal (the "What can I say?" panel, a dictation
+        # session) has pushed itself on top of, innermost last, so closing it
+        # can hand back whatever was listening before rather than a context
+        # the closing code has to remember to hardcode (Milestone 8.12).
+        self._voice_context_stack: list[str] = []
+        # pywebview runs every bridge call on its own thread, so a push and a
+        # pop (or a page's own `set_voice_context`) can overlap. One lock keeps
+        # the context and its stack consistent with each other.
+        self._voice_context_lock = threading.RLock()
         # Load the model now, on a background thread, rather than leaving it
         # to the first `get_voice_status()`. That call is made by every page
         # showing the mic indicator, and a bridge call that blocks for the
@@ -594,9 +605,43 @@ class Api:
         """
         if context not in router.CONTEXTS:
             raise ValueError(f"unknown voice context: {context!r}")
-        self._voice_context = context
-        self._refresh_voice_vocabulary()
-        return {"context": self._voice_context}
+        # A screen declaring itself is a fresh baseline: any modal still on
+        # the stack belonged to a page that has since been left, and popping
+        # into its context would put the wrong grammar on this one.
+        with self._voice_context_lock:
+            self._voice_context_stack.clear()
+            self._voice_context = context
+            self._refresh_voice_vocabulary()
+            return {"context": self._voice_context}
+
+    def push_voice_context(self, context: str) -> dict:
+        """Enter a modal scope, remembering the context it covers (Milestone 8.12).
+
+        For anything that opens on top of a screen and must give the screen's
+        grammar back when it closes: the "What can I say?" panel, and dictation
+        inside it. `pop_voice_context` undoes exactly one push, so nested modals
+        unwind in order. An unknown name is rejected before anything changes.
+        """
+        if context not in router.CONTEXTS:
+            raise ValueError(f"unknown voice context: {context!r}")
+        with self._voice_context_lock:
+            self._voice_context_stack.append(self._voice_context)
+            self._voice_context = context
+            self._refresh_voice_vocabulary()
+            return {"context": self._voice_context}
+
+    def pop_voice_context(self) -> dict:
+        """Leave the innermost modal scope and restore the context beneath it.
+
+        With nothing pushed this is a no-op that reports the current context,
+        so a close handler that runs twice (Escape then the Close button) can
+        never pop past the screen's own grammar.
+        """
+        with self._voice_context_lock:
+            if self._voice_context_stack:
+                self._voice_context = self._voice_context_stack.pop()
+                self._refresh_voice_vocabulary()
+            return {"context": self._voice_context}
 
     def _refresh_voice_vocabulary(self) -> None:
         """Recompute and apply the recognizer's active grammar.
@@ -679,6 +724,60 @@ class Api:
         try:
             window.evaluate_js(
                 f"window.dispatchEvent(new CustomEvent('lector:voice', {{detail: {payload}}}))"
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------ #
+    # Drag-and-drop of a PDF onto the window (Milestone 8.12)              #
+    # ------------------------------------------------------------------ #
+
+    def bind_file_drop(self, window) -> None:
+        """Listen for a file dropped anywhere in `window`'s current page.
+
+        Bound from `window.events.loaded` (see `__main__.py`), because
+        pywebview forgets every DOM binding when a page navigates and Lector
+        moves between Home, Settings and Reading by navigating. That same reset
+        is why calling this once per load cannot stack duplicate handlers.
+
+        `prevent_default` is what stops the WebView from navigating to the
+        dropped file and replacing the whole app with a bare PDF viewer, on any
+        page, whether or not it loads `filedrop.js`. The cost is that a *text*
+        drag dropped into an input (the search boxes) is cancelled too; that is
+        accepted, since the alternative is a file drop that can replace the
+        whole app. `stop_propagation` keeps a page's own bubble-phase `drop`
+        handling out of it (`filedrop.js` listens in the capture phase and is
+        unaffected).
+        """
+        window.dom.document.on(
+            "drop",
+            DOMEventHandler(self._on_file_drop, prevent_default=True, stop_propagation=True),
+        )
+
+    def _on_file_drop(self, event: dict) -> None:
+        """Tell the page which PDF was dropped, or why it can't be opened.
+
+        Runs on a pywebview worker thread. Does not open the file: the page
+        decides what opening means on its screen (Reading asks about unsaved
+        highlights first), so this only reports.
+        """
+        outcome = file_drop.pdf_from_drop(event)
+        if outcome is None:
+            return
+        self._dispatch_page_event("lector:filedrop", outcome)
+
+    def _dispatch_page_event(self, name: str, detail: dict) -> None:
+        """Push a `CustomEvent` to the current page, the same direction
+        `_on_voice_result` uses. Quietly does nothing with no window, which is
+        what teardown looks like."""
+        try:
+            window = webview.windows[0]
+        except IndexError:
+            return
+        payload = json.dumps(detail)
+        try:
+            window.evaluate_js(
+                f"window.dispatchEvent(new CustomEvent('{name}', {{detail: {payload}}}))"
             )
         except Exception:
             pass

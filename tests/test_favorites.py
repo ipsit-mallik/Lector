@@ -185,7 +185,6 @@ def _intent(context: str, phrase: str):
 class FavoritesVoiceTests(unittest.TestCase):
     PHRASES = {
         router.OPEN_FAVORITES: ("open favorites", "show favorites"),
-        router.SHOW_RECENT: ("show recent files",),
         router.FAVORITE_RECENT: ("favorite recent", "star recent"),
         router.FAVORITE_PICKER: ("favorite a file", "star a file"),
     }
@@ -195,6 +194,13 @@ class FavoritesVoiceTests(unittest.TestCase):
             for phrase in phrases:
                 with self.subTest(phrase=phrase):
                     self.assertEqual(_intent(router.HOME, phrase), intent)
+
+    def test_going_back_to_recent_is_global_since_milestone_8_12(self):
+        # Was the Home-only SHOW_RECENT; Settings and Reading need a way back
+        # to Recent by voice too.
+        for context in (router.HOME, router.SETTINGS, router.READING):
+            with self.subTest(context=context):
+                self.assertEqual(_intent(context, "show recent files"), router.GO_RECENT)
 
     def test_existing_home_phrases_are_not_taken_over(self):
         existing = {

@@ -136,6 +136,47 @@ button {
 
 .dialog-scrim[hidden] { display: none; }
 
+/* Text for assistive technology only: out of the layout and the visual flow, but
+   still in the accessibility tree (unlike display:none / hidden). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Window-wide "drop a PDF" cue (frontend/js/filedrop.js builds the element and
+   toggles .is-file-dragging on <body> while a file is being dragged over the
+   window). Never takes pointer events, so the drop reaches the window, and sits
+   above everything but the toast. A solid inset ring rather than a dashed one:
+   the whole window is the target, not a box inside it. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
+.is-file-dragging .drop-overlay { display: flex; }
+.drop-overlay-label {
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-pill);
+  background-color: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  box-shadow: var(--shadow-2);
+}
+
 .dialog-card {
   width: 560px;
   max-width: calc(100vw - 48px);
@@ -149,6 +190,11 @@ button {
    needs room to stay legible) — a modifier, not a change to the shared rule,
    so every other dialog stays 560px. */
 .dialog-card--wide { width: 940px; }
+
+/* A dialog card is focused programmatically (tabindex="-1") when a dialog wants
+   no button focused, e.g. Settings' overwrite confirmation. It is not a
+   control, so it takes no focus ring. */
+.dialog-card:focus { outline: none; }
 
 .dialog-body {
   padding: var(--space-5) var(--space-6) var(--space-5);

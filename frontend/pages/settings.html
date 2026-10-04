@@ -20,6 +20,20 @@
       <button class="nav-item" id="favoritesNav"><span data-icon="favorites"></span> Favorites</button>
       <button class="nav-item active"><span data-icon="settings"></span> Settings</button>
       <div class="sidebar-fill"></div>
+      <!-- The same status box Home has (frontend/js/voice-box.js). Settings has
+           real voice commands now, so it needs the same honest indicator. -->
+      <div class="voice-box starting" id="voiceBox">
+        <div class="voice-status">
+          <span class="voice-dot"></span>
+          <span id="voiceState">CHECKING VOICE</span>
+        </div>
+        <p id="voiceDetail">Starting the speech engine…</p>
+        <!-- The one screen-reader announcement for the box: a short summary per
+             state change (voice-box.js), since the visible text above changes
+             with every partial transcript and must not itself be live. -->
+        <span class="sr-only" id="voiceLive" role="status" aria-atomic="true"></span>
+        <button class="voice-help-btn" id="voiceHelpBtn" type="button">What can I say?</button>
+      </div>
       <p class="sidebar-footnote">
         Version 1.0 · fully offline<br>No account, no sync
       </p>
@@ -130,11 +144,39 @@
     </div>
   </div>
 
+  <!-- Spoken "overwrite the original" asks first (voice only: a click on the
+       row still applies at once). A modal voice scope of its own — "confirm
+       overwrite" or "cancel" — so a stray word can't rewrite anyone's PDFs. -->
+  <div class="dialog-scrim voice-dialog" id="overwriteConfirmScrim" hidden>
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="overwriteConfirmTitle" tabindex="-1">
+      <div class="dialog-body">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="highlight"></div>
+          <div>
+            <p class="dialog-title" id="overwriteConfirmTitle">Overwrite the original?</p>
+            <p class="dialog-desc">
+              Highlights would be written straight into the PDF you open,
+              replacing it. Say “confirm overwrite” to turn this on, or “cancel”.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <span class="hint">Nothing changes until you confirm.</span>
+        <button class="btn btn-secondary" id="overwriteConfirmCancelBtn">Cancel</button>
+        <button class="btn" id="overwriteConfirmBtn">Overwrite the original</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../js/icons.js"></script>
   <script src="../js/ui.js"></script>
   <script src="../js/scrollbars.js"></script>
   <script src="../js/bridge.js"></script>
   <script src="../js/voice.js"></script>
+  <script src="../js/voice-box.js"></script>
+  <script src="../js/filedrop.js"></script>
+  <script src="command-reference.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>

@@ -54,11 +54,13 @@ class GlobalCommandTests(unittest.TestCase):
         )
 
     def test_global_commands_are_available_in_every_context_except_dictation(self):
-        # DICTATION is the one deliberate exception (Milestone 8.8) — see
-        # test_global_commands_do_not_resolve_while_dictation_is_active below,
-        # and DictationContextTests for its own behavior in full.
+        # DICTATION (Milestone 8.8) and the modal scopes in
+        # `MODAL_ALLOWED_GLOBALS` (Milestone 8.12) are the deliberate
+        # exceptions — see test_global_commands_do_not_resolve_while_dictation_
+        # is_active below, DictationContextTests, and ModalScopesAreReallyModalTests
+        # in test_voice_global_commands.py for their own behavior in full.
         for context in router.CONTEXTS:
-            if context == router.DICTATION:
+            if context == router.DICTATION or context in router.MODAL_ALLOWED_GLOBALS:
                 continue
             result = router.resolve(context, "undo")
             self.assertEqual(
@@ -373,6 +375,9 @@ class StartDictationTests(unittest.TestCase):
         for context in router.CONTEXTS:
             if context == router.DICTATION:
                 continue  # Covered by DictationContextTests instead.
+            allowed = router.MODAL_ALLOWED_GLOBALS.get(context)
+            if allowed is not None and router.START_DICTATION not in allowed:
+                continue  # A modal that does not host the search field (8.12).
             result = router.resolve(context, "start search")
             self.assertEqual(
                 result["command"]["intent"], router.START_DICTATION, msg=f"context={context}"

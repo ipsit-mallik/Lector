@@ -14,6 +14,52 @@
 //   * It filters as you type. The list is short today and will not stay
 //     short, and a list you can narrow never has to be memorized.
 
+// The panel's markup lives here, once, rather than being copied into every
+// page that offers "What can I say?" (Home, Settings and Reading, as of
+// Milestone 8.12). Its contents are not written here either: they are built at
+// open time from the grammar itself, via src/lector/features/voice/reference.py,
+// so the panel cannot offer a phrasing the recognizer would reject.
+const REFERENCE_MARKUP = `
+  <div class="dialog-scrim reference-scrim voice-dialog" id="referenceDialog" hidden>
+    <div class="dialog-card reference-card" role="dialog" aria-modal="true"
+         aria-labelledby="referenceTitle">
+      <div class="dialog-header reference-header">
+        <div class="dialog-badge" data-icon="logo"></div>
+        <div>
+          <p class="dialog-title" id="referenceTitle">What can I say?</p>
+          <p class="dialog-desc">
+            Say it however feels natural — these are examples, not magic
+            words. Every command here also has a button or shortcut.
+          </p>
+        </div>
+        <button class="reference-close" id="referenceCloseBtn" title="Close  (Esc)"
+                aria-label="Close">&times;</button>
+      </div>
+
+      <div class="reference-body">
+        <div class="reference-search">
+          <span class="reference-search-icon" data-icon="search"></span>
+          <input type="search" id="referenceSearch" autocomplete="off"
+                 placeholder="Search commands" aria-label="Search commands">
+        </div>
+        <div class="reference-grid" id="referenceGrid"></div>
+        <p class="reference-empty" id="referenceEmpty" hidden>
+          Nothing here matches that.
+        </p>
+      </div>
+
+      <div class="dialog-footer reference-footer">
+        <span class="hint" id="referenceActivation"></span>
+        <button class="btn" id="referenceGotItBtn">Got it</button>
+      </div>
+    </div>
+  </div>`;
+// Static markup, no interpolated or user-supplied data, so nothing here can be
+// injected into.
+if (!document.getElementById("referenceDialog")) {
+  document.body.insertAdjacentHTML("beforeend", REFERENCE_MARKUP);
+}
+
 const referenceDialog = document.getElementById("referenceDialog");
 const referenceGrid = document.getElementById("referenceGrid");
 const referenceEmpty = document.getElementById("referenceEmpty");
@@ -113,7 +159,21 @@ function applyReferenceFilter() {
   referenceEmpty.hidden = shown > 0;
 }
 
+// The panel's claim on the recognizer's grammar (voice.js createVoiceScope):
+// entered on open, left on close, serialized so a quick close can never leave
+// the screen's own commands dead.
+const referenceScope = createVoiceScope("reference");
+// True from the moment an open starts until the dialog is on screen. The first
+// open awaits the command list, during which `referenceDialog.hidden` is still
+// true, so "what can I say" heard (or the button clicked) a second time in that
+// gap would otherwise start a second open.
+let referenceOpening = false;
+
 async function openCommandReference() {
+  // "What can I say?" is also a global voice command, so it is heard while the
+  // panel is already open or opening.
+  if (!referenceDialog.hidden || referenceOpening) return;
+  referenceOpening = true;
   referenceOpener = document.activeElement;
   if (!referenceLoaded) {
     try {
@@ -130,6 +190,14 @@ async function openCommandReference() {
   referenceSearch.value = "";
   applyReferenceFilter();
   referenceDialog.hidden = false;
+  // A modal scope: while the panel is up the recognizer hears only the panel's
+  // own phrases (close it, start a search), not the screen beneath — "next
+  // page" must not turn pages behind it. Closing restores whatever was
+  // listening before, which is why this is pushed rather than set.
+  // The panel still works by mouse and keyboard if this fails; only voice
+  // scoping is lost (and createVoiceScope reports it).
+  referenceScope.enter();
+  referenceOpening = false;
   await mountIcons(referenceDialog);
   referenceSearch.focus();
 }
@@ -143,6 +211,7 @@ function closeCommandReference() {
   // src/lector/features/voice/router.py).
   if (dictationActive) endDictation({ restore: false });
   referenceDialog.hidden = true;
+  referenceScope.leave();
   if (referenceOpener && referenceOpener.focus) referenceOpener.focus();
   referenceOpener = null;
 }
@@ -186,21 +255,21 @@ document.addEventListener(
 // half-formed guess into the reader's search query would be worse than
 // waiting the extra moment for the final one.
 //
-// The resting context this pops back to is hardcoded to "reading" rather
-// than tracked as "whatever was active before dictation started": the panel
-// is, today, only ever opened from the reading view (home.js has no
-// reference-panel button yet, per its own comment), so there is exactly one
-// context to return to. A second opener would need this to remember its own
-// entry context instead.
+// Dictation is a second modal scope pushed on top of the panel's own
+// (Milestone 8.12), so ending it pops back to the panel and closing the panel
+// pops back to whichever screen opened it — Home, Settings or Reading — rather
+// than a context hardcoded here.
 let dictationActive = false;
 let dictationPreviousValue = "";
+const dictationScope = createVoiceScope("dictation");
 
 function startDictation() {
   if (dictationActive) return;
   dictationActive = true;
   dictationPreviousValue = referenceSearch.value;
   referenceSearchWrap.classList.add("dictating");
-  callApi("set_voice_context", "dictation").catch(() => {
+  dictationScope.enter().then((taken) => {
+    if (taken) return;
     // A failed context switch must not leave the field looking like it is
     // listening when it is not.
     dictationActive = false;
@@ -216,7 +285,7 @@ function endDictation({ restore }) {
     referenceSearch.value = dictationPreviousValue;
     applyReferenceFilter();
   }
-  callApi("set_voice_context", "reading").catch(() => {});
+  dictationScope.leave();
 }
 
 // A separate `lector:command` listener from reading.js's own: that one bails
@@ -229,6 +298,8 @@ window.addEventListener("lector:command", (ev) => {
   const { text, command } = ev.detail || {};
   if (!dictationActive) {
     if (command && command.intent === "START_DICTATION") startDictation();
+    // The panel's own voice scope ends with "got it" / "go back" / "cancel".
+    else if (command && command.intent === "CANCEL") closeCommandReference();
     return;
   }
   if (command && command.intent === "STOP_DICTATION") {
