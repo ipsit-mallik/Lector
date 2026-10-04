@@ -62,9 +62,9 @@ function buildEmptyState() {
 // accessibility baseline's "every interactive element is a real button"
 // rule, and what gives it independent keyboard focus regardless of
 // whether its container is ever made focusable. stopPropagation keeps
-// this click from also bubbling into the card/row's own "open" handler.
-// Shared by both buildCard() (grid) and buildListRow() (list) — same
-// control, just laid out differently by its container's CSS.
+// this click from also bubbling into the card's own "open" handler. Grid
+// only: the list view reaches the same removal through its row "⋯" menu
+// (recent-list.js).
 function buildRemoveBtn(entry) {
   const removeBtn = document.createElement("button");
   removeBtn.className = "icon-btn recent-remove-btn";
@@ -80,7 +80,9 @@ function buildRemoveBtn(entry) {
 }
 function buildCard(entry) {
   const card = document.createElement("div");
-  card.className = "recent-card";
+  // .recent-item: what the numbered-overlay picker below badges, in either
+  // view (list rows carry it too).
+  card.className = "recent-card recent-item";
   // docs/DESIGN_SYSTEM.md's accessibility baseline ("never a clickable
   // div") can't be met with a literal <button> here, since the card
   // also contains its own nested, independently-focusable remove
@@ -126,85 +128,28 @@ function buildCard(entry) {
   return card;
 }
 
-// List view's row -- same interactive-surface contract as buildCard()
-// (role=button/tabindex/keydown for the same nested-button reason, same
-// shared buildRemoveBtn(), and deliberately keeps the "recent-card" class
-// alongside its own "recent-row" one so the numbered-overlay picker below
-// (which queries ".recent-card") keeps working in either view without
-// its own view-aware branch.
-function buildListRow(entry) {
-  const row = document.createElement("div");
-  row.className = "recent-card recent-row";
-  row.setAttribute("role", "button");
-  row.tabIndex = 0;
-  row.setAttribute("aria-label", `Open ${entry.name}`);
-
-  const thumb = document.createElement("div");
-  thumb.className = "recent-thumb";
-  if (entry.thumbnail) {
-    const img = document.createElement("img");
-    img.src = `data:image/png;base64,${entry.thumbnail}`;
-    thumb.appendChild(img);
-  }
-  row.appendChild(thumb);
-
-  const title = document.createElement("div");
-  title.className = "title row-title";
-  title.textContent = entry.name;
-  row.appendChild(title);
-
-  const lastOpened = document.createElement("div");
-  lastOpened.className = "row-col row-last-opened";
-  lastOpened.textContent = entry.relative_time;
-  row.appendChild(lastOpened);
-
-  const pages = document.createElement("div");
-  pages.className = "row-col row-pages";
-  const noun = entry.page_count === 1 ? "page" : "pages";
-  pages.textContent = entry.page_count ? `${entry.page_count} ${noun}` : "—";
-  row.appendChild(pages);
-
-  // progress_percent is null when the file has never been opened far
-  // enough to record a position (src/lector/features/home/recent.py) --
-  // shown as "Not started" text rather than a 0%-filled bar, so a reader
-  // cannot mistake "no data yet" for "read almost nothing of it".
-  const progress = document.createElement("div");
-  progress.className = "row-col row-progress";
-  if (entry.progress_percent === null || entry.progress_percent === undefined) {
-    const label = document.createElement("span");
-    label.className = "progress-label";
-    label.textContent = "Not started";
-    progress.appendChild(label);
-  } else {
-    const bar = document.createElement("div");
-    bar.className = "progress-bar";
-    const fill = document.createElement("div");
-    fill.className = "progress-bar-fill";
-    fill.style.width = `${entry.progress_percent}%`;
-    bar.appendChild(fill);
-    const label = document.createElement("span");
-    label.className = "progress-label";
-    label.textContent = `${entry.progress_percent}%`;
-    progress.appendChild(bar);
-    progress.appendChild(label);
-  }
-  row.appendChild(progress);
-
-  row.appendChild(buildRemoveBtn(entry));
-
-  row.addEventListener("click", () => openPath(entry.path));
-  row.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" || ev.key === " ") {
-      ev.preventDefault();
-      openPath(entry.path);
-    }
-  });
-  return row;
-}
-
-// Populated by renderRecent(), read by the picker below to map a spoken
-// index back to the entry it stands for.
+// Populated by renderRecent(). recentEntries keeps the backend's order
+// (most recent first, which "open recent"/"remove recent" rely on);
+// displayedEntries is the order on screen — the list view may be sorted
+// differently — and is what the picker below maps a spoken number onto.
 let recentEntries = [];
+let displayedEntries = [];
+
+// List view's sort (recent-list.js). Session-only: every visit to Home
+// starts back at "Last active, newest first".
+let recentSort = DEFAULT_RECENT_SORT;
+
+// Below this width the table hides Last active and Pages (home.css), and
+// their sort buttons with them. A sort on either would keep ordering the
+// rows with nothing on screen to show or change it, so narrowing the window
+// puts the order back to the default. Keep in step with the media query.
+const NARROW_RECENT_QUERY = "(max-width: 860px)";
+window.matchMedia(NARROW_RECENT_QUERY).addEventListener("change", (ev) => {
+  if (ev.matches && recentSort.key !== "name") {
+    recentSort = DEFAULT_RECENT_SORT;
+    renderRecent(recentEntries);
+  }
+});
 
 // Grid/list toggle (Recent screen, Motion & elevation foundation pass):
 // a persisted preference (settings.json via get_recent_view/
@@ -222,7 +167,32 @@ function setRecentView(mode) {
 recentViewGridBtn.addEventListener("click", () => setRecentView("grid"));
 recentViewListBtn.addEventListener("click", () => setRecentView("list"));
 
+// The list view's row handlers. Removing from the "⋯" menu goes through the
+// same confirmation dialog as the grid's remove button and voice (docs/PRD.md
+// gates every removal behind it). Afterwards focus moves to the row that
+// took the removed one's place — or back to the same row if the reader
+// cancelled — so a keyboard user isn't dropped back to the top of the page.
+const recentListHandlers = {
+  onSort: (key) => {
+    recentSort = nextRecentSort(recentSort, key);
+    renderRecent(recentEntries);
+    recentArea.querySelector(`[data-sort-key="${key}"]`).focus();
+  },
+  onOpen: (entry) => openPath(entry.path),
+  onShowInFolder: async (entry) => {
+    const { error } = await callApi("show_in_folder", entry.path);
+    if (error) showToast(error);
+  },
+  onRemove: async (entry, rowIndex) => {
+    await removeEntry(entry);
+    const rows = recentArea.querySelectorAll(".recent-table .recent-item");
+    if (rows.length) rows[Math.min(rowIndex, rows.length - 1)].focus();
+    else recentViewListBtn.focus();
+  },
+};
+
 function renderRecent(entries) {
+  closeRowMenu();
   recentEntries = entries;
   // Shows how many cards are actually on screen, not the cap -- see
   // .count-pill in home.css.
@@ -235,18 +205,20 @@ function renderRecent(entries) {
   }
   recentArea.innerHTML = "";
   if (!entries.length) {
+    displayedEntries = [];
     recentArea.appendChild(buildEmptyState());
     return;
   }
-  const container = document.createElement("div");
   if (recentViewMode === "list") {
-    container.className = "recent-list";
-    entries.forEach((entry) => container.appendChild(buildListRow(entry)));
-  } else {
-    container.className = "recent-grid";
-    entries.forEach((entry) => container.appendChild(buildCard(entry)));
+    displayedEntries = sortRecentEntries(entries, recentSort);
+    recentArea.appendChild(buildRecentTable(displayedEntries, recentSort, recentListHandlers));
+    return;
   }
-  recentArea.appendChild(container);
+  displayedEntries = entries;
+  const grid = document.createElement("div");
+  grid.className = "recent-grid";
+  entries.forEach((entry) => grid.appendChild(buildCard(entry)));
+  recentArea.appendChild(grid);
 }
 
 async function loadRecent() {
@@ -279,9 +251,16 @@ function closeRemoveConfirm(confirmed) {
 removeConfirmCancelBtn.addEventListener("click", () => closeRemoveConfirm(false));
 removeConfirmRemoveBtn.addEventListener("click", () => closeRemoveConfirm(true));
 
+// Names the file the way the current view does: the filename on a grid card,
+// the PDF's own title in the list view -- whichever way removal was started
+// (button, "⋯" menu or voice), so the dialog always matches what is on screen.
+function removalLabel(entry) {
+  return recentViewMode === "list" ? entry.title : entry.name;
+}
+
 function openRemoveConfirm(entry) {
   removeConfirmDesc.textContent =
-    `"${entry.name}" will no longer appear in Recent.`;
+    `"${removalLabel(entry)}" will no longer appear in Recent.`;
   removeConfirmScrim.hidden = false;
   callApi("set_voice_context", "remove_confirm");
   return new Promise((resolve) => {
@@ -291,12 +270,37 @@ function openRemoveConfirm(entry) {
 
 // Voice never skips this confirmation either (docs/DESIGN_SYSTEM.md) — the
 // same function backs both the icon-button click and the voice-triggered
-// path (REMOVE_RECENT/REMOVE_PICKER in VOICE_ACTIONS below).
+// path (REMOVE_RECENT/REMOVE_PICKER in VOICE_ACTIONS below), and the list
+// view's "⋯" menu (recentListHandlers).
+//
+// A removal that actually happened ends on a toast with Undo. The backend
+// keeps only the last removal, so a new one retracts the previous toast
+// rather than leaving an Undo on screen that would restore the wrong file.
+// One that didn't (a stale row, already gone) shows nothing and leaves the
+// previous toast alone, since its Undo still works.
+let dismissRemoveToast = () => {};
+
+const UNDO_FAILURE_MESSAGES = {
+  full: "Recent is full, so that file couldn't be put back.",
+};
+
+async function undoRemoval() {
+  const { entries, status } = await callApi("undo_remove_recent_file");
+  renderRecent(entries);
+  if (UNDO_FAILURE_MESSAGES[status]) showToast(UNDO_FAILURE_MESSAGES[status]);
+}
+
 async function removeEntry(entry) {
   if (!entry) return;
-  const confirmed = await openRemoveConfirm(entry);
-  if (!confirmed) return;
-  renderRecent(await callApi("remove_recent_file", entry.path));
+  if (!(await openRemoveConfirm(entry))) return;
+  const { entries, removed } = await callApi("remove_recent_file", entry.path);
+  renderRecent(entries);
+  if (!removed) return;
+  dismissRemoveToast();
+  dismissRemoveToast = showToast("Removed from Recent. The file stays on disk.", {
+    actionLabel: "Undo",
+    onAction: undoRemoval,
+  });
 }
 
 // Mirrors openMostRecent() — "remove recent" acts on the single most-recent
@@ -324,12 +328,14 @@ let pickerMode = "open";
 function showPicker(mode = "open") {
   if (pickerActive || !recentEntries.length) return;
   pickerMode = mode;
-  const cards = recentArea.querySelectorAll(".recent-card");
-  cards.forEach((card, i) => {
+  // A list row pins its badge to its thumbnail (.picker-anchor) instead of
+  // its own corner, which the table card's rounded edge would clip.
+  const items = recentArea.querySelectorAll(".recent-item");
+  items.forEach((item, i) => {
     const badge = document.createElement("div");
     badge.className = "picker-badge";
     badge.textContent = String(i + 1);
-    card.appendChild(badge);
+    (item.querySelector(".picker-anchor") || item).appendChild(badge);
   });
   pickerActive = true;
   callApi("set_voice_context", "picker");
@@ -348,7 +354,7 @@ function hidePicker() {
 // two are not among them.
 async function handlePickerCommand(command) {
   if (command.intent === "PICK") {
-    const entry = recentEntries[command.index - 1];
+    const entry = displayedEntries[command.index - 1];
     const mode = pickerMode;
     hidePicker();
     if (!entry) return;

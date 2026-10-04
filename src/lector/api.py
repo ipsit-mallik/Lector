@@ -76,6 +76,11 @@ class Api:
         # Set once `handle_window_closing` has let a close through, so the
         # `window.destroy()` it issues doesn't re-run the dirty check.
         self._closing_confirmed = False
+        # The last Recent entry removed, as (index, raw entry), kept so the
+        # removal toast's Undo can put it back with its reading position.
+        # Lives here rather than in the frontend so no raw settings entry
+        # has to make a round trip through JS.
+        self._last_removed_recent: tuple[int, dict] | None = None
 
     # ------------------------------------------------------------------ #
     # Home / recent files                                                  #
@@ -84,13 +89,47 @@ class Api:
     def get_recent_files(self) -> list[dict]:
         return home_recent.list_recent()
 
-    def remove_recent_file(self, path: str) -> list[dict]:
+    def remove_recent_file(self, path: str) -> dict:
         """Drops `path` from the Recent list only (Milestone 8.9) — never
-        touches the file on disk, per docs/PRD.md's scope note. Returns the
-        refreshed list so the frontend can re-render without a second round
-        trip back through `get_recent_files`."""
-        settings.remove_recent_file(path)
-        return home_recent.list_recent()
+        touches the file on disk, per docs/PRD.md's scope note. Returns
+        `{"entries": [...], "removed": bool}`: the refreshed list so the
+        frontend can re-render without a second round trip, and whether
+        `path` was actually listed (False for a stale view), so it only
+        offers Undo for a removal that happened."""
+        removal = settings.remove_recent_file(path)
+        # Kept as-is when nothing was removed, so a toast still on screen
+        # from the previous removal keeps a working Undo.
+        if removal is not None:
+            self._last_removed_recent = removal
+        return {"entries": home_recent.list_recent(), "removed": removal is not None}
+
+    def undo_remove_recent_file(self) -> dict:
+        """Puts the most recently removed Recent entry back where it was
+        (the removal toast's Undo). One level only. Returns
+        `{"entries": [...], "status": str}` where status is
+        `settings.RESTORED`, `ALREADY_LISTED`, `LIST_FULL`, or None when
+        there was nothing to undo."""
+        status = None
+        if self._last_removed_recent is not None:
+            index, entry = self._last_removed_recent
+            self._last_removed_recent = None
+            status = settings.restore_recent_file(index, entry)
+        return {"entries": home_recent.list_recent(), "status": status}
+
+    def show_in_folder(self, path: str) -> dict:
+        """Opens the OS file manager with `path` selected (Recent list's
+        "Show in folder"). Only for a path that is in the Recent list and
+        still on disk — the frontend can't use this to launch the file
+        manager on an arbitrary location. Returns `{"error": str | None}`."""
+        if not any(e["path"] == path for e in settings.get_recent_files()):
+            return {"error": "That file is no longer in Recent."}
+        if not os.path.isfile(path):
+            return {"error": "That file has been moved or deleted."}
+        try:
+            home_recent.reveal_in_file_manager(path)
+        except OSError:
+            return {"error": "Couldn't open the folder."}
+        return {"error": None}
 
     def browse_directory(self, path: str | None = None) -> dict:
         """Lists a directory for the in-app Open/Save-As screens (Milestone

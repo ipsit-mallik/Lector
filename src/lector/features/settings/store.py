@@ -206,26 +206,59 @@ def add_recent_file(path: str) -> None:
     _save(data)
 
 
-def remove_recent_file(path: str) -> None:
+def remove_recent_file(path: str) -> tuple[int, dict] | None:
     """Drop `path` from the recent-files list only (Milestone 8.9).
 
     List-entry removal only — the underlying PDF on disk is never touched,
     which is what makes this reversible (reopening the file re-adds it) and
-    safe to gate behind nothing more than a confirmation dialog. A no-op if
-    `path` isn't present, the same tolerance `add_recent_file`'s own dedup
-    already assumes of this list.
+    safe to gate behind nothing more than a confirmation dialog or an Undo.
+    Returns the removed entry and the index it sat at, so
+    `restore_recent_file` can put it back exactly where it was, reading
+    position included. None (a no-op) if `path` isn't present, the same
+    tolerance `add_recent_file`'s own dedup already assumes of this list.
     """
     data = _load()
     entries = data.get(_RECENT_FILES_KEY)
     if not isinstance(entries, list):
-        return
-    filtered = [
-        e for e in entries if not (isinstance(e, dict) and e.get("path") == path)
-    ]
-    if len(filtered) == len(entries):
-        return
-    data[_RECENT_FILES_KEY] = filtered
+        return None
+    index = next(
+        (i for i, e in enumerate(entries) if isinstance(e, dict) and e.get("path") == path),
+        None,
+    )
+    if index is None:
+        return None
+    removed = entries[index]
+    data[_RECENT_FILES_KEY] = entries[:index] + entries[index + 1:]
     _save(data)
+    return index, removed
+
+
+RESTORED = "restored"
+ALREADY_LISTED = "already_listed"
+LIST_FULL = "full"
+
+
+def restore_recent_file(index: int, entry: dict) -> str:
+    """Put an entry `remove_recent_file` returned back at `index` (the
+    Recent list's Undo). Returns RESTORED, or why nothing changed:
+    ALREADY_LISTED when the file was reopened in the meantime (that fresher
+    entry wins), LIST_FULL when other files have since filled the list to
+    RECENT_FILES_CAP — restoring would silently push the oldest one out.
+
+    Works on the stored list itself, the same one `remove_recent_file`
+    measured `index` on, so a hand-edited settings.json with malformed items
+    in it neither shifts the position nor loses those items."""
+    data = _load()
+    stored = data.get(_RECENT_FILES_KEY)
+    stored = list(stored) if isinstance(stored, list) else []
+    if any(isinstance(e, dict) and e.get("path") == entry["path"] for e in stored):
+        return ALREADY_LISTED
+    if len(get_recent_files()) >= RECENT_FILES_CAP:
+        return LIST_FULL
+    stored.insert(min(max(index, 0), len(stored)), entry)
+    data[_RECENT_FILES_KEY] = stored
+    _save(data)
+    return RESTORED
 
 
 # Reading position rides along on the recent-files entry rather than living in

@@ -88,8 +88,9 @@ class ApiRemoveRecentFileTests(unittest.TestCase):
 
         result = self.api.remove_recent_file("/docs/a.pdf")
 
-        self.assertEqual([e["path"] for e in result], ["/docs/b.pdf"])
-        self.assertEqual(result, self.api.get_recent_files())
+        self.assertEqual([e["path"] for e in result["entries"]], ["/docs/b.pdf"])
+        self.assertEqual(result["entries"], self.api.get_recent_files())
+        self.assertTrue(result["removed"])
 
 
 class RemoveConfirmContextRouterTests(unittest.TestCase):
