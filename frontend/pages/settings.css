@@ -4,7 +4,7 @@
 
 .content > * { max-width: 760px; }
 
-h1.page-title { margin: 0 0 var(--space-5); }
+.page-header { margin-bottom: var(--space-5); }
 
 .section { margin-bottom: var(--space-6); }
 .section h3 { margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }

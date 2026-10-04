@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Home has one header row instead of a top bar plus a heading row: the title and count on the left; search, the grid/list toggle and Open PDF on the right. Open PDF in the header shows only on Recent and only when it has files (an empty list has the card's own button, and Favorites has none). Search and the toggle hide when there is nothing to search or switch. Controls hide without moving anything else. Settings uses the same header row so titles line up across pages.
 - While "What can I say?" is open, voice only hears its own commands ("got it", "go back", "cancel", and "start search"). Before, "next page" would keep turning pages behind it.
 - Saying "overwrite the original" in Settings now asks first; say "confirm overwrite" or "cancel". Clicking the option still applies it straight away.
 - The sidebar voice box says "CHECKING VOICE" until the speech engine has actually answered, and reports a problem if voice couldn't start on that screen, instead of always saying "VOICE READY".
@@ -18,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The list view's always-visible trash icon is replaced by a "⋯" menu that appears only on row hover or keyboard focus: Open, Show in folder, and Remove from Recent, which notes that the file stays on disk.
 
 ### Added
+- Search on Recent and Favorites. The box that used to sit unused at the top of Home now filters the list as you type, by file name, in both grid and list views, and is named for the page ("Search Recent", "Search Favorites"). The count shows "3 of 12" while filtering, and a search with no results says `No PDFs match "…"` with a Clear button. The x in the field clears it, Esc clears it and leaves the field, and Ctrl+F or "/" jumps to it. It clears when you switch pages and collapses to an icon in narrow windows. Keyboard and mouse only for now; voice search is a later addition.
+- Ctrl+O opens the Open PDF dialog from Home, Settings and the reading view (it opens Home's dialog after the usual unsaved-highlights check). It was already available by voice and by button, but had no keyboard shortcut.
 - Drag and drop: drop a PDF anywhere on the window to open it. A cue covers the window while a file is over it. From the reading view it first asks about unsaved highlights; anything that isn't a PDF is refused with a message.
 - The empty Recent screen is now a proper first-run card: a document icon, "Open PDF", "or drop a file anywhere in this window", and a "TRY SAYING" row of example phrases. The phrases come from the same list as "What can I say?", so they only ever suggest commands that work.
 - Voice commands that work on every screen: "open a PDF", "open settings", "go to Recent" and "what can I say". On Recent, "open number 3" opens that file by its position on screen.

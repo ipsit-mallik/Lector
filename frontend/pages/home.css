@@ -124,46 +124,120 @@ html, body { height: 100%; }
   scroll-padding-bottom: calc(var(--space-8) + var(--space-5));
 }
 
-.top-row {
-  display: flex;
-  gap: var(--space-4);
-  align-items: center;
-  margin-bottom: var(--space-4);
-}
-
-.search-input {
-  flex: none;
-  width: 420px;
-  height: 40px;
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background-color: var(--surface-input);
-  color: var(--text-primary);
-  font-size: var(--text-md);
-}
-
-.search-input:focus {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.top-row .btn { height: 44px; margin-left: auto; }
-
-.recent-heading {
+/* One header row per page (Recent, Favorites, Settings): title and count on
+   the left, search + grid/list toggle + Open PDF on the right. A fixed height
+   keeps the row the same on every page, whatever is showing in it. */
+.page-header {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-height: 38px;
   margin-bottom: var(--space-4);
 }
 
-.recent-heading-fill { flex: 1; }
+.page-header-fill { flex: 1; min-width: 0; }
+
+/* Only the search field ever gives up room (narrow windows, below): the title,
+   count, toggle and Open PDF keep their size, so none of them move. */
+.page-header > .page-title,
+.page-header > .count-pill,
+.page-header > .count-empty { flex: none; white-space: nowrap; }
+.page-header > .view-toggle,
+.page-header > .header-open-btn { flex: none; }
+
+/* A control that does not apply right now. visibility (not display) so its
+   slot stays reserved and the others never shift; it also leaves the tab
+   order and the accessibility tree. */
+.is-absent { visibility: hidden; pointer-events: none; }
+
+/* Search: 300px, the same height as the buttons beside it. */
+.header-search {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 300px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
+  transition: width var(--dur-med) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+
+.header-search:focus-within {
+  border-color: var(--accent);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.header-search-icon {
+  position: absolute;
+  left: 10px;
+  display: flex;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.header-search-icon svg { width: 100%; height: 100%; }
+
+.header-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 36px 0 36px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+}
+.header-search input::placeholder { color: var(--text-muted); }
+
+.header-search-clear {
+  position: absolute;
+  right: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.header-search-clear[hidden] { display: none; }
+.header-search-clear [data-icon] { display: flex; width: 14px; height: 14px; }
+.header-search-clear svg { width: 100%; height: 100%; }
+.header-search-clear:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.header-search-clear:active { background-color: var(--state-pressed); }
+
+/* Narrow windows: the field is a 38px icon that opens on click or focus, and
+   stays open while it has text so a filter in effect is never hidden. It grows
+   into the spacer beside the title, so nothing on its right moves. */
+@media (max-width: 1040px) {
+  /* Opens to 240px, or to whatever room the row has left (shrinking from its
+     basis, down to the 38px icon) — it never pushes the buttons off-screen. */
+  .header-search { flex: 0 1 auto; min-width: 38px; width: 38px; cursor: pointer; }
+  .header-search input { padding: 0; opacity: 0; }
+  .header-search:focus-within,
+  .header-search.has-text { width: 240px; cursor: text; }
+  .header-search:focus-within input,
+  .header-search.has-text input { padding: 0 36px; opacity: 1; }
+}
 
 /* Grid/list toggle -- a segmented pair, not two separate icon-buttons,
    so the pressed state reads as "one of these two, always exactly one"
    rather than two independent switches. */
 .view-toggle {
   display: flex;
+  box-sizing: border-box;
+  height: 38px;
   padding: var(--space-hair);
   border-radius: var(--radius-md);
   background-color: var(--surface-1);
@@ -174,8 +248,8 @@ html, body { height: 100%; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 26px;
+  width: 34px;
+  height: 100%;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -192,14 +266,14 @@ html, body { height: 100%; }
   box-shadow: var(--shadow-1);
 }
 
-.recent-heading .page-title { margin: 0 var(--space-1) 0 0; }
+.page-header .page-title { margin: 0 var(--space-1) 0 0; }
 
 /* Count pill (replaces a plain "N of last 10 files" text label) --
    shows how many cards are actually on screen right now, not the cap,
    which is an implementation detail nobody reading the heading needs.
    Empty ("no files yet") falls back to the old plain-text treatment,
    since there is no count to badge. */
-.recent-heading .count-pill {
+.page-header .count-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -211,9 +285,10 @@ html, body { height: 100%; }
   border: 1px solid var(--border);
   font-size: var(--text-xs);
   font-weight: 600;
+  white-space: nowrap;
   color: var(--text-secondary);
 }
-.recent-heading .count-empty { font-size: var(--text-sm); color: var(--text-muted); }
+.page-header .count-empty { font-size: var(--text-sm); color: var(--text-muted); }
 
 .recent-grid {
   display: grid;
@@ -610,8 +685,7 @@ html, body { height: 100%; }
    card's auto margins centre it on both axes. In a short window the page simply
    scrolls instead. */
 .home-content { display: flex; flex-direction: column; }
-.home-content .top-row,
-.home-content .recent-heading { flex: none; }
+.home-content .page-header { flex: none; }
 .home-content #recentArea { flex: 1 0 auto; display: flex; flex-direction: column; }
 
 .empty-state {
@@ -653,6 +727,8 @@ html, body { height: 100%; }
   font-size: var(--text-xl);
   margin: 0 0 var(--space-3);
   color: var(--text-primary);
+  /* A search query can be one very long word. */
+  overflow-wrap: anywhere;
 }
 
 .empty-state-body {

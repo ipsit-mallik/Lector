@@ -4,6 +4,9 @@ const recentArea = document.getElementById("recentArea");
 const recentCount = document.getElementById("recentCount");
 const recentViewGridBtn = document.getElementById("recentViewGridBtn");
 const recentViewListBtn = document.getElementById("recentViewListBtn");
+const viewToggle = document.getElementById("viewToggle");
+const headerSearch = document.getElementById("headerSearch");
+const headerSearchInput = document.getElementById("headerSearchInput");
 
 async function openPath(path) {
   try {
@@ -33,8 +36,8 @@ const openDialog = createFileBrowser({
   restingContext: "home",
 });
 
-// One flow for every way to ask "open a PDF": the top-row button, the empty
-// state's button, the voice command, and a hand-off from another screen.
+// One flow for every way to ask "open a PDF": the header button, the empty
+// state's button, Ctrl+O, the voice command, and a hand-off from another screen.
 async function openPdfFlow() {
   if (openDialog.isOpen()) return;
   const result = await openDialog.open({ dir: null });
@@ -42,6 +45,20 @@ async function openPdfFlow() {
 }
 
 openPdfBtn.addEventListener("click", openPdfFlow);
+
+// Ctrl+O is the keyboard route on every page — including those where the
+// header button is hidden (an empty list, Favorites). Not while a dialog or
+// the commands panel is up: they own the keyboard.
+document.addEventListener("keydown", (ev) => {
+  if ((ev.key || "").toLowerCase() !== "o" || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+  ev.preventDefault();
+  if (isModalOpen()) return;
+  openPdfFlow();
+});
+
+function isModalOpen() {
+  return Boolean(document.querySelector(".dialog-scrim:not([hidden])")) || !referenceDialog.hidden;
+}
 
 // Set by Settings or Reading when the reader says "open a PDF" there: the Open
 // dialog only exists on Home, so they navigate here and leave this note (the
@@ -176,6 +193,34 @@ function buildEmptyState(section) {
   return el;
 }
 
+// A search that matches nothing. The same card as the other empty states, with
+// the one way out: clear the search. The query goes in via textContent, so
+// whatever was typed is shown as text and never as markup.
+function buildNoMatchesState(query) {
+  const el = document.createElement("section");
+  el.className = "empty-state";
+  el.setAttribute("aria-labelledby", "emptyStateTitle");
+
+  const heading = document.createElement("h2");
+  heading.id = "emptyStateTitle";
+  heading.textContent = `No PDFs match “${query.trim()}”`;
+  const body = document.createElement("p");
+  body.className = "empty-state-body";
+  body.textContent = `Nothing in ${SECTION_TITLES[homeSection]} has that in its name.`;
+
+  const clearBtn = document.createElement("button");
+  clearBtn.className = "btn btn-secondary empty-state-action";
+  clearBtn.type = "button";
+  clearBtn.textContent = "Clear";
+  clearBtn.addEventListener("click", () => {
+    librarySearch.clear();
+    headerSearchInput.focus();
+  });
+
+  el.append(buildEmptyIcon("search"), heading, body, clearBtn);
+  return el;
+}
+
 // Remove-from-Recent affordance (Milestone 8.9, docs/DESIGN_SYSTEM.md).
 // A real <button>, not a click handler on a styled <div> — the
 // accessibility baseline's "every interactive element is a real button"
@@ -271,8 +316,27 @@ const SECTION_TITLES = { recent: "Recent", favorites: "Favorites" };
 const SECTION_LOADERS = { recent: "get_recent_files", favorites: "get_favorites" };
 let homeSection = "recent";
 
+// The header search belongs to the page it is on: it is named for it, and
+// clears when the reader moves to another.
+const headerSearchClear = document.getElementById("headerSearchClear");
+const librarySearch = createLibrarySearch({
+  wrap: headerSearch,
+  input: headerSearchInput,
+  clearBtn: headerSearchClear,
+  onChange: () => {
+    // The picker's numbers belong to the rows it was shown on.
+    hidePicker();
+    renderRecent(recentEntries);
+  },
+  canFocus: () => !headerSearch.classList.contains("is-absent"),
+  isBlocked: () => isModalOpen() || pickerActive,
+});
+
 function syncSectionChrome() {
   sectionTitle.textContent = SECTION_TITLES[homeSection];
+  const placeholder = searchPlaceholder(SECTION_TITLES[homeSection]);
+  headerSearchInput.placeholder = placeholder;
+  headerSearchInput.setAttribute("aria-label", placeholder);
   [[recentNav, "recent"], [favoritesNav, "favorites"]].forEach(([nav, section]) => {
     const active = homeSection === section;
     nav.classList.toggle("active", active);
@@ -284,6 +348,7 @@ function syncSectionChrome() {
 async function setHomeSection(section) {
   if (section === homeSection) return;
   hidePicker();
+  librarySearch.reset();
   homeSection = section;
   syncSectionChrome();
   await loadSection();
@@ -377,35 +442,61 @@ const recentListHandlers = {
   },
 };
 
+// Which header controls apply right now. They are hidden, never removed, so
+// the row keeps its shape (.is-absent in home.css). Nothing to search or toggle
+// on an empty list, and Open PDF is Recent's only when there is a list: on an
+// empty one the card's own button is the single call to action, and Favorites
+// has nothing to open from.
+function syncHeaderControls(hasItems) {
+  headerSearch.classList.toggle("is-absent", !hasItems);
+  viewToggle.classList.toggle("is-absent", !hasItems);
+  openPdfBtn.classList.toggle("is-absent", !(hasItems && homeSection === "recent"));
+}
+
+// Shows how many cards are actually on screen, not the cap -- see .count-pill
+// in home.css -- and "N of M" while a search is narrowing the list.
+function renderCount(shown, total, filtering) {
+  if (!total) {
+    recentCount.className = "count-empty";
+    recentCount.textContent = "no files yet";
+    return;
+  }
+  recentCount.className = "count-pill";
+  recentCount.textContent = filtering ? filteredCountLabel(shown, total) : String(total);
+}
+
 function renderRecent(entries) {
   closeRowMenu();
   recentEntries = entries;
-  // Shows how many cards are actually on screen, not the cap -- see
-  // .count-pill in home.css.
-  if (entries.length) {
-    recentCount.className = "count-pill";
-    recentCount.textContent = String(entries.length);
-  } else {
-    recentCount.className = "count-empty";
-    recentCount.textContent = "no files yet";
-  }
+  // A search over an empty list has nothing to apply to, and its field is
+  // hidden: drop it so it can't reappear as a stale filter.
+  if (!entries.length) librarySearch.reset();
+  const query = librarySearch.getQuery();
+  const visible = filterEntriesByQuery(entries, query);
+  renderCount(visible.length, entries.length, Boolean(query.trim()));
+  syncHeaderControls(entries.length > 0);
   recentArea.innerHTML = "";
   if (!entries.length) {
     displayedEntries = [];
     recentArea.appendChild(buildEmptyState(homeSection));
     return;
   }
+  if (!visible.length) {
+    displayedEntries = [];
+    recentArea.appendChild(buildNoMatchesState(query));
+    return;
+  }
   if (recentViewMode === "list") {
-    displayedEntries = sortRecentEntries(entries, recentSort);
+    displayedEntries = sortRecentEntries(visible, recentSort);
     recentArea.appendChild(
       buildRecentTable(displayedEntries, recentSort, recentListHandlers, homeSection)
     );
     return;
   }
-  displayedEntries = entries;
+  displayedEntries = visible;
   const grid = document.createElement("div");
   grid.className = "recent-grid";
-  entries.forEach((entry) => grid.appendChild(buildCard(entry)));
+  visible.forEach((entry) => grid.appendChild(buildCard(entry)));
   recentArea.appendChild(grid);
 }
 
@@ -532,7 +623,7 @@ let pickerActive = false;
 let pickerMode = "open";
 
 function showPicker(mode = "open") {
-  if (pickerActive || !recentEntries.length) return;
+  if (pickerActive || !displayedEntries.length) return;
   pickerMode = mode;
   // A list row pins its badge to its thumbnail (.picker-anchor) instead of
   // its own corner, which the table card's rounded edge would clip.

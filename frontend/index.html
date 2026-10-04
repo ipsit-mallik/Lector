@@ -44,19 +44,26 @@
     </div>
 
     <div class="content home-content">
-      <div class="top-row">
-        <input class="search-input" type="text" placeholder="Search your library" aria-label="Search your library">
-        <button class="btn" id="openPdfBtn">
-          <span data-icon="open_pdf"></span>
-          Open PDF
-        </button>
-      </div>
-
-      <div class="recent-heading">
+      <!-- One header row per page: title and count on the left; search, the
+           grid/list toggle and Open PDF on the right, in that order. Each
+           control hides with `.is-absent` (visibility, never display), so its
+           slot stays reserved and nothing moves when it comes or goes. -->
+      <header class="page-header">
         <h1 class="page-title" id="sectionTitle">Recent</h1>
-        <span id="recentCount" class="count-empty">no files yet</span>
-        <div class="recent-heading-fill"></div>
-        <div class="view-toggle" role="group" aria-label="Recent view">
+        <!-- Announced politely, so a search narrowing the list ("3 of 12") is
+             heard as well as seen. -->
+        <span id="recentCount" class="count-empty" role="status">no files yet</span>
+        <div class="page-header-fill"></div>
+        <div class="header-search is-absent" id="headerSearch">
+          <span class="header-search-icon" data-icon="search" aria-hidden="true"></span>
+          <input type="text" id="headerSearchInput" autocomplete="off" spellcheck="false"
+                 placeholder="Search Recent" aria-label="Search Recent">
+          <button class="header-search-clear" id="headerSearchClear" type="button"
+                  aria-label="Clear search" title="Clear search" hidden>
+            <span data-icon="close"></span>
+          </button>
+        </div>
+        <div class="view-toggle is-absent" id="viewToggle" role="group" aria-label="Recent view">
           <button class="view-toggle-btn" id="recentViewGridBtn" aria-pressed="true" aria-label="Grid view" title="Grid view">
             <span data-icon="grid_view"></span>
           </button>
@@ -64,7 +71,11 @@
             <span data-icon="list_view"></span>
           </button>
         </div>
-      </div>
+        <button class="btn header-open-btn is-absent" id="openPdfBtn" title="Open PDF  (Ctrl+O)">
+          <span data-icon="open_pdf"></span>
+          Open PDF
+        </button>
+      </header>
 
       <div id="recentArea"></div>
     </div>
@@ -137,6 +148,7 @@
   <script src="js/filedrop.js"></script>
   <script src="js/file-browser.js"></script>
   <script src="pages/recent-list.js"></script>
+  <script src="pages/library-search.js"></script>
   <script src="pages/command-reference.js"></script>
   <script src="pages/home.js"></script>
 </body>

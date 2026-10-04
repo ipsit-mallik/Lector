@@ -1029,6 +1029,14 @@ document.addEventListener("keydown", (ev) => {
     case "s":
       if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); promptSaveIfDirty(false); }
       break;
+    case "o":
+      // The same route as the voice command: leave for Home's Open dialog,
+      // after the unsaved-highlights check.
+      if ((ev.ctrlKey || ev.metaKey) && !document.querySelector(".dialog-scrim:not([hidden])")) {
+        ev.preventDefault();
+        leaveReadingTo("../index.html", { openDialog: true });
+      }
+      break;
   }
 });
 
