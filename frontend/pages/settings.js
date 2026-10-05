@@ -109,30 +109,51 @@ async function closeApp() {
 // parameter, since the voice path has no closured `current` the way a card's
 // own click handler does.
 async function selectTheme(name) {
-  if (document.documentElement.dataset.theme === name) return;
-  document.documentElement.dataset.theme = name;
+  const previous = document.documentElement.dataset.theme;
+  if (previous === name) return;
+  applyTheme(name);
   localStorage.setItem("lector-theme", name);
-  await callApi("set_theme", name);
-  await renderThemeCards();
+  // The cards are marked in place rather than rebuilt, so the check badge
+  // animates in and the page doesn't re-render under the reader's pointer.
+  markCurrentThemeCard(name);
+  try {
+    await callApi("set_theme", name);
+  } catch (err) {
+    // Not saved, so show what is saved rather than a theme the next launch
+    // won't have.
+    console.error("set_theme failed:", err);
+    applyTheme(previous);
+    localStorage.setItem("lector-theme", previous);
+    markCurrentThemeCard(previous);
+    showToast("Couldn't change the theme. Try again.");
+  }
+}
+
+function markCurrentThemeCard(name) {
+  themeCardsEl.querySelectorAll(".theme-card").forEach((card) => {
+    card.classList.toggle("selected", card.dataset.themeName === name);
+  });
 }
 
 function buildThemeCard(name, current) {
   const t = readThemeTokens(name);
-  const card = document.createElement("div");
+  const card = document.createElement("button");
+  card.type = "button";
+  card.dataset.themeName = name;
   card.className = "theme-card" + (name === current ? " selected" : "");
   card.innerHTML = `
-    <div class="theme-preview" style="background:${t.canvas}">
-      <div class="theme-preview-mock" style="background:${t.surface};border:1px solid ${t.border}">
-        <div class="theme-preview-line title" style="background:${t.text}"></div>
-        <div class="theme-preview-line" style="background:${t.muted}"></div>
-        <div class="theme-preview-line" style="width:88%;background:${t.muted}"></div>
-        <div class="theme-preview-line accent" style="background:${t.highlight}"></div>
-      </div>
-    </div>
-    <div class="theme-card-footer">
+    <span class="theme-preview" style="background:${t.canvas}">
+      <span class="theme-preview-mock" style="background:${t.surface};border:1px solid ${t.border}">
+        <span class="theme-preview-line title" style="background:${t.text}"></span>
+        <span class="theme-preview-line" style="background:${t.muted}"></span>
+        <span class="theme-preview-line" style="width:88%;background:${t.muted}"></span>
+        <span class="theme-preview-line accent" style="background:${t.highlight}"></span>
+      </span>
+    </span>
+    <span class="theme-card-footer">
       <span class="theme-card-footer-label">${THEME_LABELS[name]}</span>
-      ${name === current ? '<span class="theme-card-check" data-icon="check"></span>' : ""}
-    </div>
+      <span class="theme-card-check" data-icon="check" aria-hidden="true"></span>
+    </span>
   `;
   card.addEventListener("click", () => selectTheme(name));
   return card;
@@ -145,6 +166,23 @@ async function renderThemeCards() {
     themeCardsEl.appendChild(buildThemeCard(name, current));
   });
   await mountIcons(themeCardsEl);
+}
+
+// Radio semantics, a single Tab stop and arrow keys for each card group; the
+// clicks themselves are wired below, as before.
+initRadioCards(themeCardsEl);
+// Arrows only move focus here: choosing "Overwrite the original" is confirmed
+// when spoken, so one arrow press (which wraps) must not apply it.
+initRadioCards(document.getElementById("saveOptions"), { selectOnArrow: false });
+initRadioCards(document.getElementById("reopenOptions"));
+
+// Lifts the guard that keeps the saved settings from animating in as they are
+// restored (see theme.css .is-restoring). Two frames, so the restored state has
+// been styled once with transitions off before they come back on.
+function endRestoring() {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.body.classList.remove("is-restoring");
+  }));
 }
 
 function selectSaveRow(row) {
@@ -286,7 +324,9 @@ reopenRows.forEach((row) => {
   // Milestone 8.12 adds the same status box Home has (it was absent here
   // before, so a reader had no way to tell whether voice was listening).
   voiceBox.attach(initVoice(voiceBox.render));
-})();
+// Also lifted if a bridge call above failed, so a failed restore can't leave
+// every transition on the page switched off.
+})().finally(endRestoring);
 
 // --- Voice commands (Milestone 8.5) --------------------------------------- //
 // Each intent calls the exact function its equivalent click handler already

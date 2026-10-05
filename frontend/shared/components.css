@@ -234,25 +234,73 @@ button {
   line-height: 1.45;
 }
 
+/* ------------------------------------------------------------------ */
+/* Card family — option cards, theme cards, voice cards                 */
+/* ------------------------------------------------------------------ */
+
+/* One surface, border and radius for every card, so a page of mixed cards
+   reads as one family. Interactive cards (.option-row, .theme-card) are real
+   <button role="radio"> elements: the whole card is the click target, Tab
+   reaches it, and Space/Enter select it without any key handling of our own.
+   A plain .card (the voice cards) is a container for its own controls. */
+.card,
+.option-row,
+.theme-card {
+  background-color: var(--surface-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+
+.card { padding: var(--space-4); }
+.card:hover { border-color: var(--border-strong); }
+
+.option-row,
+.theme-card {
+  appearance: none;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .option-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  width: 100%;
   padding: var(--space-4);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-input);
-  border: 1px solid var(--border);
-  cursor: pointer;
   margin-top: var(--space-3);
 }
 
 .option-row:first-of-type { margin-top: var(--space-4); }
 .option-row + .option-row { margin-top: var(--space-2); }
 
-.option-row.selected {
-  border: 2px solid var(--accent);
-  padding: calc(var(--space-4) - 1px); /* compensate for the 1px extra border width so layout doesn't shift */
+.option-row:hover,
+.theme-card:hover { background-color: var(--surface-hover); }
+.option-row:hover:not(.selected),
+.theme-card:hover:not(.selected) { border-color: var(--border-strong); }
+.option-row:active,
+.theme-card:active { background-color: var(--surface-pressed); }
+
+/* Selected: the accent border plus a matching 1px ring, so the edge reads as
+   2px without the border ever changing width (which would shift the layout). */
+.option-row.selected,
+.theme-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
+
+/* Theme cards are the one card that lifts: they are the page's picture-sized
+   targets, where a small rise reads as "pick me" rather than as a jump. */
+.theme-card:hover { transform: translateY(var(--lift)); box-shadow: var(--shadow-2); }
+.theme-card.selected:hover { box-shadow: 0 0 0 1px var(--accent), var(--shadow-2); }
+.theme-card:active { transform: none; box-shadow: none; }
+.theme-card.selected:active { box-shadow: 0 0 0 1px var(--accent); }
 
 .option-radio {
   flex: none;
@@ -261,38 +309,120 @@ button {
   border-radius: 50%;
   border: 2px solid var(--text-tertiary);
   position: relative;
+  transition: border-color var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out);
 }
 
-.option-row.selected .option-radio {
-  border-color: var(--accent);
-}
-
-.option-row.selected .option-radio::after {
+/* The dot is always present and fades/scales in, and the ring fills with a soft
+   halo, so choosing an option animates rather than snapping. */
+.option-radio::after {
   content: "";
   position: absolute;
   inset: 3px;
   border-radius: 50%;
   background-color: var(--accent);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out);
 }
+
+.option-row:hover:not(.selected) .option-radio { border-color: var(--text-secondary); }
+.option-row.selected .option-radio {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.option-row.selected .option-radio::after { opacity: 1; transform: scale(1); }
 
 .option-text { flex: 1; display: flex; flex-direction: column; gap: var(--space-hair); }
 
 .option-title { font-size: var(--text-md); font-weight: 500; color: var(--text-primary); }
-.option-subtitle { font-size: var(--text-sm); color: var(--text-muted); }
+.option-subtitle { font-size: var(--text-sm); color: var(--text-muted); transition: color var(--dur-fast) var(--ease-out); }
+/* --text-muted is 4.56:1 on the dark card at rest but falls below 4.5:1 on the
+   hover and pressed fills, so the subtitle steps up to secondary there. */
+.option-row:hover .option-subtitle,
+.option-row:active .option-subtitle { color: var(--text-secondary); }
 
+/* ------------------------------------------------------------------ */
+/* Checkbox                                                            */
+/* ------------------------------------------------------------------ */
+
+/* The whole label is the click target. A real <input type="checkbox">,
+   restyled; its outline is --text-tertiary so the unchecked box clears 3:1
+   against every surface. */
 .checkbox-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: fit-content;
   margin-top: var(--space-4);
   font-size: var(--text-md);
   color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
 }
+.checkbox-row:hover { color: var(--text-primary); }
 
 .checkbox-row input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 2px solid var(--text-tertiary);
+  border-radius: var(--radius-xs);
+  background-color: var(--surface-input);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+
+/* The tick is two bars that grow from the elbow outwards (short arm first,
+   then the long one), so it draws in with transform alone. */
+.checkbox-row input[type="checkbox"]::before,
+.checkbox-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--on-accent);
+  transform-origin: 0 50%;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.checkbox-row input[type="checkbox"]::before {
+  left: 2.5px;
+  top: 7px;
+  width: 4px;
+  transform: rotate(45deg) scaleX(0);
+}
+.checkbox-row input[type="checkbox"]::after {
+  left: 5.3px;
+  top: 9.8px;
+  width: 8px;
+  transform: rotate(-45deg) scaleX(0);
+}
+
+.checkbox-row:hover input[type="checkbox"]:not(:checked) {
+  border-color: var(--text-secondary);
+  background-color: var(--surface-hover);
+}
+.checkbox-row input[type="checkbox"]:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+.checkbox-row:hover input[type="checkbox"]:checked { background-color: var(--accent-hover); border-color: var(--accent-hover); }
+.checkbox-row:active input[type="checkbox"]:not(:checked) { background-color: var(--surface-pressed); }
+.checkbox-row:active input[type="checkbox"]:checked { background-color: var(--accent-pressed); border-color: var(--accent-pressed); }
+
+.checkbox-row input[type="checkbox"]:checked::before {
+  transform: rotate(45deg) scaleX(1);
+  transition-duration: calc(var(--dur-base) * 0.4);
+}
+.checkbox-row input[type="checkbox"]:checked::after {
+  transform: rotate(-45deg) scaleX(1);
+  transition-duration: calc(var(--dur-base) * 0.6);
+  transition-delay: calc(var(--dur-base) * 0.4);
 }
 
 .dialog-footer {
@@ -323,6 +453,7 @@ button {
   flex: none;
   width: 42px;
   height: 24px;
+  cursor: pointer;
 }
 
 .toggle input {
@@ -341,7 +472,7 @@ button {
   height: 100%;
   border-radius: var(--radius-lg);
   background-color: var(--text-tertiary);
-  transition: background-color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-base) var(--ease-out);
   pointer-events: none;
 }
 
@@ -355,10 +486,16 @@ button {
   border-radius: 50%;
   background-color: var(--knob);
   box-shadow: var(--shadow-knob);
-  transition: transform var(--dur-fast) var(--ease-spring);
+  transition: transform var(--dur-base) var(--ease-out);
 }
 
+/* Off is neutral and stays neutral on hover (a shade darker); on is the accent.
+   The two never share a colour, so the state reads without the knob. */
+.toggle:hover input:not(:checked) + .toggle-track { background-color: color-mix(in srgb, var(--text-tertiary) 78%, var(--text-primary)); }
+.toggle:active input:not(:checked) + .toggle-track { background-color: color-mix(in srgb, var(--text-tertiary) 58%, var(--text-primary)); }
 .toggle input:checked + .toggle-track { background-color: var(--accent); }
+.toggle:hover input:checked + .toggle-track { background-color: var(--accent-hover); }
+.toggle:active input:checked + .toggle-track { background-color: var(--accent-pressed); }
 .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
 
 .toggle input:focus-visible + .toggle-track {
@@ -366,64 +503,31 @@ button {
   outline-offset: 2px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .toggle-track,
-  .toggle-track::after {
-    transition: none;
-  }
-}
-
 /* ------------------------------------------------------------------ */
-/* Radio card + checkbox motion                                        */
+/* Page entrance                                                       */
 /* ------------------------------------------------------------------ */
 
-/* The radio dot is always present and scales in, rather than appearing
-   only once selected, so selection has a small physical "pop". */
-.option-radio::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background-color: var(--accent);
-  transform: scale(0);
-  transition: transform var(--dur-fast) var(--ease-spring);
+/* Put .page-enter on a page's content column: its children fade in and rise a
+   few px, one after another. A CSS animation runs once, when the element is
+   first rendered -- so once per page visit, and not again when a setting
+   changes or a list inside a section is rebuilt. `backwards` holds the start
+   state through the stagger delay and leaves nothing behind afterwards (no
+   lingering transform to create a stacking context). */
+.page-enter > * {
+  --enter-index: 6;
+  animation: page-enter var(--dur-base) var(--ease-out) backwards;
+  animation-delay: calc(var(--enter-index) * var(--stagger));
 }
-.option-row.selected .option-radio::after { transform: scale(1); }
-.option-row { transition: border-color var(--dur-fast) var(--ease-out); }
-.option-row:hover:not(.selected) { border-color: var(--border-strong); }
+.page-enter > :nth-child(1) { --enter-index: 0; }
+.page-enter > :nth-child(2) { --enter-index: 1; }
+.page-enter > :nth-child(3) { --enter-index: 2; }
+.page-enter > :nth-child(4) { --enter-index: 3; }
+.page-enter > :nth-child(5) { --enter-index: 4; }
+.page-enter > :nth-child(6) { --enter-index: 5; }
 
-/* Checkbox: a real <input type="checkbox">, restyled. The outline is
-   --text-tertiary so the unchecked box clears 3:1 against every surface. */
-.checkbox-row input[type="checkbox"] {
-  appearance: none;
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  border: 2px solid var(--text-tertiary);
-  border-radius: var(--radius-xs);
-  background-color: var(--surface-input);
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out);
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(var(--enter-rise)); }
 }
-.checkbox-row input[type="checkbox"]::after {
-  content: "";
-  width: 4px;
-  height: 8px;
-  margin-top: -2px;
-  border: solid var(--on-accent);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg) scale(0);
-  transition: transform var(--dur-fast) var(--ease-spring);
-}
-.checkbox-row input[type="checkbox"]:checked {
-  background-color: var(--accent);
-  border-color: var(--accent);
-}
-.checkbox-row input[type="checkbox"]:checked::after { transform: rotate(45deg) scale(1); }
 
 /* ------------------------------------------------------------------ */
 /* Chip — small status/label pill                                      */
@@ -471,7 +575,7 @@ button {
   box-shadow: var(--shadow-2);
   pointer-events: none;
   opacity: 0;
-  transform: translateY(2px);
+  transform: translateY(calc(var(--enter-rise) / 3));
   transition: opacity var(--dur-fast) var(--ease-out),
               transform var(--dur-fast) var(--ease-out);
 }
@@ -525,9 +629,9 @@ kbd,
   box-shadow: var(--shadow-3);
   pointer-events: auto;
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
-  transition: opacity var(--dur-med) var(--ease-out),
-              transform var(--dur-med) var(--ease-out);
+  transform: translateY(var(--enter-rise));
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out);
 }
 .toast.is-visible { opacity: 1; transform: none; }
 .toast-action {
@@ -553,11 +657,16 @@ kbd,
   background-color: var(--border);
   overflow: hidden;
 }
+/* Full width, scaled from the left by --progress (0 to 1): the fill grows with
+   transform alone, so a progress change never triggers layout. */
 .progress-bar-fill {
+  width: 100%;
   height: 100%;
   border-radius: var(--radius-pill);
   background-color: var(--accent);
-  transition: width var(--dur-slow) var(--ease-out);
+  transform-origin: 0 50%;
+  transform: scaleX(var(--progress, 0));
+  transition: transform var(--dur-base) var(--ease-out);
 }
 
 /* ------------------------------------------------------------------ */

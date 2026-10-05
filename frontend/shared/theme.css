@@ -46,15 +46,21 @@
   --text-xl: clamp(20px, 1vw + 12px, 24px);
   --text-2xl: clamp(24px, 1.4vw + 12px, 30px);
 
-  /* Motion. Every transition uses --ease-out; --ease-spring is reserved
-   * for the few controls meant to feel physical (toggle knob, radio dot,
-   * checkmark pop, tree chevron). Nothing runs longer than 300ms. */
-  --dur-fast: 150ms;
-  --dur-med: 220ms;
-  --dur-slow: 280ms;
+  /* Motion: one duration pair and one easing, used by every component.
+   * --dur-fast is hover/press/focus feedback; --dur-base is a state change
+   * (toggle, selection, theme crossfade, page entrance). Only transform,
+   * opacity, colour, background, border and shadow are animated -- never
+   * layout -- and there is no overshoot curve: nothing bounces. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
   --stagger: 40ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Distances for the two movements the app allows: a card's hover lift and
+   * a page section's entrance rise. Zeroed under prefers-reduced-motion
+   * below, so reduced motion means no movement at all, not a faster one. */
+  --lift: -2px;
+  --enter-rise: 6px;
 
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
@@ -188,6 +194,13 @@
    * darkens on light surfaces and lightens on dark ones with one rule. */
   --state-hover: color-mix(in srgb, var(--text-primary) 6%, transparent);
   --state-pressed: color-mix(in srgb, var(--text-primary) 11%, transparent);
+
+  /* The same washes for a card's own fill (--surface-input), which is opaque
+   * and so can't take a translucent overlay without showing the page through
+   * it. --surface-on is the "this one is switched on" tint. */
+  --surface-hover: color-mix(in srgb, var(--surface-input) 94%, var(--text-primary));
+  --surface-pressed: color-mix(in srgb, var(--surface-input) 88%, var(--text-primary));
+  --surface-on: color-mix(in srgb, var(--surface-input) 92%, var(--accent));
 }
 
 * {
@@ -207,18 +220,63 @@ body {
   overflow: hidden;
 }
 
-/* Global reduced-motion safety net -- collapses every transition/
- * animation in the app to effectively instant for users who've asked
- * the OS for reduced motion, so individual components don't each need
- * their own copy of this query. A component-level media query is still
- * needed only when a *state change* itself (not just its transition)
- * must be skipped -- see docs/DESIGN_SYSTEM.md open_dialog's Motion note. */
+/* Theme switch: ui.js's applyTheme() puts this class on <html> for one
+ * --dur-base around the change, so every colour crossfades instead of
+ * snapping. It is not left on, because a blanket transition would also slow
+ * every ordinary hover. The shorthand replaces each element's own transitions
+ * while it is on, so opacity and transform are listed too: a control that
+ * changes state in the same moment (Settings' check badge) still animates. */
+.theme-fading,
+.theme-fading *,
+.theme-fading *::before,
+.theme-fading *::after {
+  transition: background-color var(--dur-base) var(--ease-out),
+              color var(--dur-base) var(--ease-out),
+              border-color var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out),
+              fill var(--dur-base) var(--ease-out),
+              stroke var(--dur-base) var(--ease-out),
+              opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out) !important;
+}
+
+/* A page that restores saved state on load (Settings) sets .is-restoring on
+ * <body> until that is done, so a switch landing in its saved position doesn't
+ * animate in as if the reader had just flipped it. */
+.is-restoring,
+.is-restoring *,
+.is-restoring *::before,
+.is-restoring *::after {
+  transition: none !important;
+}
+
+/* Reduced motion: nothing moves. Lifts and entrance rises collapse to zero
+ * distance (so what remains is a colour or opacity change), and every
+ * remaining transition/animation is made effectively instant. A component
+ * needs its own query only when the state change itself, not just its
+ * transition, must be skipped -- see docs/DESIGN_SYSTEM.md open_dialog's
+ * Motion note. */
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --lift: 0px;
+    --enter-rise: 0px;
+  }
+
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     transition-delay: 0ms !important;
+    animation-delay: 0ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* The crossfade rule above outranks the universal selector, so it is
+   * collapsed explicitly: with reduced motion a theme switch is instant. */
+  .theme-fading,
+  .theme-fading *,
+  .theme-fading *::before,
+  .theme-fading *::after {
+    transition-duration: 0.01ms !important;
   }
 }

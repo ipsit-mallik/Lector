@@ -10,20 +10,24 @@
 .section h3 { margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
 .section .sub { margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--text-muted); }
 
+/* ------------------------------------------------------------------ */
+/* Theme cards                                                         */
+/* ------------------------------------------------------------------ */
+
+/* The surface, border, hover/press/selected states and the lift are the shared
+   card family's (shared/components.css); only the layout is Settings'. */
 .theme-cards { display: flex; gap: var(--space-4); }
 
 .theme-card {
+  display: block;
   width: 210px;
-  border-radius: var(--radius-md);
+  padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  background-color: var(--surface-input);
-  cursor: pointer;
 }
 
-.theme-card.selected { border: 2px solid var(--accent); }
-
-.theme-preview { height: 104px; padding: var(--space-3); }
+/* The card's contents are <span>s (a <button> may only hold phrasing content),
+   so each block says so. */
+.theme-preview { display: block; height: 104px; padding: var(--space-3); }
 .theme-card-footer {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border);
@@ -38,10 +42,12 @@
   flex-direction: column;
   gap: var(--space-1);
 }
-.theme-preview-line { height: 5px; width: 100%; border-radius: var(--radius-pill); }
+.theme-preview-line { display: block; flex: none; height: 5px; width: 100%; border-radius: var(--radius-pill); }
 .theme-preview-line.title { height: 7px; width: 70%; }
 .theme-preview-line.accent { width: 44%; }
 
+/* Always in the card and shown by .selected, so choosing a theme scales and
+   fades the badge in rather than rebuilding it. */
 .theme-card-check {
   width: 17px;
   height: 17px;
@@ -52,8 +58,18 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-1);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out);
 }
 .theme-card-check svg { width: 100%; height: 100%; }
+.theme-card.selected .theme-card-check { opacity: 1; transform: scale(1); }
+
+/* Reduced motion: the badge only fades, it does not grow. */
+@media (prefers-reduced-motion: reduce) {
+  .theme-card-check { transform: none; }
+}
 
 /* ------------------------------------------------------------------ */
 /* Voice activation                                                    */
@@ -68,11 +84,18 @@
   gap: var(--space-4);
 }
 
-.voice-card {
-  padding: var(--space-4) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-2);
+/* Surface, border, radius and padding come from .card -- the same as the
+   option cards below. What is added here is the switch's state, read straight
+   off the checkbox with :has() so no script has to mirror it into a class.
+   Off: a neutral card, a dimmed detail row, an "Off" label. On: a hairline
+   accent border, a soft accent tint and an "On" label. */
+.voice-card:has(.toggle input:checked) {
+  border-color: var(--accent);
+  background-color: var(--surface-on);
+}
+.voice-card:has(.toggle input:checked):hover {
+  border-color: var(--accent-hover);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .voice-card-head {
@@ -88,6 +111,23 @@
   gap: var(--space-hair);
 }
 
+.voice-card .option-title { transition: color var(--dur-base) var(--ease-out); }
+.voice-card:not(:has(.toggle input:checked)) .option-title { color: var(--text-secondary); }
+
+/* The state as a word as well as a colour: the label reads "Off" until the
+   checkbox is checked. Decorative (aria-hidden) because the toggle itself is
+   what announces its state. Line-height matches the toggle so they centre. */
+.voice-card-state {
+  line-height: 24px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: color var(--dur-base) var(--ease-out);
+}
+.voice-card-state::before { content: "Off"; }
+.voice-card:has(.toggle input:checked) .voice-card-state { color: var(--accent-strong); }
+.voice-card:has(.toggle input:checked) .voice-card-state::before { content: "On"; }
+
 .voice-card-detail {
   display: flex;
   align-items: center;
@@ -95,16 +135,52 @@
   margin: var(--space-4) 0 0;
   font-size: var(--text-sm);
   color: var(--text-muted);
+  transition: color var(--dur-base) var(--ease-out);
 }
 
+/* Key and Phrase are facts, not controls (neither can be changed yet), so they
+   are drawn as a muted pill: no border, no hover, default cursor -- nothing
+   that looks like a button. While the card is off the pill's fill goes too and
+   the value is plain text. */
 .key-chip {
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background-color: var(--surface-1);
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background-color: var(--state-hover);
   font: inherit;
   font-size: var(--text-sm);
-  color: var(--text-primary);
+  font-weight: 500;
+  color: inherit;
+  cursor: default;
+  transition: background-color var(--dur-base) var(--ease-out),
+              color var(--dur-base) var(--ease-out);
 }
+.voice-card:not(:has(.toggle input:checked)) .key-chip { background-color: transparent; }
 
-.voice-card-note { font-size: var(--text-xs); color: var(--text-muted); }
+/* The small secondary label, pushed to the card's far edge so it reads as an
+   annotation on the value rather than part of it. */
+.voice-card-note { margin-left: auto; font-size: var(--text-xs); }
+
+/* Off dims by colour, not opacity: the text stays --text-muted (>= 4.5:1 on the
+   card). On is the brighter state -- secondary text on the tinted card -- which
+   also keeps muted text from sinking under 4.5:1 on that tint in dark. */
+.voice-card .option-subtitle { transition: color var(--dur-base) var(--ease-out); }
+.voice-card:has(.toggle input:checked) .option-subtitle,
+.voice-card:has(.toggle input:checked) .voice-card-detail { color: var(--text-secondary); }
+
+/* ------------------------------------------------------------------ */
+/* Option groups                                                       */
+/* ------------------------------------------------------------------ */
+
+/* "Don't ask again" belongs to "When I save highlights", not to the section
+   after it: it sits 8px under the options (the same gap the options have
+   between themselves) against 32px to the next heading, and is indented to
+   line up with the radio dots above it. */
+.checkbox-row--attached {
+  margin-top: var(--space-2);
+  margin-left: var(--space-4);
+  padding: var(--space-1) 0;
+}

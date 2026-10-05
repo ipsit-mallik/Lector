@@ -24,6 +24,9 @@ const SaveDialog = (() => {
   rows.forEach((row) => {
     row.addEventListener("click", () => selectRow(row));
   });
+  // Arrows move focus only: "Overwrite the original" must not be one stray
+  // (wrapping) keypress away, least of all with "don't ask again" ticked.
+  initRadioCards(document.getElementById("saveDialogOptions"), { selectOnArrow: false });
 
   function close(result) {
     scrim.hidden = true;

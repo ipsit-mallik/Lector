@@ -217,19 +217,19 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .tree-children {
-    transition: grid-template-rows var(--dur-slow) var(--ease-spring);
+    transition: grid-template-rows var(--dur-base) var(--ease-out);
   }
 
   .tree-children:not(.is-expanded) > .tree-children-inner {
-    transition: visibility 0s linear var(--dur-slow);
+    transition: visibility 0s linear var(--dur-base);
   }
 
   .tree-chevron {
-    transition: transform var(--dur-slow) var(--ease-spring);
+    transition: transform var(--dur-base) var(--ease-out);
   }
 
   .tree-line-fill {
-    transition: height var(--dur-med) var(--ease-out);
+    transition: height var(--dur-base) var(--ease-out);
     transition-delay: calc(var(--depth, 0) * var(--stagger));
   }
 }

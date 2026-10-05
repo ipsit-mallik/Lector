@@ -114,20 +114,22 @@
           </div>
         </div>
 
-        <div class="option-row selected" id="copyRow" data-mode="copy">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Save a copy</span>
-            <span class="option-subtitle">Saved as a new file alongside the original.</span>
-          </div>
-        </div>
+        <div id="saveDialogOptions" aria-label="How to save">
+          <button type="button" class="option-row selected" id="copyRow" data-mode="copy">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Save a copy</span>
+              <span class="option-subtitle">Saved as a new file alongside the original.</span>
+            </span>
+          </button>
 
-        <div class="option-row" id="overwriteRow" data-mode="overwrite">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Overwrite the original</span>
-            <span class="option-subtitle">Your changes are written into the file you opened.</span>
-          </div>
+          <button type="button" class="option-row" id="overwriteRow" data-mode="overwrite">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Overwrite the original</span>
+              <span class="option-subtitle">Your changes are written into the file you opened.</span>
+            </span>
+          </button>
         </div>
 
         <label class="checkbox-row">
