@@ -861,7 +861,7 @@ async function toggleLayout() {
 async function cycleTheme() {
   const current = document.documentElement.dataset.theme;
   const next = THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length];
-  document.documentElement.dataset.theme = next;
+  applyTheme(next);
   await callApi("set_theme", next);
 }
 

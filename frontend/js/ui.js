@@ -163,4 +163,72 @@ function showToast(message, { actionLabel, onAction, durationMs } = {}) {
   return dismiss;
 }
 
+// Theme switch with a crossfade: puts .theme-fading on <html> (theme.css) for
+// one --dur-base around the change, so every colour fades instead of snapping.
+// For a switch the reader makes; a page restoring its saved theme on load sets
+// data-theme directly, with no fade.
+const THEME_FADE_PADDING_MS = 50;
+let _themeFadeTimer = null;
+
+function applyTheme(name) {
+  const root = document.documentElement;
+  if (root.dataset.theme === name) return;
+  const fadeMs = parseFloat(getComputedStyle(root).getPropertyValue("--dur-base")) || 200;
+  clearTimeout(_themeFadeTimer);
+  root.classList.add("theme-fading");
+  root.dataset.theme = name;
+  _themeFadeTimer = setTimeout(
+    () => root.classList.remove("theme-fading"),
+    fadeMs + THEME_FADE_PADDING_MS,
+  );
+}
+
+// Radio semantics for a group of <button> cards (.option-row, .theme-card) that
+// choose one of several. Each card's own click handler still does the choosing;
+// this only mirrors the .selected class into role/aria-checked, keeps the
+// selected card as the group's single Tab stop, and lets the arrow keys move
+// to (and choose) the neighbour, as a native radio group does. Re-syncs itself
+// when the page changes .selected or rebuilds the cards.
+//
+// `selectOnArrow: false` makes the arrows move focus only (Space/Enter then
+// choose): for a group with a choice that shouldn't be one stray keypress away,
+// like Settings' "Overwrite the original".
+function initRadioCards(group, { selectOnArrow = true } = {}) {
+  group.setAttribute("role", "radiogroup");
+  const cards = () => Array.from(group.children).filter((el) => el.matches("button"));
+
+  const sync = () => {
+    const all = cards();
+    const selected = all.find((card) => card.classList.contains("selected"));
+    all.forEach((card) => {
+      card.setAttribute("role", "radio");
+      card.setAttribute("aria-checked", String(card === selected));
+      card.tabIndex = card === (selected || all[0]) ? 0 : -1;
+    });
+  };
+
+  const ARROW_STEP = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+  group.addEventListener("keydown", (e) => {
+    const step = ARROW_STEP[e.key];
+    const all = cards();
+    const index = all.indexOf(document.activeElement);
+    if (!step || index < 0) return;
+    e.preventDefault();
+    // The arrows belong to the group: a page-level handler (the reader turns
+    // pages on them) must not also act while a card has focus.
+    e.stopPropagation();
+    const next = all[(index + step + all.length) % all.length];
+    next.focus();
+    if (selectOnArrow) next.click();
+  });
+
+  new MutationObserver(sync).observe(group, {
+    attributes: true,
+    attributeFilter: ["class"],
+    childList: true,
+    subtree: true,
+  });
+  sync();
+}
+
 initTooltips();

@@ -6,7 +6,7 @@
   <title>Lector — Settings</title>
   <link rel="stylesheet" href="settings.css">
 </head>
-<body>
+<body class="is-restoring">
   <div class="home-view">
     <div class="sidebar">
       <div class="brand">
@@ -39,7 +39,7 @@
       </p>
     </div>
 
-    <div class="content">
+    <div class="content page-enter">
       <!-- The same header row as the library pages (home.css), with nothing on
            its right: Settings has no list to search or toggle. -->
       <header class="page-header">
@@ -64,12 +64,16 @@
           still works by mouse and keyboard.
         </p>
         <div class="voice-cards">
-          <div class="voice-card">
+          <!-- The on/off look (accent border and tint, dimmed detail, the
+               On/Off label) follows the toggle through :has(), so no script has
+               to keep a class in step with the checkbox. -->
+          <div class="card voice-card">
             <div class="voice-card-head">
               <div class="voice-card-text">
                 <span class="option-title">Push-to-talk</span>
                 <span class="option-subtitle">Mic opens only while the key is held.</span>
               </div>
+              <span class="voice-card-state" aria-hidden="true"></span>
               <label class="toggle">
                 <input type="checkbox" id="pushToTalkToggle" aria-label="Push-to-talk">
                 <span class="toggle-track"></span>
@@ -85,12 +89,13 @@
             </p>
           </div>
 
-          <div class="voice-card">
+          <div class="card voice-card">
             <div class="voice-card-head">
               <div class="voice-card-text">
                 <span class="option-title">Wake phrase</span>
                 <span class="option-subtitle">Always listening for one phrase, on-device.</span>
               </div>
+              <span class="voice-card-state" aria-hidden="true"></span>
               <label class="toggle">
                 <input type="checkbox" id="wakePhraseToggle" aria-label="Wake phrase">
                 <span class="toggle-track"></span>
@@ -107,21 +112,25 @@
       <div class="section">
         <h3>When I save highlights</h3>
         <p class="sub">Lector never changes a file until you save.</p>
-        <div id="copyRow" class="option-row selected" data-mode="copy">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Save a copy</span>
-            <span class="option-subtitle">Writes "name — highlighted.pdf" next to the original.</span>
-          </div>
+        <div id="saveOptions" aria-label="When I save highlights">
+          <button type="button" id="copyRow" class="option-row selected" data-mode="copy">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Save a copy</span>
+              <span class="option-subtitle">Writes "name — highlighted.pdf" next to the original.</span>
+            </span>
+          </button>
+          <button type="button" id="overwriteRow" class="option-row" data-mode="overwrite">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Overwrite the original</span>
+              <span class="option-subtitle">Highlights are written straight into the file you opened.</span>
+            </span>
+          </button>
         </div>
-        <div id="overwriteRow" class="option-row" data-mode="overwrite">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Overwrite the original</span>
-            <span class="option-subtitle">Highlights are written straight into the file you opened.</span>
-          </div>
-        </div>
-        <label class="checkbox-row">
+        <!-- Part of this group, not of the next section: it sits close under the
+             two options and indented to line up with their text. -->
+        <label class="checkbox-row checkbox-row--attached">
           <input type="checkbox" id="rememberCheck">
           Don't ask again — just do this every time
         </label>
@@ -130,19 +139,21 @@
       <div class="section">
         <h3>When I reopen a PDF</h3>
         <p class="sub">Applies to files you open again from Recent.</p>
-        <div id="continueRow" class="option-row selected" data-mode="continue">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Continue where I left off</span>
-            <span class="option-subtitle">Opens on the last page you were reading, in the layout you were using.</span>
-          </div>
-        </div>
-        <div id="startRow" class="option-row" data-mode="start">
-          <div class="option-radio"></div>
-          <div class="option-text">
-            <span class="option-title">Always start at the beginning</span>
-            <span class="option-subtitle">Every PDF opens on page 1, in book layout.</span>
-          </div>
+        <div id="reopenOptions" aria-label="When I reopen a PDF">
+          <button type="button" id="continueRow" class="option-row selected" data-mode="continue">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Continue where I left off</span>
+              <span class="option-subtitle">Opens on the last page you were reading, in the layout you were using.</span>
+            </span>
+          </button>
+          <button type="button" id="startRow" class="option-row" data-mode="start">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Always start at the beginning</span>
+              <span class="option-subtitle">Every PDF opens on page 1, in book layout.</span>
+            </span>
+          </button>
         </div>
       </div>
     </div>

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+
+- Settings (and the other screens' shared controls) feel less static. Cards, toggles, the checkbox, sidebar items and the "What can I say?" link now have a visible hover, a pressed state and a clear keyboard-focus ring. The theme and option cards are clickable all over, not just on the radio dot, and are reachable with Tab (arrow keys move between options). Theme cards lift slightly on hover. Switching theme crossfades instead of snapping. Settings and Home fade in section by section when you open them (not again when you change a setting). Toggles slide, the radio dot and ring animate in, the checkbox tick draws in, and the chosen theme's check badge fades in. With "reduce motion" on, nothing moves.
+- Voice activation cards now match the option cards (same surface, border, corners and padding). A card that is on gets an accent border and tint and an "On" label; one that is off stays neutral and quieter, with an "Off" label. Voice still can't switch voice activation off; only the toggles do.
+- Settings: "Don't ask again — just do this every time" now sits tight under "When I save highlights", indented under its options, instead of floating between that section and the next. "Space" and the wake phrase are drawn as flat read-only values (not button-like chips) with a small "fixed for now" note.
+- The save-changes dialog's two options use the same cards, so they are focusable and animate the same way.
+- Motion is now one set everywhere: 120ms for hover/press feedback, 200ms for state changes, one ease-out curve. The bounce on toggles, radios, the checkmark and the folder tree is gone.
 - Home has one header row instead of a top bar plus a heading row: the title and count on the left; search, the grid/list toggle and Open PDF on the right. Open PDF in the header shows only on Recent and only when it has files (an empty list has the card's own button, and Favorites has none). Search and the toggle hide when there is nothing to search or switch. Controls hide without moving anything else. Settings uses the same header row so titles line up across pages.
 - While "What can I say?" is open, voice only hears its own commands ("got it", "go back", "cancel", and "start search"). Before, "next page" would keep turning pages behind it.
 - Saying "overwrite the original" in Settings now asks first; say "confirm overwrite" or "cancel". Clicking the option still applies it straight away.
