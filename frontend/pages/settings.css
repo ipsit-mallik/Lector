@@ -85,18 +85,11 @@
 }
 
 /* Surface, border, radius and padding come from .card -- the same as the
-   option cards below. What is added here is the switch's state, read straight
-   off the checkbox with :has() so no script has to mirror it into a class.
-   Off: a neutral card, a dimmed detail row, an "Off" label. On: a hairline
-   accent border, a soft accent tint and an "On" label. */
-.voice-card:has(.toggle input:checked) {
-  border-color: var(--accent);
-  background-color: var(--surface-on);
-}
-.voice-card:has(.toggle input:checked):hover {
-  border-color: var(--accent-hover);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
+   option cards below -- and the hover/focus lift from .card-lift, in both
+   states: the card itself never changes fill or border with the switch. The
+   state lives in the content, read straight off the checkbox with :has() so no
+   script has to mirror it into a class. Off: dimmed text and an "Off" label.
+   On: brighter text and an accent "On" label. */
 
 .voice-card-head {
   display: flex;
@@ -165,8 +158,7 @@
 .voice-card-note { margin-left: auto; font-size: var(--text-xs); }
 
 /* Off dims by colour, not opacity: the text stays --text-muted (>= 4.5:1 on the
-   card). On is the brighter state -- secondary text on the tinted card -- which
-   also keeps muted text from sinking under 4.5:1 on that tint in dark. */
+   card). On is the brighter state, secondary text on the same card. */
 .voice-card .option-subtitle { transition: color var(--dur-base) var(--ease-out); }
 .voice-card:has(.toggle input:checked) .option-subtitle,
 .voice-card:has(.toggle input:checked) .voice-card-detail { color: var(--text-secondary); }

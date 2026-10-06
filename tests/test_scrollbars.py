@@ -156,6 +156,22 @@ class StylesheetBehaviourTests(unittest.TestCase):
     def test_a_transition_fades_the_thumb(self):
         self.assertRegex(self.rule("::-webkit-scrollbar-thumb"), r"transition:\s*background-color")
 
+    def test_the_track_stops_short_of_both_ends_on_both_axes(self):
+        # A margin on the track limits how far the thumb can travel without
+        # touching the scroller's content box or the gutter's width, so nothing
+        # reflows. Vertical insets top and bottom, horizontal left and right.
+        self.assertRegex(self.css, r"--scrollbar-inset:\s*8px")
+        self.assertRegex(
+            self.rule("::-webkit-scrollbar-track:vertical"), r"margin:\s*var\(--scrollbar-inset\)\s+0\s*;?\s*$"
+        )
+        self.assertRegex(
+            self.rule("::-webkit-scrollbar-track:horizontal"), r"margin:\s*0\s+var\(--scrollbar-inset\)\s*;?\s*$"
+        )
+
+    def test_the_inset_adds_no_padding_or_size_to_the_scroller(self):
+        for selector in ("::-webkit-scrollbar-track:vertical", "::-webkit-scrollbar-track:horizontal"):
+            self.assertNotRegex(self.rule(selector), r"padding|width|height")
+
 
 class ThumbContrastTests(unittest.TestCase):
     def thumb_token(self, variable: str) -> str:

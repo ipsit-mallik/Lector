@@ -21,6 +21,7 @@
 
 :root {
   --scrollbar-size: 6px;
+  --scrollbar-inset: 8px;
   --scrollbar-thumb: var(--text-tertiary);
   --scrollbar-thumb-hover: var(--text-muted);
 }
@@ -34,6 +35,13 @@
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* The track stops --scrollbar-inset short of both ends, so the thumb never
+ * touches the window edge, the title bar or a dialog's rim. A margin on the
+ * track only moves where the thumb can travel: it changes neither the
+ * scroller's content box nor the gutter's width, so nothing reflows. */
+::-webkit-scrollbar-track:vertical { margin: var(--scrollbar-inset) 0; }
+::-webkit-scrollbar-track:horizontal { margin: 0 var(--scrollbar-inset); }
 
 /* Idle: invisible. */
 ::-webkit-scrollbar-thumb {

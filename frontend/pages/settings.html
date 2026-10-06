@@ -64,10 +64,10 @@
           still works by mouse and keyboard.
         </p>
         <div class="voice-cards">
-          <!-- The on/off look (accent border and tint, dimmed detail, the
-               On/Off label) follows the toggle through :has(), so no script has
-               to keep a class in step with the checkbox. -->
-          <div class="card voice-card">
+          <!-- The on/off look (dimmed text, the On/Off label) follows the
+               toggle through :has(), so no script has to keep a class in step
+               with the checkbox. The card's own fill never changes. -->
+          <div class="card voice-card card-lift">
             <div class="voice-card-head">
               <div class="voice-card-text">
                 <span class="option-title">Push-to-talk</span>
@@ -89,7 +89,7 @@
             </p>
           </div>
 
-          <div class="card voice-card">
+          <div class="card voice-card card-lift">
             <div class="voice-card-head">
               <div class="voice-card-text">
                 <span class="option-title">Wake phrase</span>
@@ -113,14 +113,14 @@
         <h3>When I save highlights</h3>
         <p class="sub">Lector never changes a file until you save.</p>
         <div id="saveOptions" aria-label="When I save highlights">
-          <button type="button" id="copyRow" class="option-row selected" data-mode="copy">
+          <button type="button" id="copyRow" class="option-row card-lift selected" data-mode="copy">
             <span class="option-radio"></span>
             <span class="option-text">
               <span class="option-title">Save a copy</span>
               <span class="option-subtitle">Writes "name — highlighted.pdf" next to the original.</span>
             </span>
           </button>
-          <button type="button" id="overwriteRow" class="option-row" data-mode="overwrite">
+          <button type="button" id="overwriteRow" class="option-row card-lift" data-mode="overwrite">
             <span class="option-radio"></span>
             <span class="option-text">
               <span class="option-title">Overwrite the original</span>
@@ -140,14 +140,14 @@
         <h3>When I reopen a PDF</h3>
         <p class="sub">Applies to files you open again from Recent.</p>
         <div id="reopenOptions" aria-label="When I reopen a PDF">
-          <button type="button" id="continueRow" class="option-row selected" data-mode="continue">
+          <button type="button" id="continueRow" class="option-row card-lift selected" data-mode="continue">
             <span class="option-radio"></span>
             <span class="option-text">
               <span class="option-title">Continue where I left off</span>
               <span class="option-subtitle">Opens on the last page you were reading, in the layout you were using.</span>
             </span>
           </button>
-          <button type="button" id="startRow" class="option-row" data-mode="start">
+          <button type="button" id="startRow" class="option-row card-lift" data-mode="start">
             <span class="option-radio"></span>
             <span class="option-text">
               <span class="option-title">Always start at the beginning</span>

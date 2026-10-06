@@ -52,6 +52,13 @@ def voice_actions_block(js: str) -> str:
     return block.group(1)
 
 
+def reference_test_phrase(phrase: str) -> str:
+    """A phrase from the list with its variable filled in, to say it for real."""
+    return (
+        phrase.replace("{page}", "12").replace("{number}", "3").replace("{words}", "the quick brown fox")
+    )
+
+
 def handled_intents(js: str) -> set[str]:
     """The intents a page's `VOICE_ACTIONS` table has a handler for."""
     return set(re.findall(r"^\s+([A-Z][A-Z_]+):", voice_actions_block(js), flags=re.M))
@@ -84,10 +91,16 @@ class WiringTests(unittest.TestCase):
         for context, js in (
             (router.HOME, HOME_JS), (router.SETTINGS, SETTINGS_JS), (router.READING, READING_JS),
         ):
-            for category in reference.categories(context):
-                for command in category["commands"]:
-                    for phrase in command["examples"]:
-                        intent = router.resolve(context, phrase)["command"]["intent"]
+            # Only the sections that work on this screen: the list shows every
+            # section everywhere (and says where the others work), so a Home-only
+            # command being unhandled by Settings is correct and not a gap.
+            for section in reference.sections(context):
+                if not section["available"]:
+                    continue
+                for command in section["commands"]:
+                    for phrase in command["phrases"]:
+                        text = reference_test_phrase(phrase)
+                        intent = router.resolve(context, text)["command"]["intent"]
                         with self.subTest(context=context, phrase=phrase, intent=intent):
                             self.assertIn(intent, handled_intents(js))
 
@@ -384,8 +397,12 @@ class FlowTests(unittest.TestCase):
 
         self.assertEqual(home["try_saying"], ["open a PDF", "what can I say", "open settings"])
         self.assertEqual(settings["try_saying"], [])
+        # The same sections on every screen; only which come first differs.
+        self.assertEqual(
+            sorted(s["id"] for s in home["sections"]), sorted(s["id"] for s in settings["sections"])
+        )
         self.assertNotEqual(
-            [c["title"] for c in home["categories"]], [c["title"] for c in settings["categories"]]
+            [s["id"] for s in home["sections"]], [s["id"] for s in settings["sections"]]
         )
 
 

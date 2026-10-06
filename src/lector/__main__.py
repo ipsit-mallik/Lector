@@ -4,7 +4,7 @@ import webview
 
 from lector.api import Api
 from lector.features.settings import store as settings
-from lector.shared import window_chrome
+from lector.shared import theme, window_chrome
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -19,6 +19,9 @@ def main():
         width=1280,
         height=820,
         min_size=(880, 600),
+        # The native surface behind the page until WebView2 has painted it:
+        # the saved theme's canvas, so a dark launch doesn't open on white.
+        background_color=theme.token(settings.get_theme(), "bg"),
     )
     # Gatekeeper for the close button/Alt+F4: releases the microphone (the
     # push-to-talk engine holds an open PortAudio stream while a key is held,
@@ -37,7 +40,11 @@ def main():
     window.events.shown += lambda: window_chrome.apply(
         window_chrome.WINDOW_TITLE, settings.get_theme()
     )
-    webview.start()
+    # Persistent web storage, in the app's own folder: pywebview's default is a
+    # private session, so `localStorage` would be empty on every launch and each
+    # page's <head> script (which paints the saved theme before first paint, from
+    # the "lector-theme" mirror) would always find nothing and paint Light.
+    webview.start(private_mode=False, storage_path=str(settings.settings_dir() / "webview"))
 
 
 if __name__ == "__main__":

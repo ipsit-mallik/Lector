@@ -246,7 +246,7 @@ function buildCard(entry) {
   const card = document.createElement("div");
   // .recent-item: what the numbered-overlay picker below badges, in either
   // view (list rows carry it too).
-  card.className = "recent-card recent-item";
+  card.className = "recent-card recent-item card-lift";
   // docs/DESIGN_SYSTEM.md's accessibility baseline ("never a clickable
   // div") can't be met with a literal <button> here, since the card
   // also contains its own nested, independently-focusable remove
@@ -685,6 +685,14 @@ const voiceBox = createVoiceBox({
 
 // The mouse/keyboard way to the same panel "what can I say" opens.
 document.getElementById("voiceHelpBtn").addEventListener("click", openCommandReference);
+
+// What the shared list needs to know about this screen (command-reference.js):
+// how many rows "open number N" can reach right now, and that the Favorites
+// screen leads with the Favorites section.
+configureCommandReference({
+  ranges: () => ({ number: displayedEntries.length }),
+  focusSection: () => (homeSection === "favorites" ? "favorites" : null),
+});
 
 (async function init() {
   // First run goes to the onboarding stub before anything else renders, so

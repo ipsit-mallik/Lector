@@ -242,21 +242,17 @@ button {
    reads as one family. Interactive cards (.option-row, .theme-card) are real
    <button role="radio"> elements: the whole card is the click target, Tab
    reaches it, and Space/Enter select it without any key handling of our own.
-   A plain .card (the voice cards) is a container for its own controls. */
+   A plain .card (the voice cards) is a container for its own controls. How
+   a card responds to the pointer is not defined here but in .card-lift below. */
 .card,
 .option-row,
 .theme-card {
   background-color: var(--surface-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  transition: background-color var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-fast) var(--ease-out),
-              transform var(--dur-fast) var(--ease-out);
 }
 
 .card { padding: var(--space-4); }
-.card:hover { border-color: var(--border-strong); }
 
 .option-row,
 .theme-card {
@@ -278,14 +274,9 @@ button {
 }
 
 .option-row:first-of-type { margin-top: var(--space-4); }
-.option-row + .option-row { margin-top: var(--space-2); }
-
-.option-row:hover,
-.theme-card:hover { background-color: var(--surface-hover); }
-.option-row:hover:not(.selected),
-.theme-card:hover:not(.selected) { border-color: var(--border-strong); }
-.option-row:active,
-.theme-card:active { background-color: var(--surface-pressed); }
+/* 12px, not 8: a hovered card rises --lift (2px), and the gap to its neighbour
+   has to stay clearly open while it does. */
+.option-row + .option-row { margin-top: var(--space-3); }
 
 /* Selected: the accent border plus a matching 1px ring, so the edge reads as
    2px without the border ever changing width (which would shift the layout). */
@@ -295,12 +286,37 @@ button {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-/* Theme cards are the one card that lifts: they are the page's picture-sized
-   targets, where a small rise reads as "pick me" rather than as a jump. */
-.theme-card:hover { transform: translateY(var(--lift)); box-shadow: var(--shadow-2); }
-.theme-card.selected:hover { box-shadow: 0 0 0 1px var(--accent), var(--shadow-2); }
-.theme-card:active { transform: none; box-shadow: none; }
-.theme-card.selected:active { box-shadow: 0 0 0 1px var(--accent); }
+/* An option row is a stacked pick-one list, where a hovered card sits right
+   under (or over) the selected one and shares its accent border. Selected also
+   gets a soft accent fill, which hover never does, so the two can't be mistaken
+   for each other. The subtitle steps up to secondary on that fill: muted text
+   would fall to ~4.5:1 on it in dark. */
+.option-row.selected { background-color: color-mix(in srgb, var(--surface-input) 90%, var(--accent)); }
+.option-row.selected .option-subtitle { color: var(--text-secondary); }
+
+/* The one pointer/keyboard response for every card: Recent's grid cards and
+   all of Settings' (theme, voice, option). Border brightens to the accent,
+   elevation steps up, the card rises --lift (zero under reduced motion), and
+   focus-visible gets the same response so keyboard users see what a mouse
+   does. Defined once so no card can drift from the others; a card opts in with
+   the class. Rest-state surface and border stay each card's own. A selected
+   card keeps its ring through hover and press, which, with the radio dot or
+   check badge, is what tells it apart from a merely hovered one. */
+.card-lift {
+  transition: transform var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out),
+              border-color var(--dur-base) var(--ease-out);
+}
+.card-lift:hover,
+.card-lift:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-2);
+  transform: translateY(var(--lift));
+}
+.card-lift:active { transform: translateY(calc(var(--lift) / 2)); box-shadow: var(--shadow-1); }
+.card-lift.selected:hover,
+.card-lift.selected:focus-visible { box-shadow: 0 0 0 1px var(--accent), var(--shadow-2); }
+.card-lift.selected:active { box-shadow: 0 0 0 1px var(--accent), var(--shadow-1); }
 
 .option-radio {
   flex: none;
@@ -337,11 +353,7 @@ button {
 .option-text { flex: 1; display: flex; flex-direction: column; gap: var(--space-hair); }
 
 .option-title { font-size: var(--text-md); font-weight: 500; color: var(--text-primary); }
-.option-subtitle { font-size: var(--text-sm); color: var(--text-muted); transition: color var(--dur-fast) var(--ease-out); }
-/* --text-muted is 4.56:1 on the dark card at rest but falls below 4.5:1 on the
-   hover and pressed fills, so the subtitle steps up to secondary there. */
-.option-row:hover .option-subtitle,
-.option-row:active .option-subtitle { color: var(--text-secondary); }
+.option-subtitle { font-size: var(--text-sm); color: var(--text-muted); }
 
 /* ------------------------------------------------------------------ */
 /* Checkbox                                                            */

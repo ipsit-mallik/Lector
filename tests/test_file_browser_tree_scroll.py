@@ -137,8 +137,9 @@ class TreeFollowsActiveFolderWiringTests(unittest.TestCase):
         self.assertNotIn("scrollIntoView", self.js)
 
     def test_only_the_trees_own_container_is_scrolled(self):
-        self.assertRegex(self.js, r"treeEl\.scrollTo\(")
+        self.assertRegex(self.js, r"scrollElementTo\(treeEl,")
         self.assertNotRegex(self.js, r"(listEl|scrim|document\.(body|documentElement))\.scrollTo")
+        self.assertNotRegex(self.js, r"treeEl\.scrollTo\(")
 
     def test_every_folder_change_goes_through_navigate_to_which_follows_the_tree(self):
         body = re.search(r"async function navigateTo\(.*?\n  }\n", self.js, re.S)
@@ -173,11 +174,18 @@ class TreeFollowsActiveFolderWiringTests(unittest.TestCase):
         # count as "already visible", and the scroll would carry on past it.
         body = re.search(r"async function scrollTreeToCurrent\(.*?\n  }\n", self.js, re.S)
         self.assertIsNotNone(body)
-        self.assertRegex(body.group(0), r"viewTop:\s*pendingTreeScrollTop\s*\?\?\s*treeEl\.scrollTop")
-        self.assertRegex(self.js, r"addEventListener\(\"scrollend\"")
+        self.assertRegex(body.group(0), r"viewTop:\s*scrollDestination\(treeEl\)")
 
-    def test_reduced_motion_is_respected_for_the_scroll_animation(self):
-        self.assertIn("prefers-reduced-motion", self.js)
+    def test_opening_is_instant_and_later_changes_animate_through_the_shared_helper(self):
+        body = re.search(r"async function scrollTreeToCurrent\(.*?\n  }\n", self.js, re.S)
+        self.assertIsNotNone(body)
+        self.assertRegex(body.group(0), r"scrollElementTo\(treeEl,\s*target,\s*\{\s*animate:\s*!initial\s*\}\)")
+
+    def test_reduced_motion_is_respected_by_the_shared_scroll_helper(self):
+        # The motion rules live in ui.js's scrollElementTo, not copied here.
+        ui = (FRONTEND / "js" / "ui.js").read_text(encoding="utf-8")
+        helper = ui[ui.index("function scrollElementTo"):]
+        self.assertIn("prefersReducedMotion()", helper[: helper.index("\n}\n")])
 
 
 class TreeLayoutTests(unittest.TestCase):

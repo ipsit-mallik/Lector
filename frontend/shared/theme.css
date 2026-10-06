@@ -197,10 +197,9 @@
 
   /* The same washes for a card's own fill (--surface-input), which is opaque
    * and so can't take a translucent overlay without showing the page through
-   * it. --surface-on is the "this one is switched on" tint. */
+   * it. */
   --surface-hover: color-mix(in srgb, var(--surface-input) 94%, var(--text-primary));
   --surface-pressed: color-mix(in srgb, var(--surface-input) 88%, var(--text-primary));
-  --surface-on: color-mix(in srgb, var(--surface-input) 92%, var(--accent));
 }
 
 * {
@@ -220,12 +219,33 @@ body {
   overflow: hidden;
 }
 
-/* Theme switch: ui.js's applyTheme() puts this class on <html> for one
- * --dur-base around the change, so every colour crossfades instead of
- * snapping. It is not left on, because a blanket transition would also slow
- * every ordinary hover. The shorthand replaces each element's own transitions
- * while it is on, so opacity and transform are listed too: a control that
- * changes state in the same moment (Settings' check badge) still animates. */
+/* Theme switch. ui.js's applyTheme() runs it as a View Transition: the old and
+ * new frames of the whole window dissolve over one --dur-base on the one
+ * easing, so nothing fades out of step with anything else. Nothing is left on
+ * between switches, so ordinary hover/press transitions are untouched. */
+::view-transition-group(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-base);
+  animation-timing-function: var(--ease-out);
+}
+
+/* While that dissolve runs the live page underneath is the "new" frame, so it has
+ * to be the final state, not components still animating towards it on their own
+ * 120/200ms transitions (different per component, and a second fade under the
+ * first). applyTheme() holds this class on <html> for the transition only. */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
+/* The fallback, for an engine without View Transitions: applyTheme() puts this
+ * class on <html> for the change and takes it off when the root's own
+ * transition ends. The shorthand replaces each element's own transitions while
+ * it is on, so opacity and transform are listed too: a control that changes
+ * state in the same moment (Settings' check badge) still animates. */
 .theme-fading,
 .theme-fading *,
 .theme-fading *::before,
@@ -260,6 +280,14 @@ body {
   :root {
     --lift: 0px;
     --enter-rise: 0px;
+  }
+
+  /* applyTheme() does not start a View Transition at all under reduced motion;
+   * this is the same rule for any other that is. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
   }
 
   *, *::before, *::after {

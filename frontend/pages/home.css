@@ -301,9 +301,11 @@ html, body { height: 100%; }
   gap: var(--space-5);
 }
 
-/* Grid card -- border/elevation/hover/focus recipe from the Motion &
-   elevation foundation. The list view is a single table card instead
-   (.recent-table below), not a .recent-card per row. */
+/* Grid card -- the rest state only (surface, border, elevation). Its hover,
+   focus and press response is the shared .card-lift (shared/components.css),
+   which buildCard() puts on it, the same as every Settings card. The list view
+   is a single table card instead (.recent-table below), not a .recent-card per
+   row. */
 .recent-card {
   position: relative;
   border-radius: var(--radius-md);
@@ -311,24 +313,9 @@ html, body { height: 100%; }
   border: 1px solid var(--border-elevated);
   box-shadow: var(--shadow-1);
   cursor: pointer;
-  transition: transform var(--dur-base) var(--ease-out),
-              box-shadow var(--dur-base) var(--ease-out),
-              border-color var(--dur-base) var(--ease-out);
 }
 
 .recent-grid .recent-card { width: 268px; padding: var(--space-3); }
-
-/* The card lift a static page never gets: border brightens toward the
-   accent, elevation steps up, and it rises 2px. Same recipe on focus
-   (keyboard users get the same feedback mouse hover gives). */
-.recent-card:hover,
-.recent-card:focus-visible {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-2);
-  transform: translateY(var(--lift));
-}
-.recent-card:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: 2px; }
-.recent-card:active { transform: translateY(calc(var(--lift) / 2)); box-shadow: var(--shadow-1); }
 
 /* Numbered-overlay picker (Milestone 8.6, docs/DESIGN_SYSTEM.md). Only
    present while the `picker` voice context is active — see
