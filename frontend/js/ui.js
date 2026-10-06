@@ -163,24 +163,172 @@ function showToast(message, { actionLabel, onAction, durationMs } = {}) {
   return dismiss;
 }
 
-// Theme switch with a crossfade: puts .theme-fading on <html> (theme.css) for
-// one --dur-base around the change, so every colour fades instead of snapping.
-// For a switch the reader makes; a page restoring its saved theme on load sets
-// data-theme directly, with no fade.
-const THEME_FADE_PADDING_MS = 50;
-let _themeFadeTimer = null;
+// Theme switch: one crossfade of the whole window, for a switch the reader
+// makes (a page restoring its saved theme on load sets data-theme directly,
+// with no fade).
+//
+// Preferred path is a View Transition: the browser snapshots the old frame,
+// the change is made inside the callback, and the two frames dissolve over
+// --dur-base (theme.css), so every surface, shadow, scrollbar thumb and the
+// rendered PDF page fade together by construction, with no per-element
+// transitions to start late or be cut short. Reduced motion skips it. Without
+// the API, .theme-fading puts a transition on every element for the change and
+// comes off when the root's own transition actually ends, not on a timer: a
+// timer measured from the click can fire before a slow first frame has even
+// started the fade, which turns it into a snap.
+//
+// Everything that must change with the theme and fade with it (Settings' check
+// badge and selection ring) listens for `themechange`, fired inside the same
+// step, rather than being updated beside this call.
+const THEME_FADE_SAFETY_MS = 1000;
+let _targetTheme = null;
+let _endThemeFade = null;
+let _themeSwitchesInFlight = 0;
+
+// The theme being switched to if a switch is in flight, else the one on the
+// page: a View Transition applies the change a frame after it is requested.
+function currentTheme() {
+  return _targetTheme || document.documentElement.dataset.theme;
+}
+
+function commitTheme(name) {
+  document.documentElement.dataset.theme = name;
+  _targetTheme = null;
+  document.dispatchEvent(new CustomEvent("themechange", { detail: { name } }));
+}
+
+function fadeThemeWithTransitions(name) {
+  const root = document.documentElement;
+  if (_endThemeFade) _endThemeFade();
+  const onEnd = (e) => {
+    if (e.target === root && e.propertyName === "background-color") end();
+  };
+  const timer = setTimeout(() => end(), THEME_FADE_SAFETY_MS);
+  function end() {
+    clearTimeout(timer);
+    root.removeEventListener("transitionend", onEnd);
+    root.classList.remove("theme-fading");
+    _endThemeFade = null;
+  }
+  _endThemeFade = end;
+  root.addEventListener("transitionend", onEnd);
+  root.classList.add("theme-fading");
+  commitTheme(name);
+}
 
 function applyTheme(name) {
+  if (currentTheme() === name) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    commitTheme(name);
+    return;
+  }
+  if (typeof document.startViewTransition !== "function") {
+    fadeThemeWithTransitions(name);
+    return;
+  }
+  _targetTheme = name;
   const root = document.documentElement;
-  if (root.dataset.theme === name) return;
-  const fadeMs = parseFloat(getComputedStyle(root).getPropertyValue("--dur-base")) || 200;
-  clearTimeout(_themeFadeTimer);
-  root.classList.add("theme-fading");
-  root.dataset.theme = name;
-  _themeFadeTimer = setTimeout(
-    () => root.classList.remove("theme-fading"),
-    fadeMs + THEME_FADE_PADDING_MS,
-  );
+  const endSwitch = () => {
+    if (--_themeSwitchesInFlight === 0) root.classList.remove("theme-switching");
+  };
+  const transition = document.startViewTransition(() => {
+    // The new frame must be the final state, not components still animating
+    // towards it on their own 120/200ms transitions underneath the dissolve.
+    _themeSwitchesInFlight++;
+    root.classList.add("theme-switching");
+    commitTheme(name);
+  });
+  // `finished` settles either way; a transition skipped by a newer one, or by a
+  // hidden window, rejects `ready`, and the change is made regardless.
+  transition.finished.then(endSwitch, endSwitch);
+  transition.ready.catch(() => {});
+  transition.updateCallbackDone.catch(() => {});
+}
+
+// Programmatic scrolling: the one place the app animates a scroll it starts
+// itself (a page jump in the reader, the Open dialog's tree following the active
+// folder, arrow keys and "scroll down" by voice). The wheel, touchpad, scrollbar
+// drag and keyboard-on-a-focused-scroller are never touched: those stay with the
+// browser's own scrolling.
+//
+// This is a short tween, not `scrollTo({ behavior: "smooth" })`, because the
+// browser's own duration can't be set and is not short: measured in Chromium it
+// is about 330ms for 300px, 520ms for one viewport and 730ms for anything
+// longer. This one takes --dur-base on an ease-out cubic whatever the distance,
+// and gives way at once to the reader taking the scroller over.
+//
+// Not animated, by design: a jump of more than SCROLL_ANIMATION_MAX_VIEWPORTS
+// viewports (page 3 to page 300 lands, it does not sweep through 297 pages);
+// anything the caller passes `animate: false` for (the position a view or dialog
+// opens at, zoom re-anchoring, which must be exact); and all of it under
+// prefers-reduced-motion.
+const SCROLL_ANIMATION_MAX_VIEWPORTS = 3;
+const SCROLL_ANIMATION_FALLBACK_MS = 200;
+const _scrollTweens = new WeakMap();
+const _scrollTakeoverBound = new WeakSet();
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function _cancelScrollTween(el) {
+  const tween = _scrollTweens.get(el);
+  if (!tween) return;
+  cancelAnimationFrame(tween.frame);
+  _scrollTweens.delete(el);
+}
+
+// Whoever scrolls the scroller themselves takes over from a running tween.
+function _bindScrollTakeover(el) {
+  if (_scrollTakeoverBound.has(el)) return;
+  _scrollTakeoverBound.add(el);
+  for (const type of ["wheel", "pointerdown", "touchstart"]) {
+    el.addEventListener(type, () => _cancelScrollTween(el), { passive: true });
+  }
+}
+
+// Where the scroller is heading: the running tween's end, else where it is. A
+// caller judging "is this already in view" must ask this, not scrollTop, or a
+// row the tween merely passes through counts as visible and the tween carries on.
+function scrollDestination(el) {
+  const tween = _scrollTweens.get(el);
+  return tween ? tween.target : el.scrollTop;
+}
+
+// Returns whether it moved (false: already there, or at the end it was asked to
+// go past), which "scroll down" by voice uses to decide to turn the page instead.
+function scrollElementTo(el, top, { animate = true } = {}) {
+  _cancelScrollTween(el);
+  const target = Math.min(Math.max(top, 0), Math.max(el.scrollHeight - el.clientHeight, 0));
+  const from = el.scrollTop;
+  if (Math.abs(target - from) < 1) return false;
+
+  const tooFar = Math.abs(target - from) > el.clientHeight * SCROLL_ANIMATION_MAX_VIEWPORTS;
+  if (!animate || tooFar || prefersReducedMotion()) {
+    el.scrollTop = target;
+    return true;
+  }
+
+  const duration =
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dur-base")) ||
+    SCROLL_ANIMATION_FALLBACK_MS;
+  const tween = { target, frame: 0 };
+  let startedAt = null;
+  const step = (now) => {
+    if (startedAt === null) startedAt = now;
+    const progress = Math.min((now - startedAt) / duration, 1);
+    el.scrollTop = from + (target - from) * (1 - Math.pow(1 - progress, 3));
+    if (progress < 1) tween.frame = requestAnimationFrame(step);
+    else _scrollTweens.delete(el);
+  };
+  _scrollTweens.set(el, tween);
+  _bindScrollTakeover(el);
+  tween.frame = requestAnimationFrame(step);
+  return true;
+}
+
+function scrollElementBy(el, delta, options) {
+  return scrollElementTo(el, scrollDestination(el) + delta, options);
 }
 
 // Radio semantics for a group of <button> cards (.option-row, .theme-card) that

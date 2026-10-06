@@ -109,13 +109,10 @@ async function closeApp() {
 // parameter, since the voice path has no closured `current` the way a card's
 // own click handler does.
 async function selectTheme(name) {
-  const previous = document.documentElement.dataset.theme;
+  const previous = currentTheme();
   if (previous === name) return;
   applyTheme(name);
   localStorage.setItem("lector-theme", name);
-  // The cards are marked in place rather than rebuilt, so the check badge
-  // animates in and the page doesn't re-render under the reader's pointer.
-  markCurrentThemeCard(name);
   try {
     await callApi("set_theme", name);
   } catch (err) {
@@ -124,23 +121,28 @@ async function selectTheme(name) {
     console.error("set_theme failed:", err);
     applyTheme(previous);
     localStorage.setItem("lector-theme", previous);
-    markCurrentThemeCard(previous);
     showToast("Couldn't change the theme. Try again.");
   }
 }
 
+// The cards are marked in place rather than rebuilt, so the check badge
+// animates in and the page doesn't re-render under the reader's pointer. Done
+// on `themechange` (ui.js), which fires inside the theme's own crossfade, so the
+// ring and badge fade with the rest of the window instead of before or after.
 function markCurrentThemeCard(name) {
   themeCardsEl.querySelectorAll(".theme-card").forEach((card) => {
     card.classList.toggle("selected", card.dataset.themeName === name);
   });
 }
 
+document.addEventListener("themechange", (e) => markCurrentThemeCard(e.detail.name));
+
 function buildThemeCard(name, current) {
   const t = readThemeTokens(name);
   const card = document.createElement("button");
   card.type = "button";
   card.dataset.themeName = name;
-  card.className = "theme-card" + (name === current ? " selected" : "");
+  card.className = "theme-card card-lift" +(name === current ? " selected" : "");
   card.innerHTML = `
     <span class="theme-preview" style="background:${t.canvas}">
       <span class="theme-preview-mock" style="background:${t.surface};border:1px solid ${t.border}">

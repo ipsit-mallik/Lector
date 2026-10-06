@@ -433,8 +433,7 @@ function createFileBrowser({
 
   function buildTree() {
     treeEl.innerHTML = "";
-    treeEl.scrollTop = 0;
-    pendingTreeScrollTop = null;
+    scrollElementTo(treeEl, 0, { animate: false });
     treeNodes.clear();
     for (const drive of drives) {
       treeEl.appendChild(createTreeNode(drive, 0, driveLabel(drive.path), "drive"));
@@ -502,10 +501,6 @@ function createFileBrowser({
     return cur === treeEl ? top : null;
   }
 
-  function prefersReducedMotion() {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  }
-
   // Resolves once the tree has stopped changing height. Expanding or
   // collapsing a node runs a grid-rows transition, and until it ends a row's
   // offset — and the tree's scrollHeight, which caps how far it can scroll — is
@@ -528,23 +523,6 @@ function createFileBrowser({
     ]);
   }
 
-  // Where a smooth scroll that is still running is heading. A second folder
-  // change arriving mid-animation is judged against that destination, not the
-  // position the animation happens to be passing through: a row momentarily in
-  // view as it passes would otherwise count as "already visible", no new scroll
-  // would start, and the running one would carry on past it.
-  let pendingTreeScrollTop = null;
-  treeEl.addEventListener("scrollend", () => {
-    pendingTreeScrollTop = null;
-  });
-  // Someone scrolling the tree themselves takes over from any running scroll.
-  treeEl.addEventListener("wheel", () => {
-    pendingTreeScrollTop = null;
-  }, { passive: true });
-  treeEl.addEventListener("pointerdown", () => {
-    pendingTreeScrollTop = null;
-  });
-
   async function scrollTreeToCurrent(id, { initial }) {
     await layoutTransitionsSettled();
     if (id !== navigationId) return;
@@ -555,15 +533,19 @@ function createFileBrowser({
     const target = treeScrollTarget({
       nodeTop: top,
       nodeHeight: node.row.offsetHeight,
-      viewTop: pendingTreeScrollTop ?? treeEl.scrollTop,
+      // Judged against where a running scroll is heading, not where it is passing
+      // through: a row momentarily in view would otherwise count as "already
+      // visible" and the running scroll would carry on past it.
+      viewTop: scrollDestination(treeEl),
       viewHeight: treeEl.clientHeight,
       contentHeight: treeEl.scrollHeight,
       center: initial,
     });
     if (target === null) return;
-    const smooth = !initial && !prefersReducedMotion();
-    pendingTreeScrollTop = smooth ? target : null;
-    treeEl.scrollTo({ top: target, behavior: smooth ? "smooth" : "instant" });
+    // The position the dialog opens at is instant; later folder changes glide
+    // (ui.js's scrollElementTo, which also holds back for reduced motion and for
+    // a jump too long to be worth watching).
+    scrollElementTo(treeEl, target, { animate: !initial });
   }
 
   // Highlights the current node and Quick Access chip, and lights exactly the

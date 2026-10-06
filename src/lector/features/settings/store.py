@@ -58,7 +58,8 @@ _DEFAULT_PUSH_TO_TALK = True
 _DEFAULT_WAKE_PHRASE = False
 
 
-def _settings_dir() -> Path:
+def settings_dir() -> Path:
+    """The app's per-user data folder (settings.json, the web view's storage)."""
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or str(Path.home())
         return Path(base) / "Lector"
@@ -68,7 +69,7 @@ def _settings_dir() -> Path:
 
 
 def _settings_path() -> Path:
-    return _settings_dir() / "settings.json"
+    return settings_dir() / "settings.json"
 
 
 def _load() -> dict:

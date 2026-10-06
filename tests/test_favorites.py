@@ -223,7 +223,7 @@ class FavoritesVoiceTests(unittest.TestCase):
                         self.assertNotIn(_intent(context, phrase), self.PHRASES)
 
     def test_the_help_panel_lists_them(self):
-        titles = [c["title"] for c in reference.categories(router.HOME)]
+        titles = [s["title"] for s in reference.sections(router.HOME)]
 
         self.assertIn("Favorites", titles)
 

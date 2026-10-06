@@ -24,7 +24,7 @@ Adobe Reader's ~10GB install footprint is unjustified for the actual use case: r
 - Remove from Recent: an icon-button on each Recent card in grid view (a row "⋯" menu item in list view), plus a voice equivalent, removes that entry from the list only — the underlying PDF file on disk is never touched, deleted, or renamed. Gated behind a confirmation dialog regardless of whether it was triggered by mouse or voice, and followed by a toast offering Undo. See the "Post-v1" section below for how this was scoped in.
 - Two reading layouts, user-toggleable: book (paginated, one page at a time) and continuous strip (scrolling, with a subtle page-break marker between pages).
 - Full mouse/keyboard parity everywhere: voice is an accelerator on top of a fully usable traditional GUI, never a replacement for one. Every interactive element is a real, keyboard-focusable control.
-- Discoverability: an on-screen "What can I say?" command reference, categorized (Moving around / Highlighting / Finding words / The app itself), for users unfamiliar with the exact command phrasing.
+- Discoverability: an on-screen "What can I say?" command reference, grouped into sections (Moving around / Highlighting / Finding words / The app itself, plus what applies on each screen), listing every phrase the recognizer accepts, for users unfamiliar with the exact command phrasing.
 - Themes: light, dark, sepia.
 - First-run onboarding: microphone permission request (skippable — app remains fully usable via mouse/keyboard if skipped) and voice activation mode selection (also changeable later in Settings).
 

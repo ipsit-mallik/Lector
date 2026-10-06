@@ -86,6 +86,122 @@ class MotionTokenTests(unittest.TestCase):
             self.assertNotRegex(css, r"translateY\(-?\d+px\)")
 
 
+class SharedCardHoverTests(unittest.TestCase):
+    """One hover recipe for every card (Recent's grid cards and all of Settings')."""
+
+    HOME_CSS = (FRONTEND / "pages" / "home.css").read_text(encoding="utf-8")
+    HOME_JS = (FRONTEND / "pages" / "home.js").read_text(encoding="utf-8")
+    SETTINGS_HTML = (FRONTEND / "pages" / "settings.html").read_text(encoding="utf-8")
+    READING_HTML = (FRONTEND / "pages" / "reading.html").read_text(encoding="utf-8")
+
+    def test_card_lift_is_the_recent_card_recipe(self):
+        rule = COMPONENTS_CSS[COMPONENTS_CSS.index(".card-lift:hover,"):]
+        rule = rule[:rule.index("}")]
+        self.assertIn("border-color: var(--accent)", rule)
+        self.assertIn("box-shadow: var(--shadow-2)", rule)
+        self.assertIn("translateY(var(--lift))", rule)
+        self.assertIn(".card-lift:focus-visible", COMPONENTS_CSS)
+
+    def test_no_card_writes_its_own_hover_css(self):
+        for selector in (r"\.recent-card:hover\s*[,{]", r"\.theme-card:hover\s*[,{]",
+                         r"\.option-row:hover\s*[,{]", r"\.card:hover\s*[,{]",
+                         r"\.voice-card[^{]*:hover"):
+            for name, css in (("components.css", COMPONENTS_CSS), ("home.css", self.HOME_CSS),
+                              ("settings.css", SETTINGS_CSS)):
+                self.assertNotRegex(css, selector, f"{name}: {selector}")
+
+    def test_every_card_opts_in_to_the_shared_class(self):
+        self.assertIn("recent-card recent-item card-lift", self.HOME_JS)
+        self.assertIn('"theme-card card-lift"', SETTINGS_JS)
+        for html in (self.SETTINGS_HTML, self.READING_HTML):
+            for tag in re.findall(r'<button[^>]*class="option-row[^"]*"', html):
+                self.assertIn("card-lift", tag)
+        self.assertEqual(self.SETTINGS_HTML.count("card voice-card card-lift"), 2)
+
+    def test_selected_stays_distinct_from_hover(self):
+        self.assertRegex(COMPONENTS_CSS, r"\.card-lift\.selected:hover[^{]*\{[^}]*0 0 0 1px var\(--accent\)")
+
+    def test_selected_option_is_distinguishable_from_a_hovered_neighbour(self):
+        # Hover and selected share the accent border, so selected also has a
+        # fill that hover never sets, and the stacked rows keep a real gap.
+        self.assertRegex(COMPONENTS_CSS, r"\.option-row\.selected\s*\{\s*background-color: color-mix")
+        self.assertNotRegex(COMPONENTS_CSS, r"\.card-lift:hover[^{]*\{[^}]*background")
+        self.assertRegex(COMPONENTS_CSS, r"\.option-row \+ \.option-row\s*\{\s*margin-top: var\(--space-3\)")
+
+    def test_voice_cards_keep_the_option_card_fill_in_both_states(self):
+        self.assertNotIn("--surface-on", THEME_CSS + SETTINGS_CSS + COMPONENTS_CSS)
+        card_rule = r"^\.voice-card(?::has\([^)]*\)(?::hover)?)?\s*\{[^}]*(background|border|box-shadow)"
+        self.assertNotRegex(SETTINGS_CSS, re.compile(card_rule, re.MULTILINE))
+
+
+class ThemeSwitchTests(unittest.TestCase):
+    """One crossfade for the whole window, and no flash on launch."""
+
+    UI_JS = (FRONTEND / "js" / "ui.js").read_text(encoding="utf-8")
+    MAIN_PY = (FRONTEND.parent / "src" / "lector" / "__main__.py").read_text(encoding="utf-8")
+
+    def test_switch_runs_as_a_view_transition_with_a_fallback(self):
+        body = self.UI_JS[self.UI_JS.index("function applyTheme"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("document.startViewTransition(", body)
+        self.assertIn("fadeThemeWithTransitions(name)", body)
+
+    def test_reduced_motion_switches_instantly(self):
+        body = self.UI_JS[self.UI_JS.index("function applyTheme"):]
+        body = body[:body.index("startViewTransition")]
+        self.assertIn("(prefers-reduced-motion: reduce)", body)
+        self.assertIn("commitTheme(name)", body)
+
+    def test_the_fade_class_is_not_removed_on_a_timer_from_the_click(self):
+        # A timer from the click fires before a slow first frame has started
+        # the fade (measured), turning it into a snap or cutting it short.
+        self.assertNotIn("THEME_FADE_PADDING_MS", self.UI_JS)
+        self.assertIn('"transitionend"', self.UI_JS)
+
+    def test_components_cannot_start_a_second_fade_inside_the_new_frame(self):
+        rule = THEME_CSS[THEME_CSS.index(".theme-switching,"):]
+        rule = rule[:rule.index("}")]
+        self.assertIn("transition: none !important", rule)
+        body = self.UI_JS[self.UI_JS.index("function applyTheme"):]
+        self.assertRegex(body, r'startViewTransition\(\(\) => \{[^}]*classList\.add\("theme-switching"\)[^}]*commitTheme\(name\)')
+        self.assertIn('classList.remove("theme-switching")', body)
+
+    def test_view_transition_uses_the_base_duration_and_the_one_easing(self):
+        rule = THEME_CSS[THEME_CSS.index("::view-transition-group(root)"):]
+        rule = rule[:rule.index("}")]
+        self.assertIn("animation-duration: var(--dur-base)", rule)
+        self.assertIn("animation-timing-function: var(--ease-out)", rule)
+
+    def test_reduced_motion_also_collapses_any_view_transition(self):
+        block = THEME_CSS[THEME_CSS.index("@media (prefers-reduced-motion: reduce)"):]
+        self.assertIn("::view-transition-old(*)", block)
+        self.assertRegex(block, r"::view-transition-new\(\*\)[^{]*\{[^}]*0\.01ms")
+
+    def test_the_theme_cards_change_inside_the_same_step_as_the_theme(self):
+        self.assertRegex(self.UI_JS, r'dispatchEvent\(new CustomEvent\("themechange"')
+        self.assertIn('document.addEventListener("themechange"', SETTINGS_JS)
+        body = SETTINGS_JS[SETTINGS_JS.index("async function selectTheme"):]
+        body = body[:body.index("function markCurrentThemeCard")]
+        self.assertNotIn("markCurrentThemeCard(", body)
+
+    def test_the_reader_keeps_the_start_up_mirror_in_step(self):
+        reading_js = (FRONTEND / "pages" / "reading.js").read_text(encoding="utf-8")
+        body = reading_js[reading_js.index("async function cycleTheme"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn('localStorage.setItem("lector-theme", next)', body)
+
+    def test_every_page_sets_its_theme_before_the_first_stylesheet(self):
+        for name in ("index.html", "pages/settings.html", "pages/reading.html", "pages/onboarding.html"):
+            html = (FRONTEND / name).read_text(encoding="utf-8")
+            script = html.index('dataset.theme = localStorage.getItem("lector-theme")')
+            self.assertLess(script, html.index('rel="stylesheet"'), name)
+
+    def test_launch_keeps_localstorage_and_paints_the_native_window_in_the_theme(self):
+        self.assertIn("private_mode=False", self.MAIN_PY)
+        self.assertIn("storage_path=", self.MAIN_PY)
+        self.assertIn("background_color=theme.token(settings.get_theme(), \"bg\")", self.MAIN_PY)
+
+
 class RadioCardKeyboardTests(unittest.TestCase):
     UI_JS = (FRONTEND / "js" / "ui.js").read_text(encoding="utf-8")
 

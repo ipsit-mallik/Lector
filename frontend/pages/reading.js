@@ -80,7 +80,12 @@ function updateChrome() {
   redoBtn.disabled = !state.can_redo;
 }
 
-async function refresh() {
+// `animate` is for a page jump the reader asked for (next, previous, go to):
+// the strip glides to the page instead of cutting. Everything else that calls
+// this is positioning a view that has just opened or been rebuilt (opening the
+// document, switching layout), where an animation from the top would only be
+// noise.
+async function refresh({ animate = false } = {}) {
   updateChrome();
 
   if (layoutMode === "book") {
@@ -88,7 +93,7 @@ async function refresh() {
     await refreshBook();
   } else {
     highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
-    await refreshStrip();
+    await refreshStrip(animate);
   }
   scheduleViewportPush();
 }
@@ -163,9 +168,11 @@ async function renderStripPage(img) {
   if (image) await showImage(img, image);
 }
 
-async function refreshStrip() {
+async function refreshStrip(animate) {
   bookScroll.hidden = true;
   stripScroll.hidden = false;
+  // A rebuilt strip starts again from the top: that is positioning, not a jump.
+  const rebuilding = Boolean(stripBuildPromise) || stripDirty;
 
   // If a build is already in flight (e.g. the user navigated again before the
   // first strip render finished), wait for that one rather than starting a
@@ -186,7 +193,9 @@ async function refreshStrip() {
 
   const target = stripContainer.querySelector(`[data-page-index="${state.page_index}"]`);
   if (target) {
-    stripScroll.scrollTop = target.offsetTop - stripContainer.offsetTop;
+    scrollElementTo(stripScroll, target.offsetTop - stripContainer.offsetTop, {
+      animate: animate && !rebuilding,
+    });
   }
 }
 
@@ -597,17 +606,17 @@ stripScroll.addEventListener("scroll", scheduleViewportPush);
 
 async function goNext() {
   state = await callApi("next_page");
-  await refresh();
+  await refresh({ animate: true });
 }
 
 async function goPrev() {
   state = await callApi("prev_page");
-  await refresh();
+  await refresh({ animate: true });
 }
 
 async function goToPage(n) {
   state = await callApi("goto_page", n - 1);
-  await refresh();
+  await refresh({ animate: true });
 }
 
 // Re-rendering every page at a new resolution (a full strip rebuild, for
@@ -859,9 +868,11 @@ async function toggleLayout() {
 }
 
 async function cycleTheme() {
-  const current = document.documentElement.dataset.theme;
+  const current = currentTheme();
   const next = THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length];
   applyTheme(next);
+  // The mirror the next launch's <head> script paints from, before any backend call.
+  localStorage.setItem("lector-theme", next);
   await callApi("set_theme", next);
 }
 
@@ -977,6 +988,9 @@ highlightBtn.addEventListener("click", () => setHighlightMode(!highlightMode));
 // hunting for help looks, and the footer button sits next to the mic pill,
 // which is where the question "what can I say?" actually occurs to them.
 referenceRailBtn.addEventListener("click", openCommandReference);
+// What the shared list needs to know about this screen (command-reference.js):
+// the real range for "go to page N".
+configureCommandReference({ ranges: () => ({ page: state && state.page_count }) });
 referenceFooterBtn.addEventListener("click", openCommandReference);
 
 document.addEventListener("keydown", (ev) => {
@@ -991,11 +1005,11 @@ document.addEventListener("keydown", (ev) => {
       goPrev();
       break;
     case "ArrowDown":
-      if (layoutMode === "strip") stripScroll.scrollTop += 60;
+      if (layoutMode === "strip") scrollElementBy(stripScroll, 60);
       else goNext();
       break;
     case "ArrowUp":
-      if (layoutMode === "strip") stripScroll.scrollTop -= 60;
+      if (layoutMode === "strip") scrollElementBy(stripScroll, -60);
       else goPrev();
       break;
     case "=":
@@ -1007,12 +1021,6 @@ document.addEventListener("keydown", (ev) => {
     case "h":
     case "H":
       setHighlightMode(!highlightMode);
-      break;
-    case "?":
-      // The conventional key for "what are my options", and the panel's own
-      // promise of a keyboard equivalent for everything applies to opening
-      // the panel too.
-      openCommandReference();
       break;
     case "Escape":
       // Abandons a selection mid-drag: the wash disappears and the release
@@ -1168,9 +1176,7 @@ function activeScrollEl() {
 // document that has no more to scroll.
 async function voiceScroll(delta) {
   const el = activeScrollEl();
-  const before = el.scrollTop;
-  el.scrollTop = before + delta * el.clientHeight * VOICE_SCROLL_FRACTION;
-  if (el.scrollTop !== before) return;
+  if (scrollElementBy(el, delta * el.clientHeight * VOICE_SCROLL_FRACTION)) return;
   if (layoutMode !== "book") return; // The strip is one continuous scroller.
 
   const page = state.page_index;
@@ -1179,7 +1185,7 @@ async function voiceScroll(delta) {
   // Land where reading continues from: the top of the next page going down,
   // the bottom of the previous one going up. Keeping the old offset would
   // drop the reader into the middle of a page they haven't read yet.
-  el.scrollTop = delta > 0 ? 0 : el.scrollHeight;
+  scrollElementTo(el, delta > 0 ? 0 : el.scrollHeight, { animate: false });
 }
 
 // Matches and highlights `query` against the currently visible viewport

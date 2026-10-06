@@ -1,98 +1,185 @@
-"""Tests for the "What can I say?" reference payload (Milestone 8).
+"""Tests for the "What can I say?" list (Milestone 8, one shared list in 8.13).
 
-The panel's whole value is that a reader can trust it, so the central test
-here is not about formatting: it feeds every phrase the panel advertises back
-through the parser and insists the parser understands it. A reference that
-lists a phrase the recognizer would reject is worse than no reference, because
-the reader concludes voice control is broken rather than that the wording was
-wrong.
+The list's whole value is that a reader can trust it, so the central tests are
+not about formatting. They hold three promises, from both directions:
+
+* **Nothing listed that doesn't work.** Every phrase on every card is fed back
+  through the router, in each context the card names, and must resolve.
+* **Nothing that works is missing.** Every phrase in every router and grammar
+  table must be on a card, with all its alternates. Add a command without listing
+  it and the suite fails.
+* **One list.** The component is built once and driven only by the registry:
+  no page carries its own copy, and the component writes no command text itself.
 """
+import re
 import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
-from lector.features.voice import command_grammar  # noqa: E402
-from lector.features.voice import reference  # noqa: E402
-from lector.features.voice import router  # noqa: E402
-from lector.features.voice import wake  # noqa: E402
+from lector.features.voice import command_grammar as grammar  # noqa: E402
+from lector.features.voice import reference, router, wake  # noqa: E402
+
+FRONTEND = ROOT / "frontend"
+COMPONENT = FRONTEND / "pages" / "command-reference.js"
+SCREENS = (router.HOME, router.SETTINGS, router.READING)
+# What a variable is filled with to say a phrase for real.
+SAMPLE = {"{page}": "12", "{number}": "3", "{words}": "the quick brown fox"}
 
 
-def _all_commands(context: str = router.READING) -> list[dict]:
-    return [cmd for category in reference.categories(context) for cmd in category["commands"]]
+def sayable(phrase: str) -> str:
+    for placeholder, value in SAMPLE.items():
+        phrase = phrase.replace(placeholder, value)
+    return phrase
 
 
-class ExampleTruthfulnessTests(unittest.TestCase):
-    def test_every_advertised_phrase_is_understood(self):
+def all_commands(context: str = router.READING) -> list[dict]:
+    return reference.commands(context)
+
+
+def registry_tables() -> list[tuple[str, dict[str, tuple[str, ...]]]]:
+    """Every fixed-phrase table the recognizer knows, found rather than listed,
+    so a new `*_PHRASES` table is covered the moment it exists."""
+    found = [
+        (f"router.{name}", value)
+        for name, value in vars(router).items()
+        if name.endswith("_PHRASES") and isinstance(value, dict)
+    ]
+    found.append(("grammar.PHRASES", grammar.PHRASES))
+    return found
+
+
+def registry_patterns() -> list[tuple[str, tuple[str, ...], str]]:
+    """The commands that take a variable: (name, spoken leads, placeholder)."""
+    return [
+        ("go to a page", grammar.GOTO_PREFIXES, reference.PAGE),
+        ("highlight", grammar.HIGHLIGHT_TRIGGERS, reference.WORDS),
+        ("highlight a sentence", grammar.HIGHLIGHT_SENTENCE_TRIGGERS, reference.WORDS),
+        ("open a numbered file", router.OPEN_NUMBER_PREFIXES, reference.NUMBER),
+    ]
+
+
+def card_phrase_sets(context: str = router.READING) -> list[set[str]]:
+    return [{p.lower() for p in command["phrases"]} for command in all_commands(context)]
+
+
+class NothingListedThatDoesNotWorkTests(unittest.TestCase):
+    def test_every_phrase_resolves_in_every_context_its_card_names(self):
         # Through the router, not `command_grammar.parse` alone: the router is
-        # what actually runs, and it also answers the global commands the
-        # reading grammar has never heard of.
-        for command in _all_commands():
-            for phrase in command["examples"]:
-                with self.subTest(phrase=phrase):
-                    self.assertIsNotNone(
-                        router.resolve(router.READING, phrase)["command"],
-                        f"the panel offers {phrase!r} but the router rejects it",
-                    )
+        # what actually runs.
+        for command in all_commands():
+            for phrase in command["phrases"]:
+                for context in command["contexts"]:
+                    with self.subTest(context=context, phrase=phrase):
+                        self.assertIsNotNone(
+                            router.resolve(context, sayable(phrase))["command"],
+                            f"the list offers {phrase!r} in {context} but the router rejects it",
+                        )
 
-    def test_the_page_number_example_parses_as_a_jump(self):
-        # "Go to page 12" is the one example carrying an argument, so it is
-        # the one most likely to drift out of the grammar's reach.
-        phrases = [
-            phrase
-            for command in _all_commands()
-            for phrase in command["examples"]
-            if "12" in phrase
-        ]
-        self.assertTrue(phrases)
-        for phrase in phrases:
+    def test_a_page_pattern_parses_as_a_jump(self):
+        cards = [c for c in all_commands() if any(reference.PAGE in p for p in c["phrases"])]
+        self.assertEqual(len(cards), 1)
+        for phrase in cards[0]["phrases"]:
             with self.subTest(phrase=phrase):
-                parsed = command_grammar.parse(phrase)
-                self.assertEqual(parsed["intent"], command_grammar.GOTO_PAGE)
+                parsed = grammar.parse(sayable(phrase))
+                self.assertEqual(parsed["intent"], grammar.GOTO_PAGE)
                 self.assertEqual(parsed["page"], 12)
 
-    def test_the_highlight_examples_carry_the_words_to_mark(self):
-        highlights = next(
-            c for c in reference.categories() if c["title"] == "Highlighting"
-        )
-        for command in highlights["commands"]:
-            for phrase in command["examples"]:
+    def test_a_number_pattern_parses_as_that_row(self):
+        cards = [c for c in all_commands() if any(reference.NUMBER in p for p in c["phrases"])]
+        self.assertTrue(cards)
+        for phrase in cards[0]["phrases"]:
+            with self.subTest(phrase=phrase):
+                resolved = router.resolve(router.HOME, sayable(phrase))["command"]
+                self.assertEqual(resolved["intent"], router.OPEN_NUMBER)
+
+    def test_the_highlight_patterns_carry_the_words_to_mark(self):
+        for command in all_commands():
+            for phrase in command["phrases"]:
+                if reference.WORDS in phrase:
+                    with self.subTest(phrase=phrase):
+                        self.assertTrue(grammar.parse(sayable(phrase)).get("query"))
+
+    def test_every_phrase_is_a_pattern_not_one_invented_example(self):
+        # A variable is a placeholder the page fills with the real range. A
+        # digit in a phrase would be a single made-up example presented as
+        # the command.
+        for command in all_commands():
+            for phrase in command["phrases"]:
                 with self.subTest(phrase=phrase):
-                    parsed = command_grammar.parse(phrase)
-                    self.assertTrue(parsed.get("query"))
+                    self.assertNotRegex(phrase, r"\d")
 
 
-class PanelShapeTests(unittest.TestCase):
+class NothingThatWorksIsMissingTests(unittest.TestCase):
+    def test_every_phrase_in_every_table_is_on_a_card(self):
+        listed = set().union(*card_phrase_sets())
+        for name, table in registry_tables():
+            for intent, phrasings in table.items():
+                for phrasing in phrasings:
+                    with self.subTest(table=name, intent=intent, phrase=phrasing):
+                        self.assertIn(
+                            phrasing.lower(), listed,
+                            f"{phrasing!r} ({name} {intent}) is recognized but not in the list",
+                        )
+
+    def test_every_intent_shows_all_its_alternates_on_one_card(self):
+        # Not a sample: a card showing 2 of the 6 ways to say "next page" would
+        # make the other four look like they do not work.
+        cards = card_phrase_sets()
+        for name, table in registry_tables():
+            for intent, phrasings in table.items():
+                wanted = {p.lower() for p in phrasings}
+                with self.subTest(table=name, intent=intent):
+                    self.assertTrue(
+                        any(wanted <= card for card in cards),
+                        f"no single card carries every phrasing of {intent}: {sorted(wanted)}",
+                    )
+
+    def test_every_command_that_takes_a_variable_is_listed_with_every_lead(self):
+        cards = card_phrase_sets()
+        for name, leads, placeholder in registry_patterns():
+            wanted = {f"{lead} {placeholder}" for lead in leads}
+            with self.subTest(command=name):
+                self.assertTrue(any(wanted <= card for card in cards), sorted(wanted))
+
+    def test_the_card_carries_as_many_phrases_as_the_grammar_has(self):
+        nav = next(c for c in all_commands() if "next page" in {p.lower() for p in c["phrases"]})
+        self.assertEqual(len(nav["phrases"]), len(grammar.PHRASES[grammar.NEXT_PAGE]))
+
+
+class ListShapeTests(unittest.TestCase):
     def test_every_command_offers_a_keyboard_or_mouse_equivalent(self):
         # docs/PRD.md's parity requirement, restated as something the reader
-        # can check: the panel claims every voice command also has a button or
+        # can check: the list claims every voice command also has a button or
         # a shortcut, and this is what keeps that claim honest.
-        for command in _all_commands():
-            with self.subTest(command=command["examples"]):
+        for command in all_commands():
+            with self.subTest(command=command["phrases"]):
                 self.assertTrue(command["equivalent"].strip())
 
-    def test_every_command_explains_what_it_does(self):
-        for command in _all_commands():
-            with self.subTest(command=command["examples"]):
+    def test_every_command_explains_what_it_does_and_where(self):
+        for command in all_commands():
+            with self.subTest(command=command["phrases"]):
                 self.assertTrue(command["description"].strip())
+                self.assertTrue(command["contexts"])
+                self.assertTrue(command["phrases"])
 
-    def test_no_category_is_empty(self):
-        # An empty category reads as a feature that is broken rather than one
-        # that does not exist yet.
-        for category in reference.categories():
-            with self.subTest(category=category["title"]):
-                self.assertTrue(category["commands"])
+    def test_no_section_is_empty_and_ids_are_unique(self):
+        ids = [s["id"] for s in reference.sections()]
+        self.assertEqual(len(ids), len(set(ids)))
+        for section in reference.sections():
+            with self.subTest(section=section["id"]):
+                self.assertTrue(section["commands"])
+                self.assertTrue(section["scope_note"].strip())
 
     def test_search_is_absent_until_it_exists(self):
         # docs/PRD.md names a "Finding words" category, but in-document search
         # has not been built. It belongs here when it is, and not before.
-        titles = [c["title"] for c in reference.categories()]
-        self.assertNotIn("Finding words", titles)
+        self.assertNotIn("Finding words", [s["title"] for s in reference.sections()])
 
     def test_the_panel_names_both_ways_of_starting(self):
         panel = reference.panel()
-
         self.assertEqual(panel["wake_phrase"], wake.WAKE_PHRASE)
         self.assertTrue(panel["push_to_talk_key"])
 
@@ -100,132 +187,84 @@ class PanelShapeTests(unittest.TestCase):
         # Settings and onboarding both print `wake_phrase_display`, so the
         # nicely-cased form has to stay the same words as the grammar's.
         panel = reference.panel()
-
         self.assertEqual(panel["wake_phrase_display"].lower(), panel["wake_phrase"])
 
-    def test_the_panel_carries_its_categories(self):
-        self.assertEqual(
-            [c["title"] for c in reference.panel()["categories"]],
-            [c["title"] for c in reference.categories()],
-        )
 
+class SameListOnEveryScreenTests(unittest.TestCase):
+    ORDER = (
+        "anywhere", "back_home", "recent", "favorites", "theme", "save", "reopen",
+        "moving", "highlighting", "undo_redo", "app", "this_list", "prompts",
+    )
 
-class ContextScopingTests(unittest.TestCase):
-    """Milestone 8.10: the panel shows only the active context's commands."""
-
-    def test_home_context_is_scoped_away_from_the_reading_grammar(self):
-        titles = [c["title"] for c in reference.categories(router.HOME)]
-        self.assertNotIn("Moving around", titles)
-        self.assertNotIn("Highlighting", titles)
-
-    def test_settings_context_is_scoped_away_from_the_reading_grammar(self):
-        titles = [c["title"] for c in reference.categories(router.SETTINGS)]
-        self.assertNotIn("Moving around", titles)
-        self.assertNotIn("Highlighting", titles)
-
-    def test_every_context_without_its_own_categories_falls_back_to_reading(self):
-        # Only HOME/SETTINGS have their own scoped grammar so far
-        # (Milestone 8.5) — every other context, including any future one
-        # this test doesn't yet know the name of, keeps the pre-8.10 default
-        # rather than advertising nothing.
-        for context in router.CONTEXTS:
-            if context in (router.HOME, router.SETTINGS):
-                continue
+    def test_every_screen_gets_every_section_and_every_command(self):
+        reference_ids = {s["id"] for s in reference.sections(router.READING)}
+        every_card = sorted(map(str, card_phrase_sets(router.READING)))
+        for context in SCREENS:
             with self.subTest(context=context):
-                self.assertEqual(reference.categories(context), reference.categories())
+                self.assertEqual({s["id"] for s in reference.sections(context)}, reference_ids)
+                self.assertEqual(sorted(map(str, card_phrase_sets(context))), every_card)
 
-    def test_every_home_phrase_is_advertised_and_understood(self):
-        # `HOME_PHRASES` is Home's whole scoped grammar — every intent there
-        # should show up in the panel, and every example the panel offers
-        # should resolve through the router the way `READING`'s examples
-        # resolve through `command_grammar`.
-        advertised_intents = set()
-        for command in _all_commands(router.HOME):
-            for phrase in command["examples"]:
-                with self.subTest(phrase=phrase):
-                    resolved = router.resolve(router.HOME, phrase)["command"]
-                    self.assertIsNotNone(
-                        resolved, f"the Home panel offers {phrase!r} but the router rejects it"
-                    )
-                    advertised_intents.add(resolved["intent"])
-        # Home's own table, plus the parsed "open number N" (not a fixed
-        # phrase, so not in the table), plus whichever globals are listed.
-        self.assertEqual(
-            advertised_intents - set(router.GLOBAL_PHRASES),
-            set(router.HOME_PHRASES) | {router.OPEN_NUMBER},
-        )
-
-    def test_every_settings_phrase_is_advertised_and_understood(self):
-        advertised_intents = set()
-        for command in _all_commands(router.SETTINGS):
-            for phrase in command["examples"]:
-                with self.subTest(phrase=phrase):
-                    resolved = router.resolve(router.SETTINGS, phrase)["command"]
-                    self.assertIsNotNone(
-                        resolved, f"the Settings panel offers {phrase!r} but the router rejects it"
-                    )
-                    advertised_intents.add(resolved["intent"])
-        self.assertEqual(
-            advertised_intents - set(router.GLOBAL_PHRASES), set(router.SETTINGS_PHRASES)
-        )
-
-    def test_every_screen_lists_the_global_commands_it_handles(self):
-        for context in (router.HOME, router.SETTINGS, router.READING):
-            intents = set()
-            for command in _all_commands(context):
-                for phrase in command["examples"]:
-                    resolved = router.resolve(context, phrase)["command"]
-                    intents.add(resolved["intent"])
+    def test_a_screens_own_sections_come_first_then_the_rest_in_the_fixed_order(self):
+        for context in SCREENS:
+            ordered = reference.sections(context)
+            own = [s["id"] for s in ordered if s["available"] and not s["everywhere"]]
+            rest = [s["id"] for s in ordered if s["id"] not in own]
             with self.subTest(context=context):
-                self.assertTrue(
-                    {router.OPEN_PDF, router.GO_RECENT, router.OPEN_SETTINGS, router.HELP}
-                    <= intents
-                )
+                self.assertEqual([s["id"] for s in ordered], own + rest)
+                self.assertTrue(own)
+                # Each group keeps the one fixed order.
+                for group in (own, rest):
+                    self.assertEqual(group, sorted(group, key=self.ORDER.index))
 
-    def test_no_home_or_settings_category_is_empty(self):
-        for context in (router.HOME, router.SETTINGS):
-            for category in reference.categories(context):
-                with self.subTest(context=context, category=category["title"]):
-                    self.assertTrue(category["commands"])
+    def test_each_screen_leads_with_its_own_commands(self):
+        self.assertEqual(reference.sections(router.HOME)[0]["id"], "recent")
+        self.assertEqual(reference.sections(router.SETTINGS)[0]["id"], "theme")
+        self.assertEqual(reference.sections(router.READING)[0]["id"], "moving")
 
-    def test_home_and_settings_commands_have_a_description_and_equivalent(self):
-        for context in (router.HOME, router.SETTINGS):
-            for command in _all_commands(context):
-                with self.subTest(context=context, command=command["examples"]):
-                    self.assertTrue(command["description"].strip())
-                    self.assertTrue(command["equivalent"].strip())
+    def test_a_section_the_screen_cannot_act_on_says_where_it_works(self):
+        for context in SCREENS:
+            for section in reference.sections(context):
+                with self.subTest(context=context, section=section["id"]):
+                    self.assertEqual(section["available"], context in section["contexts"])
+                    if not section["available"]:
+                        self.assertTrue(section["scope_note"].strip())
 
-    def test_the_panel_threads_context_through_to_categories(self):
-        for context in (router.HOME, router.SETTINGS, router.READING):
+    def test_the_panel_threads_context_through_to_sections(self):
+        for context in SCREENS:
             with self.subTest(context=context):
                 self.assertEqual(
-                    [c["title"] for c in reference.panel(context)["categories"]],
-                    [c["title"] for c in reference.categories(context)],
+                    [s["id"] for s in reference.panel(context)["sections"]],
+                    [s["id"] for s in reference.sections(context)],
+                )
+
+    def test_every_other_context_falls_back_to_the_reading_order(self):
+        for context in router.CONTEXTS:
+            if context in SCREENS:
+                continue
+            with self.subTest(context=context):
+                self.assertEqual(
+                    [s["id"] for s in reference.sections(context)],
+                    [s["id"] for s in reference.sections(router.READING)],
                 )
 
 
 class TrySayingTests(unittest.TestCase):
     """The empty state's "TRY SAYING" chips come from the same registry as the
-    panel, so a chip can never be a command that does not work."""
+    list, so a chip can never be a command that does not work."""
 
     def test_home_suggests_the_three_mockup_phrases(self):
         self.assertEqual(
-            reference.try_saying(router.HOME),
-            ["open a PDF", "what can I say", "open settings"],
+            reference.try_saying(router.HOME), ["open a PDF", "what can I say", "open settings"]
         )
 
     def test_every_suggestion_resolves_through_the_router(self):
-        for context in (router.HOME, router.SETTINGS, router.READING):
+        for context in SCREENS:
             for phrase in reference.try_saying(context):
                 with self.subTest(context=context, phrase=phrase):
                     self.assertIsNotNone(router.resolve(context, phrase)["command"])
 
-    def test_every_suggestion_is_also_listed_in_the_panel(self):
-        listed = {
-            phrase.lower()
-            for command in _all_commands(router.HOME)
-            for phrase in command["examples"]
-        }
+    def test_every_suggestion_is_also_listed(self):
+        listed = set().union(*card_phrase_sets(router.HOME))
         for phrase in reference.try_saying(router.HOME):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase.lower(), listed)
@@ -234,12 +273,135 @@ class TrySayingTests(unittest.TestCase):
         self.assertEqual(reference.try_saying(router.SETTINGS), [])
 
     def test_the_panel_payload_carries_them(self):
-        self.assertEqual(
-            reference.panel(router.HOME)["try_saying"], reference.try_saying(router.HOME)
-        )
+        self.assertEqual(reference.panel(router.HOME)["try_saying"], reference.try_saying(router.HOME))
 
     def test_pdf_is_written_as_an_initialism(self):
         self.assertIn("open a PDF", reference.try_saying(router.HOME))
+
+
+# ---------------------------------------------------------------------------
+# The component: one, shared, and driven only by the registry.
+# ---------------------------------------------------------------------------
+
+
+def strip_js_comments(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"(?m)(?<![:\"'`])//.*$", "", text)
+
+
+def all_commands_text() -> set[str]:
+    """Every string the registry puts in front of a reader."""
+    out = set()
+    for context in SCREENS:
+        for command in all_commands(context):
+            out.update(p.lower() for p in command["phrases"])
+            out.add(command["description"].lower())
+            out.add(command["equivalent"].lower())
+    return out
+
+
+class OneSharedComponentTests(unittest.TestCase):
+    PAGES = {
+        "home": (FRONTEND / "index.html", FRONTEND / "pages" / "home.js"),
+        "settings": (FRONTEND / "pages" / "settings.html", FRONTEND / "pages" / "settings.js"),
+        "reading": (FRONTEND / "pages" / "reading.html", FRONTEND / "pages" / "reading.js"),
+    }
+
+    def test_every_screen_loads_the_one_component_and_stylesheet(self):
+        for name, (html, _js) in self.PAGES.items():
+            text = html.read_text(encoding="utf-8")
+            with self.subTest(screen=name):
+                self.assertEqual(text.count("command-reference.js"), 1)
+        for css in ("home.css", "reading.css"):
+            self.assertIn("reference.css", (FRONTEND / "pages" / css).read_text(encoding="utf-8"))
+
+    def test_the_dialog_markup_exists_exactly_once_in_the_frontend(self):
+        holders = [
+            path.relative_to(FRONTEND).as_posix()
+            for path in FRONTEND.rglob("*")
+            if path.suffix in (".html", ".js", ".css")
+            and 'id="referenceDialog"' in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(holders, ["pages/command-reference.js"])
+
+    def test_no_page_builds_its_own_copy_of_the_list(self):
+        for name, (html, js) in self.PAGES.items():
+            for path in (html, js):
+                text = path.read_text(encoding="utf-8")
+                with self.subTest(screen=name, file=path.name):
+                    for private in ("renderReference", "reference-card-row", "reference-section"):
+                        self.assertNotIn(private, text)
+
+    def test_every_entry_point_opens_the_same_component(self):
+        home = self.PAGES["home"][1].read_text(encoding="utf-8")
+        settings = self.PAGES["settings"][1].read_text(encoding="utf-8")
+        reading = self.PAGES["reading"][1].read_text(encoding="utf-8")
+        # The sidebar link, the reader's two buttons, and the spoken command.
+        self.assertIn('getElementById("voiceHelpBtn").addEventListener("click", openCommandReference)', home)
+        self.assertIn('getElementById("voiceHelpBtn").addEventListener("click", openCommandReference)', settings)
+        self.assertIn('referenceRailBtn.addEventListener("click", openCommandReference)', reading)
+        self.assertIn('referenceFooterBtn.addEventListener("click", openCommandReference)', reading)
+        for js in (home, settings, reading):
+            self.assertIn("HELP: () => openCommandReference()", js)
+        # The "?" shortcut is the component's own, so it exists on every screen
+        # and no page keeps a private one.
+        component = COMPONENT.read_text(encoding="utf-8")
+        self.assertIn('ev.key !== "?"', component)
+        self.assertNotIn('case "?"', reading)
+
+    def test_the_component_loads_the_list_from_the_registry_only(self):
+        self.assertIn('callApi("get_command_reference")', COMPONENT.read_text(encoding="utf-8"))
+
+    def test_the_component_writes_no_command_text_of_its_own(self):
+        code = strip_js_comments(COMPONENT.read_text(encoding="utf-8"))
+        # The dialog's own chrome (title, the "say these exactly" line) lives in
+        # the markup; everything outside it is code that may only pass the
+        # payload's strings through.
+        code = code[: code.index("const REFERENCE_MARKUP")] + code[code.index("</div>`;") :]
+        lowered = code.lower()
+        for text in all_commands_text():
+            if len(text.split()) >= 2 or len(text) > 12:
+                with self.subTest(text=text):
+                    self.assertNotIn(text, lowered)
+
+    def test_no_screen_shows_a_spoken_phrase_the_registry_does_not_have(self):
+        # UI copy outside the list ("or say “documents”", toasts, hints) quotes
+        # phrases too. Each one must be a phrase the recognizer accepts.
+        known = set(all_commands_text())
+        known |= {wake.WAKE_PHRASE_DISPLAY.lower(), wake.WAKE_PHRASE.lower()}
+        known |= {p.lower() for _name, table in registry_tables() for ps in table.values() for p in ps}
+        # Only lines that tell the reader to "say" something. In a page's text
+        # both quote styles mark a phrase; in script, straight quotes are code, so
+        # only the curly ones the copy uses are read.
+        curly = re.compile(r"“([^”\n]{2,40})”")
+        either = re.compile(r"[“\"]([^”\"\n]{2,40})[”\"]")
+        offenders = []
+        for path in FRONTEND.rglob("*"):
+            if path.suffix not in (".html", ".js") or path == COMPONENT:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if path.suffix == ".js":
+                text, pattern = strip_js_comments(text), curly
+            else:
+                text = re.sub(r"<[^>]+>", " ", re.sub(r"<!--.*?-->", "", text, flags=re.S))
+                pattern = either
+            for line in text.splitlines():
+                if not re.search(r"\bsay(?:ing)?\b", line, re.I):
+                    continue
+                for match in pattern.finditer(line):
+                    phrase = match.group(1).strip().lower()
+                    if phrase not in known and "${" not in phrase:
+                        offenders.append((path.name, match.group(1)))
+        self.assertEqual(offenders, [])
+
+    def test_the_description_says_phrases_must_be_exact(self):
+        # Recognition is a closed grammar, with no language understanding.
+        flat = re.sub(r"\s+", " ", COMPONENT.read_text(encoding="utf-8"))
+        self.assertIn("Say these phrases exactly.", flat)
+        self.assertIn("Lector only recognizes the commands listed here.", flat)
+        self.assertIn("Every command also has a button or shortcut.", flat)
+        self.assertNotIn("magic words", flat)
+        self.assertNotIn("however feels natural", flat)
 
 
 if __name__ == "__main__":
