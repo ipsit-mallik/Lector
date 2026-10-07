@@ -140,13 +140,13 @@
   height: 100%;
   border-radius: calc(var(--radius-md) - 1px);
 }
-.header-search-toggle [data-icon] { display: flex; width: 20px; height: 20px; }
+.header-search-toggle [data-icon] { display: flex; width: 18px; height: 18px; }
 .header-search svg { width: 100%; height: 100%; }
 
 /* --- Grid/list toggle --------------------------------------------------------
    A segmented pair, so the pressed state reads as "one of these two, always
-   exactly one". 40px buttons with 20px icons, 4px all round and between them;
-   the edge is an inset shadow so it takes no room from the 48px control. The
+   exactly one". 32px buttons with 18px icons, 4px all round and between them;
+   the edge is an inset shadow so it takes no room from the 40px control. The
    active segment is a solid accent fill. */
 .view-toggle {
   display: flex;
@@ -163,8 +163,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);
@@ -173,7 +173,7 @@
   transition: background-color var(--dur-fast) var(--ease-out),
               color var(--dur-fast) var(--ease-out);
 }
-.view-toggle-btn [data-icon] { display: flex; width: 20px; height: 20px; }
+.view-toggle-btn [data-icon] { display: flex; width: 18px; height: 18px; }
 .view-toggle-btn svg { width: 100%; height: 100%; }
 .view-toggle-btn:hover { background-color: var(--state-hover); color: var(--text-primary); }
 .view-toggle-btn:active { background-color: var(--state-pressed); }

@@ -68,7 +68,7 @@
 
   /* One height for the header row's controls (search, grid/list toggle, Open
    * PDF), so they line up whatever each holds. */
-  --control-h: 48px;
+  --control-h: 40px;
 
   /* Voice colour role. Badge fill + numeral are fixed across themes so a
    * numbered voice badge looks identical everywhere: 7.5:1. */

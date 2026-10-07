@@ -360,7 +360,7 @@ function handleMenuKeydown(ev) {
 
 // Remove from Recent, below a separator, with the note that the file stays on
 // disk. Only offered in Recent: in Favorites the file may not be listed in
-// Recent at all, and "Remove from Favorites" is the star item above.
+// Recent at all, and un-starring is the row's star.
 function buildRemoveItems(entry, rowIndex, handlers, select) {
   const note = document.createElement("p");
   note.className = "recent-menu-note";
@@ -388,15 +388,10 @@ function openRowMenu(trigger, row, entry, handlers, section) {
     action();
   };
   const rowIndex = Array.from(row.parentElement.querySelectorAll(".recent-item")).indexOf(row);
-  const favoriteItem = buildMenuItem(
-    entry.favorite ? "favorites_filled" : "favorites",
-    entry.favorite ? "Remove from Favorites" : "Add to Favorites",
-    select(() => handlers.onToggleFavorite(entry))
-  );
 
+  // No favorite item: the row's own star (buildFavoriteBtn) already does it.
   menu.append(
     buildMenuItem("open_pdf", "Open", select(() => handlers.onOpen(entry))),
-    favoriteItem,
     buildMenuItem("folder", "Show in folder", select(() => handlers.onShowInFolder(entry))),
     ...(section === "recent" ? buildRemoveItems(entry, rowIndex, handlers, select) : [])
   );
