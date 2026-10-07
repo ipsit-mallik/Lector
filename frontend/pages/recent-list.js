@@ -2,7 +2,7 @@
 // instead of a card per PDF — docs/DESIGN_SYSTEM.md's "Recent list view".
 // home.js owns the data and what each action does; this file only builds
 // the table, sorts it, and runs the per-row "⋯" menu. The grid view is
-// still home.js's own buildCard().
+// still recent-card.js's buildCard().
 //
 // The helpers at the top touch no DOM, so tests/test_recent_list_behavior.py
 // can run them under Node without a browser.
@@ -186,7 +186,7 @@ function setActiveRow(table, row) {
   });
 }
 
-// The favorite star, shared by the list rows here and home.js's grid cards
+// The favorite star, shared by the list rows here and recent-card.js's grid cards
 // (CSS positions it per view). A real button whose label says what it will
 // do, not what state it is in. A favorited star stays visible at rest — it is
 // state, not an action, and is how you tell what is pinned at a glance — an

@@ -52,16 +52,23 @@
         <h1 class="page-title" id="sectionTitle">Recent</h1>
         <!-- Announced politely, so a search narrowing the list ("3 of 12") is
              heard as well as seen. -->
-        <span id="recentCount" class="count-empty" role="status">no files yet</span>
-        <div class="page-header-fill"></div>
-        <div class="header-search is-absent" id="headerSearch">
-          <span class="header-search-icon" data-icon="search" aria-hidden="true"></span>
-          <input type="text" id="headerSearchInput" autocomplete="off" spellcheck="false"
-                 placeholder="Search Recent" aria-label="Search Recent">
-          <button class="header-search-clear" id="headerSearchClear" type="button"
-                  aria-label="Clear search" title="Clear search" hidden>
-            <span data-icon="close"></span>
-          </button>
+        <span id="recentCount" class="page-count" role="status">no files yet</span>
+        <!-- The search opens leftwards over this spacer from its icon, so nothing
+             beside it moves (shared/library-header.css). -->
+        <div class="page-header-fill">
+          <div class="header-search is-absent" id="headerSearch" role="search">
+            <input type="text" id="headerSearchInput" autocomplete="off" spellcheck="false"
+                   placeholder="Search Recent" aria-label="Search Recent">
+            <button class="header-search-clear" id="headerSearchClear" type="button"
+                    aria-label="Clear search" title="Clear search" hidden>
+              <span data-icon="close"></span>
+            </button>
+            <button class="header-search-toggle" id="headerSearchToggle" type="button"
+                    aria-label="Search Recent" aria-expanded="false" aria-controls="headerSearchInput"
+                    title="Search  (Ctrl+F)">
+              <span data-icon="search"></span>
+            </button>
+          </div>
         </div>
         <div class="view-toggle is-absent" id="viewToggle" role="group" aria-label="Recent view">
           <button class="view-toggle-btn" id="recentViewGridBtn" aria-pressed="true" aria-label="Grid view" title="Grid view">
@@ -149,6 +156,7 @@
   <script src="js/file-browser.js"></script>
   <script src="pages/recent-list.js"></script>
   <script src="pages/library-search.js"></script>
+  <script src="pages/recent-card.js"></script>
   <script src="pages/command-reference.js"></script>
   <script src="pages/home.js"></script>
 </body>

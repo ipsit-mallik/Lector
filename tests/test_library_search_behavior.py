@@ -19,11 +19,11 @@ const fs = require("fs");
 const vm = require("vm");
 
 const source = fs.readFileSync(process.argv[1], "utf8");
-const context = vm.createContext({});
+const context = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(
   source +
-    "\nthis.api = { filterEntriesByQuery, searchPlaceholder, filteredCountLabel," +
-    " isSearchShortcut, isTypingTarget };",
+    "\nthis.api = { filterEntriesByQuery, searchPlaceholder, formatFileCount," +
+    " createDebouncer, SEARCH_DEBOUNCE_MS, isSearchShortcut, isTypingTarget };",
   context
 );
 const api = context.api;
@@ -37,14 +37,18 @@ const ENTRIES = [
 ];
 const names = (list) => list.map((e) => e.name);
 
+// A check may return a promise (the debounce ones wait on real timers).
+const pending = [];
 const results = {};
 const check = (name, fn) => {
-  try {
-    results[name] = fn() === true;
-  } catch (err) {
-    results[name] = `threw: ${err.message}`;
-  }
+  pending.push(
+    Promise.resolve()
+      .then(fn)
+      .then((ok) => { results[name] = ok === true; })
+      .catch((err) => { results[name] = `threw: ${err.message}`; })
+  );
 };
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 check("an empty query keeps every entry", () => {
   return api.filterEntriesByQuery(ENTRIES, "") === ENTRIES;
@@ -96,8 +100,53 @@ check("the placeholder names the page", () => {
     && api.searchPlaceholder("Favorites") === "Search Favorites";
 });
 
-check("the filtered count reads 'N of M'", () => {
-  return api.filteredCountLabel(3, 12) === "3 of 12";
+check("the count reads '12 files', and '1 file' for one", () => {
+  return api.formatFileCount(12, 12, false) === "12 files"
+    && api.formatFileCount(1, 1, false) === "1 file";
+});
+
+check("while filtering the count reads '3 of 12 files'", () => {
+  return api.formatFileCount(3, 12, true) === "3 of 12 files"
+    && api.formatFileCount(0, 12, true) === "0 of 12 files"
+    && api.formatFileCount(1, 1, true) === "1 of 1 file";
+});
+
+check("an empty list says there are no files yet", () => {
+  return api.formatFileCount(0, 0, false) === "no files yet";
+});
+
+check("the debounce is about 200ms", () => api.SEARCH_DEBOUNCE_MS === 200);
+
+check("a debouncer fires once, with the latest value, after the pause", async () => {
+  const seen = [];
+  const debouncer = api.createDebouncer((value) => seen.push(value), 30);
+  debouncer.schedule("a");
+  await sleep(10);
+  debouncer.schedule("ab");
+  await sleep(10);
+  debouncer.schedule("abc");
+  if (seen.length !== 0) return false;
+  await sleep(60);
+  return seen.join("|") === "abc";
+});
+
+check("a cancelled debouncer never fires", async () => {
+  const seen = [];
+  const debouncer = api.createDebouncer((value) => seen.push(value), 20);
+  debouncer.schedule("stale");
+  debouncer.cancel();
+  await sleep(50);
+  return seen.length === 0;
+});
+
+check("a debouncer can be used again after it fires", async () => {
+  const seen = [];
+  const debouncer = api.createDebouncer((value) => seen.push(value), 15);
+  debouncer.schedule("one");
+  await sleep(40);
+  debouncer.schedule("two");
+  await sleep(40);
+  return seen.join("|") === "one|two";
 });
 
 const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, altKey: false, ...mods });
@@ -113,7 +162,7 @@ check("inputs count as typing targets", () => {
     && !api.isTypingTarget(null);
 });
 
-console.log(JSON.stringify(results));
+Promise.all(pending).then(() => console.log(JSON.stringify(results)));
 """
 
 
@@ -178,6 +227,40 @@ class HeaderWiringTests(unittest.TestCase):
         self.assertIn('class="page-header"', html)
         self.assertNotIn("headerSearch", html)
         self.assertNotIn("openPdfBtn", html)
+
+    def test_search_is_an_icon_button_in_the_spacer_left_of_the_toggle(self):
+        html = self.read("index.html")
+        order = [
+            html.index(marker)
+            for marker in ('class="page-header-fill"', 'id="headerSearchToggle"', 'id="viewToggle"')
+        ]
+        self.assertEqual(order, sorted(order))
+        self.assertRegex(html, r'id="headerSearchToggle"[^>]*aria-expanded="false"')
+
+    def test_the_header_row_is_one_shared_stylesheet(self):
+        components = self.read("shared", "components.css")
+        self.assertIn('@import "library-header.css"', components)
+        shared = self.read("shared", "library-header.css")
+        home = self.read("pages", "home.css")
+        for selector in (".header-search", ".view-toggle", ".page-count", ".page-header-fill"):
+            self.assertIn(selector, shared)
+            self.assertNotRegex(home, rf"(?m)^{selector.replace('.', r'[.]')}\b")
+
+    def test_one_control_height_for_search_toggle_and_open_pdf(self):
+        shared = self.read("shared", "library-header.css")
+        self.assertRegex(shared, r"\.header-search\s*\{[^}]*width:\s*var\(--control-h\)")
+        self.assertRegex(shared, r"\.view-toggle\s*\{[^}]*height:\s*var\(--control-h\)")
+        self.assertRegex(shared, r"\.header-open-btn\s*\{[^}]*height:\s*var\(--control-h\)")
+
+    def test_search_grow_uses_the_shared_motion_tokens(self):
+        shared = self.read("shared", "library-header.css")
+        self.assertRegex(
+            shared, r"transition:\s*width var\(--dur-base\) var\(--ease-out\)"
+        )
+
+    def test_grid_card_script_loads_before_home_js(self):
+        html = self.read("index.html")
+        self.assertLess(html.index("pages/recent-card.js"), html.index("pages/home.js"))
 
 
 if __name__ == "__main__":

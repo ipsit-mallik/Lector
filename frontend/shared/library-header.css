@@ -1,0 +1,190 @@
+/* The page header row, shared by every page (Recent, Favorites, Settings, and
+   All PDFs when it exists): title and count on the left, then search, the
+   grid/list toggle and Open PDF on the right. Imported by components.css, so a
+   page gets all of it and none can drift. Behaviour is in
+   frontend/pages/library-search.js and home.js. */
+
+/* One height for the row, set by its controls, so a title sits in the same
+   place on every page whether or not the page has any. */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-h);
+  margin-bottom: var(--space-4);
+}
+
+/* The empty space between the title and the controls. The search opens
+   leftwards over it, so nothing beside it ever moves. */
+.page-header-fill {
+  position: relative;
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.page-header > .page-title,
+.page-header > .page-count { flex: none; white-space: nowrap; }
+.page-header > .view-toggle { flex: none; }
+/* Two classes, so it beats .btn's 38px (components.css comes after this file). */
+.page-header > .header-open-btn { flex: none; height: var(--control-h); }
+
+.page-header .page-title { margin: 0 var(--space-1) 0 0; }
+
+/* Count: plain text beside the title ("12 files", "3 of 12 files"). Secondary
+   text, which meets 4.5:1 on the page in every theme; a filled chip read as
+   nothing at all on the dark page. */
+.page-header .page-count {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* --- Search ----------------------------------------------------------------
+   A search icon at rest. Opening grows the field to the left from the icon
+   (--dur-base, the app's one ease-out); the icon stays where it is and closes it
+   again. It is absolutely placed in the spacer, so the width change moves
+   nothing else. prefers-reduced-motion makes the grow instant (theme.css). */
+.header-search {
+  --search-open-width: 280px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: var(--control-h);
+  height: 100%;
+  padding-left: 0;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
+  transition: width var(--dur-base) var(--ease-out),
+              padding-left var(--dur-base) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+
+.header-search.is-open {
+  width: min(var(--search-open-width), 100%);
+  padding-left: var(--space-3);
+}
+
+/* Focus is shown on the whole field, whichever part has it. The parts' own
+   rings would be cut off by the field's overflow. */
+.header-search:has(:focus-visible) {
+  border-color: var(--accent);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.header-search :focus-visible { outline: none; }
+
+/* Collapsed, the field and its clear button are out of sight and out of the tab
+   order; they only appear once the grow has begun, and go after it has ended. */
+.header-search input,
+.header-search-clear {
+  visibility: hidden;
+  transition: visibility 0s linear var(--dur-base);
+}
+.header-search.is-open input,
+.header-search.is-open .header-search-clear {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.header-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+}
+.header-search input::placeholder { color: var(--text-muted); }
+
+.header-search-clear,
+.header-search-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+.header-search-clear:hover,
+.header-search-toggle:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.header-search-clear:active,
+.header-search-toggle:active,
+.header-search-clear:focus-visible,
+.header-search-toggle:focus-visible { background-color: var(--state-pressed); }
+
+.header-search-clear {
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+.header-search-clear[hidden] { display: none; }
+.header-search-clear [data-icon] { display: flex; width: 14px; height: 14px; }
+
+.header-search-toggle {
+  /* The field's own 1px border on each side takes the rest of the control. */
+  width: calc(var(--control-h) - 2px);
+  height: 100%;
+  border-radius: calc(var(--radius-md) - 1px);
+}
+.header-search-toggle [data-icon] { display: flex; width: 20px; height: 20px; }
+.header-search svg { width: 100%; height: 100%; }
+
+/* --- Grid/list toggle --------------------------------------------------------
+   A segmented pair, so the pressed state reads as "one of these two, always
+   exactly one". 40px buttons with 20px icons, 4px all round and between them;
+   the edge is an inset shadow so it takes no room from the 48px control. The
+   active segment is a solid accent fill. */
+.view-toggle {
+  display: flex;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  height: var(--control-h);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+.view-toggle-btn [data-icon] { display: flex; width: 20px; height: 20px; }
+.view-toggle-btn svg { width: 100%; height: 100%; }
+.view-toggle-btn:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.view-toggle-btn:active { background-color: var(--state-pressed); }
+/* Inside the 4px of padding, so the ring never touches the edge. */
+.view-toggle-btn:focus-visible { outline-offset: 1px; }
+
+.view-toggle-btn[aria-pressed="true"],
+.view-toggle-btn[aria-pressed="true"]:hover {
+  background-color: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-1);
+}
+.view-toggle-btn[aria-pressed="true"]:hover { background-color: var(--accent-hover); }
+.view-toggle-btn[aria-pressed="true"]:active { background-color: var(--accent-pressed); }

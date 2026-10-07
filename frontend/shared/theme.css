@@ -66,6 +66,10 @@
   --focus-ring-offset: 2px;
   --overlay-blur: 8px;
 
+  /* One height for the header row's controls (search, grid/list toggle, Open
+   * PDF), so they line up whatever each holds. */
+  --control-h: 48px;
+
   /* Voice colour role. Badge fill + numeral are fixed across themes so a
    * numbered voice badge looks identical everywhere: 7.5:1. */
   --voice-fill: #E0954F;
@@ -105,6 +109,7 @@
   --accent-strong: #2C463F;
 
   --voice: #B76F38;
+  --star: #9A6B00;
   --highlight: #F7DE7A;
   --danger: #B44137;
 
@@ -138,6 +143,7 @@
   --accent-strong: #7FB3A4;
 
   --voice: #E0954F;
+  --star: #F0B93A;
   --highlight: #6B5A24;
   --danger: #DD7A6F;
 
@@ -169,6 +175,7 @@
   --accent-strong: #37483E;
 
   --voice: #B5672E;
+  --star: #966700;
   --highlight: #E8C468;
   --danger: #AA4137;
 
