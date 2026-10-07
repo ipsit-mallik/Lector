@@ -51,8 +51,10 @@
       <header class="page-header">
         <h1 class="page-title" id="sectionTitle">Recent</h1>
         <!-- Announced politely, so a search narrowing the list ("3 of 12") is
-             heard as well as seen. -->
-        <span id="recentCount" class="page-count" role="status">no files yet</span>
+             heard as well as seen. Empty until the list has loaded: the backend
+             takes a moment to build the thumbnails, and "no files yet" before it
+             answers would be a claim nobody has checked. -->
+        <span id="recentCount" class="page-count" role="status"></span>
         <!-- The search opens leftwards over this spacer from its icon, so nothing
              beside it moves (shared/library-header.css). -->
         <div class="page-header-fill">
@@ -84,7 +86,30 @@
         </button>
       </header>
 
-      <div id="recentArea"></div>
+      <!-- Placeholder cards until the list arrives (home.js's renderRecent()
+           replaces them, or buildLoadFailedState() if the load fails). Drawn here
+           rather than by script so they are on the very first paint. Hidden from
+           assistive tech; the sr-only line says what is happening instead. -->
+      <div id="recentArea" aria-busy="true">
+        <span class="sr-only">Loading your files…</span>
+        <div class="recent-grid" aria-hidden="true">
+          <div class="recent-card recent-card--skeleton">
+            <div class="skeleton skeleton-thumb"></div>
+            <div class="skeleton skeleton-line skeleton-title"></div>
+            <div class="skeleton skeleton-line skeleton-meta"></div>
+          </div>
+          <div class="recent-card recent-card--skeleton">
+            <div class="skeleton skeleton-thumb"></div>
+            <div class="skeleton skeleton-line skeleton-title"></div>
+            <div class="skeleton skeleton-line skeleton-meta"></div>
+          </div>
+          <div class="recent-card recent-card--skeleton">
+            <div class="skeleton skeleton-thumb"></div>
+            <div class="skeleton skeleton-line skeleton-title"></div>
+            <div class="skeleton skeleton-line skeleton-meta"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

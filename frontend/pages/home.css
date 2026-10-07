@@ -159,6 +159,21 @@ html, body { height: 100%; }
 
 .recent-grid .recent-card { width: 268px; padding: var(--space-3); }
 
+/* Placeholder card shown while the list loads (index.html). Same footprint as a
+   real grid card -- thumbnail, a two-line title, a meta line -- so the page does
+   not jump when the cards arrive. Not clickable, so no pointer, no hover lift
+   (.card-lift is never put on it), and no shadow competing with the real cards'. */
+.recent-card--skeleton { cursor: default; box-shadow: none; }
+.recent-grid .recent-card--skeleton .skeleton-thumb {
+  height: 118px;
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-xs);
+}
+.recent-card--skeleton .skeleton-title { width: 90%; height: 14px; margin-top: var(--space-2); }
+.recent-card--skeleton .skeleton-title + .skeleton-title,
+.recent-card--skeleton .skeleton-meta { margin-top: var(--space-2); }
+.recent-card--skeleton .skeleton-meta { width: 55%; height: 10px; margin-bottom: var(--space-1); }
+
 /* Numbered-overlay picker (Milestone 8.6, docs/DESIGN_SYSTEM.md). Only
    present while the `picker` voice context is active — see
    showPicker()/hidePicker() in home.js — a small circular badge per card,

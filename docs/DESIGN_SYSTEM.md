@@ -99,7 +99,7 @@ All live in `frontend/shared/components.css`. Behaviour that needs JavaScript is
 - **Chip:** `.chip`, `.chip--accent`, `.chip--voice`.
 - **Toast:** `showToast(message, { actionLabel, onAction })`. Inverted colours, bottom-centre, announced through a polite live region. The timeout pauses while the toast is hovered or focused, so an Undo is never pulled out from under the pointer.
 - **ProgressBar:** `.progress-bar` / `.progress-bar-fill`.
-- **Skeleton:** `.skeleton` / `.skeleton-line`.
+- **Skeleton:** `.skeleton` / `.skeleton-line`. Home's first paint uses it for three placeholder grid cards (`.recent-card--skeleton`, `home.css`): same footprint as a real card (thumbnail, title, meta line) so nothing shifts when the list arrives, not clickable (no pointer, no lift, no shadow), `aria-hidden` with an `.sr-only` "Loading your files…" beside it, and `aria-busy` on `#recentArea` until `renderRecent()` replaces them. The count beside the title is empty until then; "no files yet" is only ever said about a list that has actually loaded empty. If the fetch fails, `buildLoadFailedState()` shows the empty-state card with "Couldn't load your files" and a "Try again" button, so the placeholders never shimmer for ever.
 - **Page title:** `.page-title`, the serif display face at `--text-2xl`. Used on Home ("Recent"), Settings and onboarding. The Reader's top-bar document title uses the same serif at `--text-lg`.
 - **Modal** and **VoiceStatus** are specified in the UI pass's Phase 2 and Phase 3 respectively. Until then the existing `.dialog-*` frame and per-page voice indicators remain.
 

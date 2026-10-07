@@ -396,6 +396,7 @@ function renderRecent(entries) {
   const visible = filterEntriesByQuery(entries, query);
   renderCount(visible.length, entries.length, Boolean(query.trim()));
   syncHeaderControls(entries.length > 0);
+  recentArea.removeAttribute("aria-busy");
   recentArea.innerHTML = "";
   if (!entries.length) {
     displayedEntries = [];
@@ -421,8 +422,55 @@ function renderRecent(entries) {
   recentArea.appendChild(grid);
 }
 
+// The list could not be fetched. Without this the placeholder cards (index.html)
+// would shimmer for ever, which says "still loading" about something that has
+// stopped. The card is the same one the other empty states use, with the one way
+// forward: ask again.
+function buildLoadFailedState() {
+  const el = document.createElement("section");
+  el.className = "empty-state";
+  el.setAttribute("aria-labelledby", "emptyStateTitle");
+
+  const heading = document.createElement("h2");
+  heading.id = "emptyStateTitle";
+  heading.textContent = "Couldn’t load your files";
+  const body = document.createElement("p");
+  body.className = "empty-state-body";
+  body.textContent = "Something went wrong reading the list. Your files are untouched.";
+
+  const retryBtn = document.createElement("button");
+  retryBtn.className = "btn empty-state-action";
+  retryBtn.type = "button";
+  retryBtn.textContent = "Try again";
+  retryBtn.addEventListener("click", loadSection);
+
+  el.append(buildEmptyIcon("empty_doc"), heading, body, retryBtn);
+  return el;
+}
+
+function renderLoadFailed() {
+  closeRowMenu();
+  recentEntries = [];
+  displayedEntries = [];
+  recentCount.textContent = "";
+  syncHeaderControls(false);
+  recentArea.removeAttribute("aria-busy");
+  recentArea.innerHTML = "";
+  recentArea.appendChild(buildLoadFailedState());
+}
+
+// Only the fetch is guarded: a failure to *draw* a list that did arrive is a bug
+// to see in the console, not something "try again" would fix.
 async function loadSection() {
-  renderRecent(await callApi(SECTION_LOADERS[homeSection]));
+  let entries;
+  try {
+    entries = await callApi(SECTION_LOADERS[homeSection]);
+  } catch (err) {
+    console.error(`Couldn't load ${homeSection}:`, err);
+    renderLoadFailed();
+    return;
+  }
+  renderRecent(entries);
 }
 
 // --- Remove-from-Recent confirmation (Milestone 8.9) --------------------- //
