@@ -198,7 +198,7 @@ button {
 .dialog-card:focus { outline: none; }
 
 .dialog-body {
-  padding: var(--space-5) var(--space-6) var(--space-5);
+  padding: var(--dialog-pad-y) var(--dialog-pad-x) var(--dialog-pad-y);
 }
 
 .dialog-header {
@@ -442,7 +442,7 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-4) var(--dialog-pad-x);
   background-color: var(--surface-1);
   border-top: 1px solid var(--border);
 }

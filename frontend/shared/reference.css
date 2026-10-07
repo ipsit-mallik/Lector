@@ -28,7 +28,7 @@
    beneath it. */
 .reference-band {
   flex: none;
-  padding: var(--space-5) var(--space-6) var(--space-2);
+  padding: var(--dialog-pad-y) var(--dialog-pad-x) var(--space-2);
   border-bottom: 1px solid transparent;
   transition: border-color var(--dur-fast) var(--ease-out);
 }
@@ -117,7 +117,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-3) var(--space-6) var(--space-5);
+  padding: var(--space-3) var(--dialog-pad-x) var(--dialog-pad-y);
 }
 
 /* One column of sections: a heading, its command cards one per row, then the

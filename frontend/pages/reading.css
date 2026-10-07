@@ -23,7 +23,9 @@ html, body { height: 100%; }
   height: 46px;
   display: flex;
   align-items: center;
-  padding: 0 var(--space-5) 0 var(--space-4);
+  /* Left: the footer's side less the back button's own 8px inset, so the arrow
+     and the footer's first control share one left edge; right: the same side. */
+  padding: 0 var(--chrome-pad-x) 0 calc(var(--chrome-pad-x) - var(--space-2));
   gap: 0;
   background-color: var(--surface-1);
 }
@@ -314,7 +316,7 @@ html, body { height: 100%; }
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0 var(--space-5);
+  padding: 0 var(--chrome-pad-x);
   background-color: var(--surface-1);
 }
 

@@ -4,9 +4,7 @@
 
 .content > * { max-width: 760px; }
 
-.page-header { margin-bottom: var(--space-5); }
-
-.section { margin-bottom: var(--space-6); }
+.section { margin-bottom: var(--section-gap); }
 .section h3 { margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
 .section .sub { margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--text-muted); }
 

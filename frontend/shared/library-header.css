@@ -11,7 +11,9 @@
   align-items: center;
   gap: var(--space-3);
   min-height: var(--control-h);
-  margin-bottom: var(--space-4);
+  /* The one gap from the header band to the page's content: the same on every
+     page, so nothing under the title moves between pages. */
+  margin-bottom: var(--page-header-gap);
 }
 
 /* The empty space between the title and the controls. The search opens

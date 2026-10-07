@@ -4,7 +4,6 @@
 
 /* Shares the `.dialog-scrim`/`.dialog-card` frame above; only the body
    contents are specific to browsing. */
-.dialog-body--browser { padding-bottom: var(--space-4); }
 .dialog-body--browser .dialog-header { align-items: center; }
 .dialog-body--browser .dialog-title { margin: 0; }
 
@@ -14,7 +13,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-6);
+  padding: var(--space-2) var(--dialog-pad-x);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   font-size: var(--text-sm);

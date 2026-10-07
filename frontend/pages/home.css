@@ -122,7 +122,7 @@ html, body { height: 100%; }
 .content {
   flex: 1;
   overflow: auto;
-  padding: var(--space-5) var(--space-6) var(--space-6);
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
   background-color: var(--surface-2);
   /* Keeps a focused row (or card) scrolled clear of the toast, which sits
      bottom-centre over the list. */
