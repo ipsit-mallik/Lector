@@ -207,9 +207,12 @@ html, body { height: 100%; }
    thumbnail's top-right corner, 8px in, 6px apart (recent-card.js's buildCardActions).
    The top-left corner stays free for the voice number badge. Each chip is a
    solid theme surface with a hairline edge, so the icon reads over a white page
-   or a dark one alike. They show on hover and on focus anywhere in the card (so
-   a keyboard user sees what Tab landed on); a favorited star stays up, since it
-   is state, not an action. Both are real, independently focusable buttons. */
+   or a dark one alike. They show on hover and on keyboard focus anywhere in the
+   card (so a keyboard user sees what Tab landed on); a favorited star stays up,
+   since it is state, not an action. Keyboard focus only (:focus-visible, not
+   :focus-within): a click on the star leaves focus on it, and that must not keep
+   the Remove chip up after the pointer has gone. Both are real, independently
+   focusable buttons. */
 .card-actions {
   --card-action-size: 32px;
   --card-action-gap: 6px;
@@ -242,7 +245,7 @@ html, body { height: 100%; }
 /* Star and trash are drawn to the same optical size at 18px. */
 .recent-card .card-actions .card-action-btn svg { width: 18px; height: 18px; }
 
-.recent-card:is(:hover, :focus-within) .card-actions .card-action-btn,
+.recent-card:is(:hover, :has(:focus-visible)) .card-actions .card-action-btn,
 .recent-card .card-actions .card-action-btn:focus-visible,
 .recent-card .card-actions .recent-fav-btn.is-favorite { opacity: 1; }
 

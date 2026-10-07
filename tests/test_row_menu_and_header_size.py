@@ -4,6 +4,9 @@
   it as "Add to / Remove from Favorites". The menu keeps Open, Show in folder and
   (Recent only) Remove from Recent. The star, and the voice commands, are what
   favorite a file.
+* Clicking a card's star leaves focus on it; the card's other chip (Remove) must
+  not stay visible because of that. It shows on hover and on *keyboard* focus
+  (`:focus-visible`), never on plain `:focus-within`.
 * The header's search and grid/list toggle were too big beside the title; the
   row's one control height is now 40px, not 48px.
 """
@@ -41,6 +44,16 @@ class RowMenuTest(unittest.TestCase):
     def test_the_row_still_has_its_star(self):
         source = _read("pages", "recent-list.js")
         self.assertIn("buildFavoriteBtn(entry, entry.title, handlers.onToggleFavorite)", source)
+
+
+class CardChipsTest(unittest.TestCase):
+    def test_chips_do_not_stay_up_because_a_click_left_focus_in_the_card(self):
+        css = _read("pages", "home.css")
+        self.assertNotRegex(css, r"\.recent-card:is\([^)]*:focus-within")
+
+    def test_chips_still_show_for_keyboard_focus_anywhere_in_the_card(self):
+        css = _read("pages", "home.css")
+        self.assertRegex(css, r"\.recent-card:is\(:hover, :has\(:focus-visible\)\) \.card-actions")
 
 
 class HeaderControlSizeTest(unittest.TestCase):
