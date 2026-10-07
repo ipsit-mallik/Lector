@@ -334,14 +334,9 @@ html, body { height: 100%; }
   transition: color var(--dur-fast) var(--ease-out);
 }
 .recent-sort-btn:hover { color: var(--text-primary); }
-/* The column the list is sorted by is told apart by weight and by its arrow
-   (up or down), not by a large jump in colour: every header is at least 4.5:1,
-   so none reads as disabled. */
-.recent-th[aria-sort="ascending"] .recent-sort-btn,
-.recent-th[aria-sort="descending"] .recent-sort-btn {
-  color: var(--text-primary);
-  font-weight: 700;
-}
+/* Every header label has the same weight and colour. The column the list is
+   sorted by is told apart by its arrow (a single up or down arrow against the
+   neutral pair) and by aria-sort, not by a heavier, darker label. */
 
 .recent-sort-icon { display: block; width: 13px; height: 13px; }
 .recent-sort-icon svg { display: block; width: 100%; height: 100%; }

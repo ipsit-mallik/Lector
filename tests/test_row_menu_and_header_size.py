@@ -7,6 +7,8 @@
 * Clicking a card's star leaves focus on it; the card's other chip (Remove) must
   not stay visible because of that. It shows on hover and on *keyboard* focus
   (`:focus-visible`), never on plain `:focus-within`.
+* The list's column headers carry the same visual weight: the sorted one is told
+  apart by its arrow (and `aria-sort`), not by a heavier, darker label.
 * The header's search and grid/list toggle were too big beside the title; the
   row's one control height is now 40px, not 48px.
 """
@@ -54,6 +56,18 @@ class CardChipsTest(unittest.TestCase):
     def test_chips_still_show_for_keyboard_focus_anywhere_in_the_card(self):
         css = _read("pages", "home.css")
         self.assertRegex(css, r"\.recent-card:is\(:hover, :has\(:focus-visible\)\) \.card-actions")
+
+
+class ListHeaderWeightTest(unittest.TestCase):
+    def test_the_sorted_column_label_is_not_heavier_or_darker_than_the_others(self):
+        css = _read("pages", "home.css")
+        self.assertNotRegex(css, r'\.recent-th\[aria-sort="(?:ascending|descending)"\][^{]*\{[^}]*font-weight')
+        self.assertNotRegex(css, r'\.recent-th\[aria-sort="(?:ascending|descending)"\][^{]*\{[^}]*color')
+
+    def test_every_header_label_has_one_weight(self):
+        css = _read("pages", "home.css")
+        weights = re.findall(r"\.recent-sort-btn\s*\{[^}]*?font-weight:\s*(\d+)", css)
+        self.assertEqual(weights, ["500"])
 
 
 class HeaderControlSizeTest(unittest.TestCase):

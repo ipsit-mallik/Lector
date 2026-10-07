@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- List view: the three column headers (Name, Last active, Pages) now have the same weight and colour. The sorted one used to be bolder and darker, so Last active looked heavier than the others; it is now marked by its arrow alone.
 - In the list view, the "⋯" menu no longer offers "Add to Favorites" / "Remove from Favorites". The star beside it already does that, so the menu only repeated it. The menu is now Open, Show in folder and (in Recent) Remove from Recent. Starring by voice is unchanged.
 - The search button and the grid/list toggle in the page header are smaller (40px tall instead of 48px; the toggle's buttons are 32px with 18px icons), and Open PDF is 40px to match, so the row no longer dwarfs the title.
 - Library pages (Recent, Favorites) got a round of fixes to their header, list and cards, built once in shared files so every page that has these parts gets them: `frontend/shared/library-header.css` (header row, count, search, view toggle) and `frontend/pages/recent-card.js` (grid card).
