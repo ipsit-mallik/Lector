@@ -1,3 +1,5 @@
+import logging
+import shutil
 from pathlib import Path
 
 import webview
@@ -6,10 +8,42 @@ from lector.api import Api
 from lector.features.settings import store as settings
 from lector.shared import theme, window_chrome
 
+log = logging.getLogger(__name__)
+
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+
+# Where WebView2 keeps what it cached from the local server, inside the folder
+# `storage_path` points it at. Both hold copies of the app's own files.
+_WEBVIEW_CACHE_DIRS = (Path("EBWebView", "Default", "Cache"), Path("EBWebView", "Default", "Code Cache"))
+
+
+def clear_http_cache(webview_dir: Path) -> None:
+    """Deletes the web view's cache from earlier launches, before it starts.
+
+    pywebview's local server sends `Last-Modified` but no `Cache-Control` (it sets
+    one and then returns a response that replaces it), so Chromium keeps a file
+    fresh for a tenth of the time since it last changed, and `storage_path` below
+    keeps that cache between launches. A page unedited for hours then kept being
+    served stale after an edit or an update: the window showed the old Home while
+    the server was serving the new one. `--disable-http-cache` does not help here
+    (WebView2 ignores it), so the folders go instead. Everything is read from disk
+    on this machine, so a cache saves nothing. Only the cache goes: the profile's
+    `Local Storage` holds the saved theme. A folder that cannot be removed (another
+    Lector is using the profile) is reported and left, never fatal.
+    """
+    for relative in _WEBVIEW_CACHE_DIRS:
+        try:
+            shutil.rmtree(webview_dir / relative, ignore_errors=False)
+        except FileNotFoundError:
+            continue
+        except OSError as err:
+            log.warning("Could not clear the web view cache %s: %s", relative, err)
 
 
 def main():
+    webview_dir = settings.settings_dir() / "webview"
+    # Before the web view exists: it opens these files when it starts.
+    clear_http_cache(webview_dir)
     api = Api()
     window_chrome.set_app_id()
     window = webview.create_window(
@@ -44,7 +78,7 @@ def main():
     # private session, so `localStorage` would be empty on every launch and each
     # page's <head> script (which paints the saved theme before first paint, from
     # the "lector-theme" mirror) would always find nothing and paint Light.
-    webview.start(private_mode=False, storage_path=str(settings.settings_dir() / "webview"))
+    webview.start(private_mode=False, storage_path=str(webview_dir))
 
 
 if __name__ == "__main__":
