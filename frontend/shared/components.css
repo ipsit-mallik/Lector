@@ -4,6 +4,7 @@
    one place the app's auto-hiding scrollbars are styled. */
 @import "file-browser.css";
 @import "scrollbars.css";
+@import "library-header.css";
 
 button {
   font-family: var(--font-sans);

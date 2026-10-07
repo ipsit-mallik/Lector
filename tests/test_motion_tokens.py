@@ -90,7 +90,7 @@ class SharedCardHoverTests(unittest.TestCase):
     """One hover recipe for every card (Recent's grid cards and all of Settings')."""
 
     HOME_CSS = (FRONTEND / "pages" / "home.css").read_text(encoding="utf-8")
-    HOME_JS = (FRONTEND / "pages" / "home.js").read_text(encoding="utf-8")
+    CARD_JS = (FRONTEND / "pages" / "recent-card.js").read_text(encoding="utf-8")
     SETTINGS_HTML = (FRONTEND / "pages" / "settings.html").read_text(encoding="utf-8")
     READING_HTML = (FRONTEND / "pages" / "reading.html").read_text(encoding="utf-8")
 
@@ -111,7 +111,7 @@ class SharedCardHoverTests(unittest.TestCase):
                 self.assertNotRegex(css, selector, f"{name}: {selector}")
 
     def test_every_card_opts_in_to_the_shared_class(self):
-        self.assertIn("recent-card recent-item card-lift", self.HOME_JS)
+        self.assertIn("recent-card recent-item card-lift", self.CARD_JS)
         self.assertIn('"theme-card card-lift"', SETTINGS_JS)
         for html in (self.SETTINGS_HTML, self.READING_HTML):
             for tag in re.findall(r'<button[^>]*class="option-row[^"]*"', html):

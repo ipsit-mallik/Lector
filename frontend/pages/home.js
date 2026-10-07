@@ -7,6 +7,7 @@ const recentViewListBtn = document.getElementById("recentViewListBtn");
 const viewToggle = document.getElementById("viewToggle");
 const headerSearch = document.getElementById("headerSearch");
 const headerSearchInput = document.getElementById("headerSearchInput");
+const headerSearchToggle = document.getElementById("headerSearchToggle");
 
 async function openPath(path) {
   try {
@@ -221,82 +222,6 @@ function buildNoMatchesState(query) {
   return el;
 }
 
-// Remove-from-Recent affordance (Milestone 8.9, docs/DESIGN_SYSTEM.md).
-// A real <button>, not a click handler on a styled <div> — the
-// accessibility baseline's "every interactive element is a real button"
-// rule, and what gives it independent keyboard focus regardless of
-// whether its container is ever made focusable. stopPropagation keeps
-// this click from also bubbling into the card's own "open" handler. Grid
-// only: the list view reaches the same removal through its row "⋯" menu
-// (recent-list.js).
-function buildRemoveBtn(entry) {
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "icon-btn recent-remove-btn";
-  removeBtn.dataset.icon = "remove";
-  removeBtn.title = "Remove from Recent";
-  removeBtn.setAttribute("aria-label", `Remove ${entry.name} from Recent`);
-  removeBtn.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    removeEntry(entry);
-  });
-  mountIcon(removeBtn, "remove");
-  return removeBtn;
-}
-function buildCard(entry) {
-  const card = document.createElement("div");
-  // .recent-item: what the numbered-overlay picker below badges, in either
-  // view (list rows carry it too).
-  card.className = "recent-card recent-item card-lift";
-  // docs/DESIGN_SYSTEM.md's accessibility baseline ("never a clickable
-  // div") can't be met with a literal <button> here, since the card
-  // also contains its own nested, independently-focusable remove
-  // <button> below -- a <button> cannot contain another <button>. This
-  // is the standard fallback for that exact composite-control shape:
-  // role="button" + tabindex so it is reachable and announced like one,
-  // plus an Enter/Space handler so keyboard activation matches click.
-  card.setAttribute("role", "button");
-  card.tabIndex = 0;
-  card.setAttribute("aria-label", `Open ${entry.name}`);
-
-  const thumb = document.createElement("div");
-  thumb.className = "recent-thumb";
-  if (entry.thumbnail) {
-    const img = document.createElement("img");
-    img.src = `data:image/png;base64,${entry.thumbnail}`;
-    thumb.appendChild(img);
-  }
-  card.appendChild(thumb);
-
-  const title = document.createElement("div");
-  title.className = "title";
-  title.textContent = entry.name;
-  card.appendChild(title);
-
-  const meta = document.createElement("div");
-  meta.className = "meta";
-  const noun = entry.page_count === 1 ? "page" : "pages";
-  meta.textContent = entry.page_count
-    ? `${entry.relative_time} · ${entry.page_count} ${noun}`
-    : entry.relative_time;
-  card.appendChild(meta);
-
-  const favBtn = buildFavoriteBtn(entry, entry.name, toggleFavorite);
-  mountIcon(favBtn, favBtn.dataset.icon);
-  card.appendChild(favBtn);
-  // Removing from Recent only makes sense in Recent: a favorite may not be
-  // listed there at all, and unstarring it is the star's job.
-  if (homeSection === "recent") card.appendChild(buildRemoveBtn(entry));
-
-  card.addEventListener("click", () => openPath(entry.path));
-  card.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" || ev.key === " ") {
-      ev.preventDefault();
-      openPath(entry.path);
-    }
-  });
-  return card;
-}
-
 // Populated by renderRecent(). recentEntries keeps the backend's order
 // (most recent first, which "open recent"/"remove recent" rely on);
 // displayedEntries is the order on screen — the list view may be sorted
@@ -317,11 +242,15 @@ const SECTION_LOADERS = { recent: "get_recent_files", favorites: "get_favorites"
 let homeSection = "recent";
 
 // The header search belongs to the page it is on: it is named for it, and
-// clears when the reader moves to another.
+// closes empty when the reader moves to another. It filters the page's list in
+// memory, so there is no backend call whose results could arrive out of order;
+// all that can go stale is a keystroke still waiting out the debounce, and the
+// component drops that when the field is cleared or closed.
 const headerSearchClear = document.getElementById("headerSearchClear");
 const librarySearch = createLibrarySearch({
   wrap: headerSearch,
   input: headerSearchInput,
+  toggleBtn: headerSearchToggle,
   clearBtn: headerSearchClear,
   onChange: () => {
     // The picker's numbers belong to the rows it was shown on.
@@ -334,9 +263,7 @@ const librarySearch = createLibrarySearch({
 
 function syncSectionChrome() {
   sectionTitle.textContent = SECTION_TITLES[homeSection];
-  const placeholder = searchPlaceholder(SECTION_TITLES[homeSection]);
-  headerSearchInput.placeholder = placeholder;
-  headerSearchInput.setAttribute("aria-label", placeholder);
+  librarySearch.setPageName(SECTION_TITLES[homeSection]);
   [[recentNav, "recent"], [favoritesNav, "favorites"]].forEach(([nav, section]) => {
     const active = homeSection === section;
     nav.classList.toggle("active", active);
@@ -453,16 +380,10 @@ function syncHeaderControls(hasItems) {
   openPdfBtn.classList.toggle("is-absent", !(hasItems && homeSection === "recent"));
 }
 
-// Shows how many cards are actually on screen, not the cap -- see .count-pill
-// in home.css -- and "N of M" while a search is narrowing the list.
+// Shows how many files are actually on screen, not the cap -- "12 files" -- and
+// "3 of 12 files" while a search is narrowing the list.
 function renderCount(shown, total, filtering) {
-  if (!total) {
-    recentCount.className = "count-empty";
-    recentCount.textContent = "no files yet";
-    return;
-  }
-  recentCount.className = "count-pill";
-  recentCount.textContent = filtering ? filteredCountLabel(shown, total) : String(total);
+  recentCount.textContent = formatFileCount(shown, total, filtering);
 }
 
 function renderRecent(entries) {
