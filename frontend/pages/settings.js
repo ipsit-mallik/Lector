@@ -1,28 +1,3 @@
-// Reads each theme's swatch colors straight from frontend/shared/theme.css's
-// custom properties (via a throwaway probe element carrying data-theme),
-// rather than keeping a second hardcoded copy of the palette here — theme.css
-// stays the single source of truth and these preview cards can't drift from it.
-const THEME_NAMES = ["light", "dark", "sepia"];
-const THEME_LABELS = { light: "Light", dark: "Dark", sepia: "Sepia" };
-
-function readThemeTokens(themeName) {
-  const probe = document.createElement("div");
-  probe.setAttribute("data-theme", themeName);
-  probe.style.display = "none";
-  document.body.appendChild(probe);
-  const cs = getComputedStyle(probe);
-  const tokens = {
-    canvas: cs.getPropertyValue("--bg").trim(),
-    surface: cs.getPropertyValue("--surface-2").trim(),
-    border: cs.getPropertyValue("--border").trim(),
-    text: cs.getPropertyValue("--text-primary").trim(),
-    muted: cs.getPropertyValue("--border-strong").trim(),
-    highlight: cs.getPropertyValue("--highlight").trim(),
-  };
-  probe.remove();
-  return tokens;
-}
-
 const themeCardsEl = document.getElementById("themeCards");
 const recentNav = document.getElementById("recentNav");
 const copyRow = document.getElementById("copyRow");
@@ -137,38 +112,11 @@ function markCurrentThemeCard(name) {
 
 document.addEventListener("themechange", (e) => markCurrentThemeCard(e.detail.name));
 
-function buildThemeCard(name, current) {
-  const t = readThemeTokens(name);
-  const card = document.createElement("button");
-  card.type = "button";
-  card.dataset.themeName = name;
-  card.className = "theme-card card-lift" +(name === current ? " selected" : "");
-  card.innerHTML = `
-    <span class="theme-preview" style="background:${t.canvas}">
-      <span class="theme-preview-mock" style="background:${t.surface};border:1px solid ${t.border}">
-        <span class="theme-preview-line title" style="background:${t.text}"></span>
-        <span class="theme-preview-line" style="background:${t.muted}"></span>
-        <span class="theme-preview-line" style="width:88%;background:${t.muted}"></span>
-        <span class="theme-preview-line accent" style="background:${t.highlight}"></span>
-      </span>
-    </span>
-    <span class="theme-card-footer">
-      <span class="theme-card-footer-label">${THEME_LABELS[name]}</span>
-      <span class="theme-card-check" data-icon="check" aria-hidden="true"></span>
-    </span>
-  `;
-  card.addEventListener("click", () => selectTheme(name));
-  return card;
-}
-
-async function renderThemeCards() {
-  const current = await callApi("get_theme");
-  themeCardsEl.innerHTML = "";
-  THEME_NAMES.forEach((name) => {
-    themeCardsEl.appendChild(buildThemeCard(name, current));
-  });
-  await mountIcons(themeCardsEl);
-}
+// The cards are in settings.html, already marked from the <head>'s theme mirror,
+// so they are on the first frame; init() re-marks them from the saved setting.
+themeCardsEl.querySelectorAll(".theme-card").forEach((card) => {
+  card.addEventListener("click", () => selectTheme(card.dataset.themeName));
+});
 
 // Radio semantics, a single Tab stop and arrow keys for each card group; the
 // clicks themselves are wired below, as before.
@@ -294,7 +242,7 @@ reopenRows.forEach((row) => {
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("lector-theme", theme);
-  await renderThemeCards();
+  markCurrentThemeCard(theme);
 
   const behavior = await callApi("get_save_behavior");
   selectSaveRow(behavior === "overwrite" ? overwriteRow : copyRow);

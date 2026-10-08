@@ -24,8 +24,10 @@
 }
 
 /* The card's contents are <span>s (a <button> may only hold phrasing content),
-   so each block says so. */
-.theme-preview { display: block; height: 104px; padding: var(--space-3); }
+   so each block says so. A preview carries its own data-theme (settings.html),
+   so the tokens below resolve to that theme's palette whatever the window's is:
+   theme.css stays the one copy of every colour. */
+.theme-preview { display: block; height: 104px; padding: var(--space-3); background-color: var(--bg); }
 .theme-card-footer {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border);
@@ -33,6 +35,8 @@
 .theme-card-footer-label { font-size: var(--text-md); font-weight: 500; color: var(--text-primary); }
 
 .theme-preview-mock {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   padding: var(--space-3);
   height: 100%;
@@ -40,9 +44,10 @@
   flex-direction: column;
   gap: var(--space-1);
 }
-.theme-preview-line { display: block; flex: none; height: 5px; width: 100%; border-radius: var(--radius-pill); }
-.theme-preview-line.title { height: 7px; width: 70%; }
-.theme-preview-line.accent { width: 44%; }
+.theme-preview-line { display: block; flex: none; height: 5px; width: 100%; border-radius: var(--radius-pill); background-color: var(--border-strong); }
+.theme-preview-line.title { height: 7px; width: 70%; background-color: var(--text-primary); }
+.theme-preview-line.short { width: 88%; }
+.theme-preview-line.accent { width: 44%; background-color: var(--highlight); }
 
 /* Always in the card and shown by .selected, so choosing a theme scales and
    fades the badge in rather than rebuilding it. */

@@ -112,7 +112,7 @@ class SharedCardHoverTests(unittest.TestCase):
 
     def test_every_card_opts_in_to_the_shared_class(self):
         self.assertIn("recent-card recent-item card-lift", self.CARD_JS)
-        self.assertIn('"theme-card card-lift"', SETTINGS_JS)
+        self.assertEqual(self.SETTINGS_HTML.count('class="theme-card card-lift"'), 3)
         for html in (self.SETTINGS_HTML, self.READING_HTML):
             for tag in re.findall(r'<button[^>]*class="option-row[^"]*"', html):
                 self.assertIn("card-lift", tag)

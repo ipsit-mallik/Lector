@@ -72,6 +72,25 @@ html, body { height: 100%; }
    wash above would otherwise replace it) and just deepens it. */
 .nav-item.active:hover:not(:disabled) { background-color: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-strong); }
 .nav-item.active:active:not(:disabled) { background-color: color-mix(in srgb, var(--accent) 26%, transparent); }
+/* Home and Settings are separate documents (Settings imports this file), so a
+   sidebar click loads a whole new page and the highlight would cut from one item
+   to the next. An inline script on each page lights the item the reader left on
+   the new page's first frame and both fade across, as the in-page Recent <->
+   Favorites switch does. Animations, not transitions: Settings turns every
+   transition off until its saved state is restored (theme.css .is-restoring).
+   Not a cross-document view transition: WebView2 held the new page's first frame
+   back ~280ms on every move with one on. */
+.nav-item.nav-arriving { animation: nav-highlight-in var(--dur-fast) var(--ease-out); }
+.nav-item.nav-leaving { animation: nav-highlight-out var(--dur-fast) var(--ease-out); }
+
+@keyframes nav-highlight-in {
+  from { background-color: transparent; color: var(--text-secondary); }
+}
+
+@keyframes nav-highlight-out {
+  from { background-color: var(--accent-soft); color: var(--accent-strong); }
+}
+
 .nav-item:disabled { color: var(--text-tertiary); cursor: default; }
 .nav-item:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: -2px; }
 

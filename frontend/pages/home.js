@@ -264,6 +264,9 @@ const librarySearch = createLibrarySearch({
 function syncSectionChrome() {
   sectionTitle.textContent = SECTION_TITLES[homeSection];
   librarySearch.setPageName(SECTION_TITLES[homeSection]);
+  // Open PDF is Recent's alone. On Favorites it leaves the layout (not just the
+  // view), so the controls that remain sit against the page's right edge.
+  openPdfBtn.hidden = homeSection !== "recent";
   [[recentNav, "recent"], [favoritesNav, "favorites"]].forEach(([nav, section]) => {
     const active = homeSection === section;
     nav.classList.toggle("active", active);
@@ -283,6 +286,18 @@ async function setHomeSection(section) {
 
 recentNav.addEventListener("click", () => setHomeSection("recent"));
 favoritesNav.addEventListener("click", () => setHomeSection("favorites"));
+
+// Settings' Favorites item sends the reader here already pointed at that list
+// through localStorage. The first paint is handled by the inline script in
+// index.html (this file loads after the browser has drawn). This read is for
+// the page's own state: it is taken now, not in init(), so the section is right
+// before init() awaits anything and loads the right list. init() clears the
+// key, so a later plain visit still starts on Recent.
+const HOME_SECTION_HANDOFF_KEY = "lector-home-section";
+if (localStorage.getItem(HOME_SECTION_HANDOFF_KEY) === "favorites") {
+  homeSection = "favorites";
+  syncSectionChrome();
+}
 
 // Stars or unstars `entry`, then reloads whichever list is showing. Focus
 // follows the reader: if it was inside the list, it goes back to the same
@@ -369,15 +384,16 @@ const recentListHandlers = {
   },
 };
 
-// Which header controls apply right now. They are hidden, never removed, so
-// the row keeps its shape (.is-absent in home.css). Nothing to search or toggle
-// on an empty list, and Open PDF is Recent's only when there is a list: on an
-// empty one the card's own button is the single call to action, and Favorites
-// has nothing to open from.
+// Which header controls the list can use right now. A control the page has but
+// cannot use yet is hidden, not removed, so it keeps its slot and nothing moves
+// when the list arrives (.is-absent in home.css). Nothing to search or toggle on
+// an empty list, and on an empty Recent the card's own button is the single call
+// to action, so Open PDF waits too. Whether Open PDF exists on the page at all is
+// syncSectionChrome's call.
 function syncHeaderControls(hasItems) {
   headerSearch.classList.toggle("is-absent", !hasItems);
   viewToggle.classList.toggle("is-absent", !hasItems);
-  openPdfBtn.classList.toggle("is-absent", !(hasItems && homeSection === "recent"));
+  openPdfBtn.classList.toggle("is-absent", !hasItems);
 }
 
 // Shows how many files are actually on screen, not the cap -- "12 files" -- and
@@ -697,10 +713,9 @@ configureCommandReference({
   recentViewMode = await callApi("get_recent_view");
   recentViewGridBtn.setAttribute("aria-pressed", String(recentViewMode === "grid"));
   recentViewListBtn.setAttribute("aria-pressed", String(recentViewMode === "list"));
-  // Settings' Favorites item sends the reader here already pointed at that
-  // list; the hand-off is one-shot, so a later plain visit starts on Recent.
-  if (localStorage.getItem("lector-home-section") === "favorites") homeSection = "favorites";
-  localStorage.removeItem("lector-home-section");
+  // The Settings hand-off was applied when the script loaded (above); it is
+  // one-shot, so clear it here and a later plain visit starts on Recent.
+  localStorage.removeItem(HOME_SECTION_HANDOFF_KEY);
   syncSectionChrome();
   await loadSection();
   if (voiceScopeError) {

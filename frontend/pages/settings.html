@@ -9,16 +9,20 @@
 <body class="is-restoring">
   <div class="home-view">
     <div class="sidebar">
+      <!-- The sidebar's icons are in the markup, not fetched by icons.js, so they are
+           on the page's very first frame: this page replaces another one on every
+           sidebar click, and slots that filled in 100-280ms later read as a flicker.
+           frontend/shared/icons/ stays the source; a test pins these to it. -->
       <div class="brand">
-        <div class="brand-mark" data-icon="logo"></div>
+        <div class="brand-mark" data-icon="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="8" y="3" width="6" height="10" rx="3"></rect><path d="M5 11a6 6 0 0 0 12 0"></path><line x1="11" y1="17" x2="11" y2="20"></line></svg></div>
         <span class="brand-name">Lector</span>
       </div>
       <button class="nav-item" id="recentNav">
-        <span data-icon="recent"></span> Recent
+        <span data-icon="recent"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="8"></circle><polyline points="11,6.5 11,11 14.5,13"></polyline></svg></span> Recent
       </button>
-      <button class="nav-item" disabled><span data-icon="all_pdfs"></span> All PDFs</button>
-      <button class="nav-item" id="favoritesNav"><span data-icon="favorites"></span> Favorites</button>
-      <button class="nav-item active"><span data-icon="settings"></span> Settings</button>
+      <button class="nav-item" disabled><span data-icon="all_pdfs"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="3.5" width="6.5" height="6.5"></rect><rect x="12" y="3.5" width="6.5" height="6.5"></rect><rect x="3.5" y="12" width="6.5" height="6.5"></rect><rect x="12" y="12" width="6.5" height="6.5"></rect></svg></span> All PDFs</button>
+      <button class="nav-item" id="favoritesNav"><span data-icon="favorites"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><polygon points="11,3 13.5,8.2 19,9 15,12.9 16,18.5 11,15.8 6,18.5 7,12.9 3,9 8.5,8.2"></polygon></svg></span> Favorites</button>
+      <button class="nav-item active" id="settingsNav"><span data-icon="settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.6"></circle><circle cx="11" cy="11" r="2.4"></circle><line x1="11" y1="1.8" x2="11" y2="4"></line><line x1="11" y1="18" x2="11" y2="20.2"></line><line x1="1.8" y1="11" x2="4" y2="11"></line><line x1="18" y1="11" x2="20.2" y2="11"></line></svg></span> Settings</button>
       <div class="sidebar-fill"></div>
       <!-- The same status box Home has (frontend/js/voice-box.js). Settings has
            real voice commands now, so it needs the same honest indicator. -->
@@ -38,6 +42,38 @@
         Version 1.0 · fully offline<br>No account, no sync
       </p>
     </div>
+    <!-- Fades the sidebar highlight across from the page the reader just left
+         (home.css .nav-arriving/.nav-leaving). Inline, after the sidebar, so it
+         runs before the first paint; Home has the same script (a test pins the
+         two equal). The note is left on pagehide, so every way of leaving counts,
+         and is honoured only while fresh, so coming back from the reader later
+         doesn't replay an old move. -->
+    <script>
+      (() => {
+        const NOTE_KEY = "lector-nav-from";
+        const NOTE_FRESH_MS = 2000;
+        const activeNavItem = () => document.querySelector(".sidebar .nav-item.active");
+        let note = null;
+        try {
+          note = JSON.parse(sessionStorage.getItem(NOTE_KEY));
+        } catch (err) {
+          note = null;
+        }
+        sessionStorage.removeItem(NOTE_KEY);
+        const arriving = activeNavItem();
+        const leaving = note && note.id ? document.getElementById(note.id) : null;
+        if (arriving && leaving && leaving !== arriving && Date.now() - note.at < NOTE_FRESH_MS) {
+          [[arriving, "nav-arriving"], [leaving, "nav-leaving"]].forEach(([item, cls]) => {
+            item.classList.add(cls);
+            item.addEventListener("animationend", () => item.classList.remove(cls), { once: true });
+          });
+        }
+        addEventListener("pagehide", () => {
+          const item = activeNavItem();
+          sessionStorage.setItem(NOTE_KEY, JSON.stringify({ id: item ? item.id : null, at: Date.now() }));
+        });
+      })();
+    </script>
 
     <div class="content page-enter">
       <!-- The same header row as the library pages (home.css), with nothing on
@@ -49,7 +85,62 @@
       <div class="section">
         <h3>Theme</h3>
         <p class="sub">Applies to the reading page and the app chrome.</p>
-        <div class="theme-cards" id="themeCards"></div>
+        <!-- In the markup, not built by settings.js, so the cards are on the first
+             frame with the rest of the page instead of after the bridge answers.
+             Each preview takes its colours from its own data-theme (settings.css,
+             theme.css); the check badge is check.svg, pinned by a test. -->
+        <div class="theme-cards" id="themeCards">
+          <button type="button" class="theme-card card-lift" data-theme-name="light">
+            <span class="theme-preview" data-theme="light">
+              <span class="theme-preview-mock">
+                <span class="theme-preview-line title"></span>
+                <span class="theme-preview-line"></span>
+                <span class="theme-preview-line short"></span>
+                <span class="theme-preview-line accent"></span>
+              </span>
+            </span>
+            <span class="theme-card-footer">
+              <span class="theme-card-footer-label">Light</span>
+              <span class="theme-card-check" data-icon="check" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,11.5 9,15.5 17,7"></polyline></svg></span>
+            </span>
+          </button>
+          <button type="button" class="theme-card card-lift" data-theme-name="dark">
+            <span class="theme-preview" data-theme="dark">
+              <span class="theme-preview-mock">
+                <span class="theme-preview-line title"></span>
+                <span class="theme-preview-line"></span>
+                <span class="theme-preview-line short"></span>
+                <span class="theme-preview-line accent"></span>
+              </span>
+            </span>
+            <span class="theme-card-footer">
+              <span class="theme-card-footer-label">Dark</span>
+              <span class="theme-card-check" data-icon="check" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,11.5 9,15.5 17,7"></polyline></svg></span>
+            </span>
+          </button>
+          <button type="button" class="theme-card card-lift" data-theme-name="sepia">
+            <span class="theme-preview" data-theme="sepia">
+              <span class="theme-preview-mock">
+                <span class="theme-preview-line title"></span>
+                <span class="theme-preview-line"></span>
+                <span class="theme-preview-line short"></span>
+                <span class="theme-preview-line accent"></span>
+              </span>
+            </span>
+            <span class="theme-card-footer">
+              <span class="theme-card-footer-label">Sepia</span>
+              <span class="theme-card-check" data-icon="check" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,11.5 9,15.5 17,7"></polyline></svg></span>
+            </span>
+          </button>
+        </div>
+        <!-- Marks the theme the <head> script painted (the localStorage mirror),
+             before the first paint; settings.js re-marks it from the saved
+             setting once the bridge answers. -->
+        <script>
+          document.querySelectorAll("#themeCards .theme-card").forEach((card) => {
+            card.classList.toggle("selected", card.dataset.themeName === document.documentElement.dataset.theme);
+          });
+        </script>
       </div>
 
       <!-- docs/PRD.md's dual activation, as two switches rather than a
