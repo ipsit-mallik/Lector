@@ -104,7 +104,6 @@ startBtn.addEventListener("click", finish);
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem("lector-theme", theme);
 
   // Asked for rather than written into the markup, so the phrase keeps one
   // home (src/lector/features/voice/wake.py) and this card cannot offer a

@@ -184,21 +184,22 @@ class ThemeSwitchTests(unittest.TestCase):
         body = body[:body.index("function markCurrentThemeCard")]
         self.assertNotIn("markCurrentThemeCard(", body)
 
-    def test_the_reader_keeps_the_start_up_mirror_in_step(self):
+    def test_the_reader_saves_the_theme_it_cycles_to(self):
+        # The next page is served in whatever settings.json holds.
         reading_js = (FRONTEND / "pages" / "reading.js").read_text(encoding="utf-8")
         body = reading_js[reading_js.index("async function cycleTheme"):]
         body = body[:body.index("\n}\n")]
-        self.assertIn('localStorage.setItem("lector-theme", next)', body)
+        self.assertIn('callApi("set_theme", next)', body)
 
-    def test_every_page_sets_its_theme_before_the_first_stylesheet(self):
+    def test_every_page_arrives_in_its_theme_before_the_first_stylesheet(self):
+        # The server writes the saved theme into <html data-theme> as it sends
+        # the page (tests/test_frontend_server.py), so there is no script for it.
         for name in ("index.html", "pages/settings.html", "pages/reading.html", "pages/onboarding.html"):
             html = (FRONTEND / name).read_text(encoding="utf-8")
-            script = html.index('dataset.theme = localStorage.getItem("lector-theme")')
-            self.assertLess(script, html.index('rel="stylesheet"'), name)
+            self.assertLess(html.index('data-theme="light"'), html.index('rel="stylesheet"'), name)
+            self.assertNotIn("dataset.theme = localStorage", html, name)
 
-    def test_launch_keeps_localstorage_and_paints_the_native_window_in_the_theme(self):
-        self.assertIn("private_mode=False", self.MAIN_PY)
-        self.assertIn("storage_path=", self.MAIN_PY)
+    def test_launch_paints_the_native_window_in_the_theme(self):
         self.assertIn("background_color=theme.token(settings.get_theme(), \"bg\")", self.MAIN_PY)
 
 

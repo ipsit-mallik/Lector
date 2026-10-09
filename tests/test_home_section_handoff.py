@@ -1,6 +1,6 @@
 """Settings' Favorites item must land on Home already showing Favorites.
 
-Settings and Home are separate pages, so the section travels in localStorage
+Settings and Home are separate pages, so the section travels in sessionStorage
 (frontend/pages/settings.js writes it, frontend/pages/home.js reads it). Home's
 HTML starts as Recent, and init() awaits several backend calls before it syncs
 the chrome, so reading the hand-off inside init() let the page paint Recent (nav
@@ -26,7 +26,7 @@ INIT_BODY = HOME_JS[INIT_START:]
 
 class HomeSectionHandoffTest(unittest.TestCase):
     def test_hand_off_is_read_before_init_awaits_anything(self):
-        self.assertRegex(BEFORE_INIT, r"localStorage\.getItem\(HOME_SECTION_HANDOFF_KEY\)")
+        self.assertRegex(BEFORE_INIT, r"sessionStorage\.getItem\(HOME_SECTION_HANDOFF_KEY\)")
 
     def test_chrome_is_synced_to_the_handed_off_section_before_init(self):
         handoff = re.search(
@@ -39,15 +39,15 @@ class HomeSectionHandoffTest(unittest.TestCase):
         self.assertIn("syncSectionChrome()", handoff.group(1))
 
     def test_init_still_clears_the_hand_off_so_it_stays_one_shot(self):
-        self.assertRegex(INIT_BODY, r"localStorage\.removeItem\(HOME_SECTION_HANDOFF_KEY\)")
+        self.assertRegex(INIT_BODY, r"sessionStorage\.removeItem\(HOME_SECTION_HANDOFF_KEY\)")
 
     def test_init_does_not_read_the_hand_off_after_its_awaits(self):
-        self.assertNotIn("localStorage.getItem(HOME_SECTION_HANDOFF_KEY)", INIT_BODY)
+        self.assertNotIn("sessionStorage.getItem(HOME_SECTION_HANDOFF_KEY)", INIT_BODY)
 
     def test_settings_writes_the_same_key_home_reads(self):
         key = re.search(r'const HOME_SECTION_HANDOFF_KEY = "([^"]+)"', HOME_JS)
         self.assertIsNotNone(key)
-        self.assertIn(f'localStorage.setItem("{key.group(1)}", "favorites")', SETTINGS_JS)
+        self.assertIn(f'sessionStorage.setItem("{key.group(1)}", "favorites")', SETTINGS_JS)
 
 
 class HomeFirstPaintSectionTest(unittest.TestCase):

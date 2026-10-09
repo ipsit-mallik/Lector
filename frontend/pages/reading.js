@@ -871,8 +871,6 @@ async function cycleTheme() {
   const current = currentTheme();
   const next = THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length];
   applyTheme(next);
-  // The mirror the next launch's <head> script paints from, before any backend call.
-  localStorage.setItem("lector-theme", next);
   await callApi("set_theme", next);
 }
 
@@ -1237,7 +1235,7 @@ const VOICE_ACTIONS = {
 // dialog only exists there) via the one-shot note home.js reads and clears.
 async function leaveReadingTo(url, { openDialog = false } = {}) {
   if (!(await promptSaveIfDirty(true))) return;
-  if (openDialog) localStorage.setItem("lector-open-dialog", "1");
+  if (openDialog) sessionStorage.setItem("lector-open-dialog", "1");
   window.location.href = url;
 }
 
@@ -1404,7 +1402,6 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem("lector-theme", theme);
   state = await callApi("get_state");
   if (!state.is_open) {
     window.location.href = "../index.html";

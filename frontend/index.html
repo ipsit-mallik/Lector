@@ -2,7 +2,6 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <script>document.documentElement.dataset.theme = localStorage.getItem("lector-theme") || "light";</script>
   <title>Lector — Home</title>
   <link rel="stylesheet" href="pages/home.css">
 </head>
@@ -88,7 +87,7 @@
           <span data-icon="open_pdf"></span>
           Open PDF
         </button>
-        <!-- Settings' Favorites item arrives with a one-shot note in localStorage.
+        <!-- Settings' Favorites item arrives with a one-shot note in sessionStorage.
              This applies it before the first paint: the scripts at the bottom
              load after the browser has already drawn this markup, so home.js
              alone showed one frame of Recent (and Open PDF's slot) and then
@@ -97,7 +96,7 @@
              still owns the page from here (it applies the same state, and clears
              the note). -->
         <script>
-          if (localStorage.getItem("lector-home-section") === "favorites") {
+          if (sessionStorage.getItem("lector-home-section") === "favorites") {
             const recentNav = document.getElementById("recentNav");
             const favoritesNav = document.getElementById("favoritesNav");
             recentNav.classList.remove("active");

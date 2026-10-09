@@ -5,7 +5,7 @@ page, waited for pywebview's bridge and asked Python for the theme twice -- the 
 thing above the fold that waited on the bridge, so they appeared after everything
 around them. They are now in the markup: each preview resolves its colours from its
 own [data-theme] (theme.css stays the one palette), the check badge is inline, and
-a small inline script marks the current theme from the <head>'s localStorage mirror.
+a small inline script marks the theme the server wrote into <html data-theme>.
 settings.js only wires the clicks and re-marks the card from the saved setting.
 """
 

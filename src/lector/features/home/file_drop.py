@@ -44,3 +44,14 @@ def pdf_from_drop(event: dict) -> dict | None:
         if os.path.isfile(path):
             return {"path": path}
     return {"error": MISSING if pdf_names else NOT_A_PDF}
+
+
+def pdf_from_path(path: str) -> dict:
+    """The same answer for one file named at launch (`python -m lector a.pdf`,
+    or a second launch handing its file to the running Lector): `{"path": ...}`
+    or `{"error": ...}`. Pages treat it exactly like a drop."""
+    if not path.lower().endswith(PDF_SUFFIX):
+        return {"error": NOT_A_PDF}
+    if not os.path.isfile(path):
+        return {"error": MISSING}
+    return {"path": path}

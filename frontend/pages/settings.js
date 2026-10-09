@@ -19,12 +19,12 @@ function goHome() {
 recentNav.addEventListener("click", goHome);
 
 // The Open dialog only exists on Home, so "open a PDF" goes there and leaves a
-// one-shot note asking Home to open it (the same localStorage route the
+// one-shot note asking Home to open it (the same sessionStorage route the
 // Favorites hand-off below uses; home.js reads and clears the key).
 const OPEN_DIALOG_HANDOFF_KEY = "lector-open-dialog";
 
 function openPdfFromSettings() {
-  localStorage.setItem(OPEN_DIALOG_HANDOFF_KEY, "1");
+  sessionStorage.setItem(OPEN_DIALOG_HANDOFF_KEY, "1");
   goHome();
 }
 
@@ -56,10 +56,10 @@ onFileDrop(async (path) => {
 });
 
 // Home opens on Recent unless told otherwise; this hands it the section to
-// open on (home.js reads and clears the key), the same localStorage route the
-// theme already takes between pages.
+// open on (home.js reads and clears the key), in sessionStorage: it is a note
+// for the next page, not a setting, so it ends with the window.
 document.getElementById("favoritesNav").addEventListener("click", () => {
-  localStorage.setItem("lector-home-section", "favorites");
+  sessionStorage.setItem("lector-home-section", "favorites");
   goHome();
 });
 
@@ -87,7 +87,6 @@ async function selectTheme(name) {
   const previous = currentTheme();
   if (previous === name) return;
   applyTheme(name);
-  localStorage.setItem("lector-theme", name);
   try {
     await callApi("set_theme", name);
   } catch (err) {
@@ -95,7 +94,6 @@ async function selectTheme(name) {
     // won't have.
     console.error("set_theme failed:", err);
     applyTheme(previous);
-    localStorage.setItem("lector-theme", previous);
     showToast("Couldn't change the theme. Try again.");
   }
 }
@@ -112,7 +110,7 @@ function markCurrentThemeCard(name) {
 
 document.addEventListener("themechange", (e) => markCurrentThemeCard(e.detail.name));
 
-// The cards are in settings.html, already marked from the <head>'s theme mirror,
+// The cards are in settings.html, already marked from the theme the server sent,
 // so they are on the first frame; init() re-marks them from the saved setting.
 themeCardsEl.querySelectorAll(".theme-card").forEach((card) => {
   card.addEventListener("click", () => selectTheme(card.dataset.themeName));
@@ -241,7 +239,6 @@ reopenRows.forEach((row) => {
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem("lector-theme", theme);
   markCurrentThemeCard(theme);
 
   const behavior = await callApi("get_save_behavior");

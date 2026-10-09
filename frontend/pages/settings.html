@@ -2,7 +2,6 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <script>document.documentElement.dataset.theme = localStorage.getItem("lector-theme") || "light";</script>
   <title>Lector — Settings</title>
   <link rel="stylesheet" href="settings.css">
 </head>
@@ -133,7 +132,7 @@
             </span>
           </button>
         </div>
-        <!-- Marks the theme the <head> script painted (the localStorage mirror),
+        <!-- Marks the theme the server sent the page in (<html data-theme>),
              before the first paint; settings.js re-marks it from the saved
              setting once the bridge answers. -->
         <script>

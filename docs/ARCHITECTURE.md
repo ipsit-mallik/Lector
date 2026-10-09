@@ -2,7 +2,7 @@
 
 ## App shape
 
-**Revision note (post-Milestone 4):** originally PySide6 provided both UI and logic in one process. As of the pywebview switch (see `docs/TECH_STACK.md`), the process split is: Python owns the application process, PDF rendering, voice recognition, and file I/O; an embedded native webview (not a separate app, not a server) renders the HTML/CSS/JS frontend inside that same process. This is still a single shipped desktop application — there is no client/server deployment, no network boundary between the two halves — but the UI and application-logic code now live in genuinely separate languages/folders and communicate over an explicit bridge, which the folder layout below reflects.
+**Revision note (post-Milestone 4):** originally PySide6 provided both UI and logic in one process. As of the pywebview switch (see `docs/TECH_STACK.md`), the process split is: Python owns the application process, PDF rendering, voice recognition, and file I/O; an embedded native webview (not a separate app) renders the HTML/CSS/JS frontend inside that same process. The webview loads the pages from a small loopback-only file server that the same process runs (`shared/frontend_server.py`, on a fresh port each launch; it also stamps the saved theme into each page), and the bridge itself is the webview's in-process messaging, not HTTP. This is still a single shipped desktop application — there is no client/server deployment, no network boundary between the two halves — but the UI and application-logic code now live in genuinely separate languages/folders and communicate over an explicit bridge, which the folder layout below reflects.
 
 ## Structural pattern: feature-based
 
@@ -23,7 +23,9 @@ lector/
 ├── src/
 │   └── lector/
 │       ├── __init__.py
-│       ├── __main__.py          # entry point — creates the pywebview window
+│       ├── __main__.py          # entry point — claims the single-instance
+│       │                        #   lock, starts the page server, creates
+│       │                        #   the pywebview window
 │       ├── api.py               # the bridge object exposed to JS
 │       │                        #   (js_api); Python-side handlers for
 │       │                        #   events the frontend calls
@@ -46,7 +48,13 @@ lector/
 │           ├── theme.py         # Theme names + token(theme, name), which
 │           │                    #   reads values from frontend/shared/theme.css
 │           ├── window_chrome.py # Windows: app icon + theme-coloured title
-│           │                    #   bar via Win32/DWM (no-op elsewhere)
+│           │                    #   bar via Win32/DWM, bring-to-front
+│           │                    #   (no-op elsewhere)
+│           ├── frontend_server.py # Serves frontend/ on 127.0.0.1, fresh
+│           │                    #   port per launch, saved theme stamped
+│           │                    #   into each page's <html data-theme>
+│           ├── single_instance.py # One Lector per user; a second launch
+│           │                    #   hands its file over and exits
 │           └── settings_store.py # JSON settings read/write
 │
 ├── frontend/                    # HTML/CSS/JS side: all UI, no business logic

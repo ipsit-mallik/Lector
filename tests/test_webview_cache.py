@@ -1,20 +1,17 @@
-"""The web view must not serve the app's own pages from a cache left by an
-earlier launch.
+"""The web view must not keep the app's own pages cached from an earlier launch.
 
-pywebview serves frontend/ from a local server that sends `Last-Modified` and
-`ETag` but no `Cache-Control` (it sets one, then returns a response object that
-replaces it). Chromium then treats a cached file as fresh for a tenth of the time
-since it was last modified, and the web view keeps its cache between launches
-(`storage_path` in `__main__`). So a page that had gone unedited for hours kept
-being served from the cache after an edit or an update: the window showed the old
-Home while the server was serving the new one.
+pywebview's server, which served frontend/ until Lector got its own
+(`shared/frontend_server.py`), sent `Last-Modified` and `ETag` but no
+`Cache-Control`, and the web view keeps its cache between launches
+(`storage_path` in `__main__`). So a page unedited for hours kept being served
+from the cache after an edit or an update. `--disable-http-cache` does nothing in
+WebView2 (measured), so `clear_http_cache` removes the cache folders before the
+web view starts.
 
-`--disable-http-cache` was tried first and does nothing in WebView2 (measured: a
-second launch still answered every file, `index.html` included, from the disk
-cache), so `clear_http_cache` removes the cache folders before the web view starts.
-Everything is read from disk on this machine, so there is nothing for a cache to
-save. What else the profile holds (`Local Storage` carries the saved theme) must
-survive.
+Lector's own server sends `Cache-Control: no-store` from a new port every launch,
+so a stale page can no longer be served; the clear stays so that old launches'
+caches (and the compiled-script cache, kept per origin) do not pile up in the
+profile. The rest of the profile is left alone.
 """
 
 import logging
@@ -50,7 +47,7 @@ class ClearHttpCacheTest(unittest.TestCase):
         self.assertFalse((self.default / "Cache").exists())
         self.assertFalse((self.default / "Code Cache").exists())
 
-    def test_keeps_local_storage_so_the_saved_theme_survives(self):
+    def test_keeps_the_rest_of_the_profile(self):
         app_main.clear_http_cache(self.profile)
         self.assertTrue((self.default / "Local Storage" / "leveldb" / "entry").exists())
 
@@ -65,7 +62,7 @@ class ClearHttpCacheTest(unittest.TestCase):
 
     def test_main_clears_the_cache_before_the_web_view_starts(self):
         source = Path(app_main.__file__).read_text(encoding="utf-8")
-        body = source[source.index("def main()"):]
+        body = source[source.index("def main("):]
         self.assertIn("clear_http_cache(", body)
         self.assertLess(body.index("clear_http_cache("), body.index("webview.start("))
 

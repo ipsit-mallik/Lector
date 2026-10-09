@@ -38,6 +38,8 @@ _SM_CXICON, _SM_CXSMICON = 11, 49
 _DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 _DWMWA_CAPTION_COLOR = 35
 _DWMWA_TEXT_COLOR = 36
+_SW_RESTORE = 9
+_ASFW_ANY = -1
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -107,6 +109,40 @@ def _set_caption(hwnd: int, theme_name: str) -> None:
         )
         if result != 0:
             log.info("DwmSetWindowAttribute(%s) unsupported here (0x%08X)", attr, result & 0xFFFFFFFF)
+
+
+def allow_foreground_handoff() -> None:
+    """Let the running Lector take the foreground when this launch hands over.
+
+    Windows only lets the process the user just interacted with raise a
+    window, and that is the launch the user just started, not the running
+    Lector. Granting it before handing over lets the running copy come forward
+    instead of only flashing on the taskbar.
+    """
+    if not _IS_WINDOWS:
+        return
+    try:
+        ctypes.windll.user32.AllowSetForegroundWindow(_ASFW_ANY)
+    except OSError:
+        log.warning("Could not allow the running Lector to come forward", exc_info=True)
+
+
+def bring_to_front(title: str) -> None:
+    """Un-minimise the window titled `title` and give it focus. Leaves a
+    maximised window maximised."""
+    if not _IS_WINDOWS:
+        return
+    try:
+        hwnd = _find_window(title)
+        if hwnd is None:
+            log.warning("Window %r not found; could not bring it forward", title)
+            return
+        user32 = ctypes.windll.user32
+        if user32.IsIconic(ctypes.c_void_p(hwnd)):
+            user32.ShowWindow(ctypes.c_void_p(hwnd), _SW_RESTORE)
+        user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+    except OSError:
+        log.warning("Could not bring the window forward", exc_info=True)
 
 
 def apply(title: str, theme_name: str, *, icon: bool = True) -> None:

@@ -176,6 +176,48 @@ class ApiFileDropTests(unittest.TestCase):
         with mock.patch.object(api_module.webview, "windows", []):
             self.api._on_file_drop(_event(self._pdf()))
 
+    def test_a_file_given_at_launch_reaches_the_page_the_way_a_drop_does(self):
+        # Same event, so each page keeps its own meaning for "open this file"
+        # (Reading still asks about unsaved highlights first).
+        path = self._pdf()
+
+        self.api.open_file_from_launch(path)
+
+        self.assertEqual(self._dispatched(), {"path": path})
+
+    def test_a_launch_file_that_is_not_a_pdf_forwards_the_reason(self):
+        self.api.open_file_from_launch(self._pdf("notes.txt"))
+
+        self.assertEqual(self._dispatched(), {"error": file_drop.NOT_A_PDF})
+
+
+class PdfFromPathTests(unittest.TestCase):
+    """A file named on the command line (`python -m lector a.pdf`), including one
+    a second launch hands to the running Lector."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory(prefix="lector-launch-")
+        self.addCleanup(self.dir.cleanup)
+
+    def test_a_pdf_is_returned_by_its_path(self):
+        path = Path(self.dir.name) / "a.PDF"
+        path.write_bytes(b"%PDF-1.4\n")
+
+        self.assertEqual(file_drop.pdf_from_path(str(path)), {"path": str(path)})
+
+    def test_a_non_pdf_is_refused(self):
+        path = Path(self.dir.name) / "a.txt"
+        path.write_text("x", encoding="utf-8")
+
+        self.assertEqual(file_drop.pdf_from_path(str(path)), {"error": file_drop.NOT_A_PDF})
+
+    def test_a_missing_pdf_or_a_folder_says_it_cannot_be_found(self):
+        folder = Path(self.dir.name) / "tricky.pdf"
+        folder.mkdir()
+        for path in (str(Path(self.dir.name) / "gone.pdf"), str(folder)):
+            with self.subTest(path=path):
+                self.assertEqual(file_drop.pdf_from_path(path), {"error": file_drop.MISSING})
+
 
 if __name__ == "__main__":
     unittest.main()

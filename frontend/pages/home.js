@@ -63,7 +63,7 @@ function isModalOpen() {
 
 // Set by Settings or Reading when the reader says "open a PDF" there: the Open
 // dialog only exists on Home, so they navigate here and leave this note (the
-// same one-shot localStorage route the Favorites section already uses).
+// same one-shot sessionStorage route the Favorites section already uses).
 const OPEN_DIALOG_HANDOFF_KEY = "lector-open-dialog";
 
 // A PDF dropped anywhere on the window (frontend/js/filedrop.js). Opens it
@@ -288,13 +288,13 @@ recentNav.addEventListener("click", () => setHomeSection("recent"));
 favoritesNav.addEventListener("click", () => setHomeSection("favorites"));
 
 // Settings' Favorites item sends the reader here already pointed at that list
-// through localStorage. The first paint is handled by the inline script in
+// through sessionStorage. The first paint is handled by the inline script in
 // index.html (this file loads after the browser has drawn). This read is for
 // the page's own state: it is taken now, not in init(), so the section is right
 // before init() awaits anything and loads the right list. init() clears the
 // key, so a later plain visit still starts on Recent.
 const HOME_SECTION_HANDOFF_KEY = "lector-home-section";
-if (localStorage.getItem(HOME_SECTION_HANDOFF_KEY) === "favorites") {
+if (sessionStorage.getItem(HOME_SECTION_HANDOFF_KEY) === "favorites") {
   homeSection = "favorites";
   syncSectionChrome();
 }
@@ -689,12 +689,11 @@ configureCommandReference({
   // A hand-off from Settings/Reading ("open a PDF" said there): consumed at
   // once, so a later visit can never open the dialog by surprise if this init
   // fails or redirects before reaching the end.
-  const openDialogRequested = localStorage.getItem(OPEN_DIALOG_HANDOFF_KEY) === "1";
-  localStorage.removeItem(OPEN_DIALOG_HANDOFF_KEY);
+  const openDialogRequested = sessionStorage.getItem(OPEN_DIALOG_HANDOFF_KEY) === "1";
+  sessionStorage.removeItem(OPEN_DIALOG_HANDOFF_KEY);
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem("lector-theme", theme);
   // Narrow the recognizer to Home's context (Milestone 8.4), which carries its
   // own scoped commands — see VOICE_ACTIONS below — on top of the global ones.
   // If that fails the box must say so below, not claim voice is ready.
@@ -715,7 +714,7 @@ configureCommandReference({
   recentViewListBtn.setAttribute("aria-pressed", String(recentViewMode === "list"));
   // The Settings hand-off was applied when the script loaded (above); it is
   // one-shot, so clear it here and a later plain visit starts on Recent.
-  localStorage.removeItem(HOME_SECTION_HANDOFF_KEY);
+  sessionStorage.removeItem(HOME_SECTION_HANDOFF_KEY);
   syncSectionChrome();
   await loadSection();
   if (voiceScopeError) {

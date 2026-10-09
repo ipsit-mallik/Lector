@@ -766,6 +766,13 @@ class Api:
             return
         self._dispatch_page_event("lector:filedrop", outcome)
 
+    def open_file_from_launch(self, path: str) -> None:
+        """A file Lector was started with, or one a second launch handed over
+        (`shared/single_instance.py`). Sent to the page as a drop, so each
+        screen keeps its own meaning for it (Reading asks about unsaved
+        highlights first). Called from Python, by `__main__`."""
+        self._dispatch_page_event("lector:filedrop", file_drop.pdf_from_path(path))
+
     def _dispatch_page_event(self, name: str, detail: dict) -> None:
         """Push a `CustomEvent` to the current page, the same direction
         `_on_voice_result` uses. Quietly does nothing with no window, which is
