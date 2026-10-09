@@ -1,6 +1,7 @@
 import fitz  # PyMuPDF
 
 from lector.features.annotations import highlighter
+from lector.features.reading import search
 
 
 class PdfDocument:
@@ -114,6 +115,12 @@ class PdfDocument:
             (round(page.rect.width * self._zoom), round(page.rect.height * self._zoom))
             for page in self._doc
         ]
+
+    def search(self, needle: str, start: int, end: int | None) -> dict:
+        """One time-boxed slice of a find-in-document search (see search.py)."""
+        if not self._doc:
+            return {"pages": [], "next_page": None, "text_pages": 0}
+        return search.search_slice(self._doc, needle, start, end)
 
     # ------------------------------------------------------------------ #
     # Annotations (Milestone 3)                                           #

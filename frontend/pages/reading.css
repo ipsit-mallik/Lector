@@ -20,34 +20,66 @@ html, body { height: 100%; }
 
 .topbar {
   flex: none;
-  height: 46px;
+  height: 48px;
   display: flex;
   align-items: center;
+  gap: var(--space-5);
   /* Left: the footer's side less the back button's own 8px inset, so the arrow
      and the footer's first control share one left edge; right: the same side. */
   padding: 0 var(--chrome-pad-x) 0 calc(var(--chrome-pad-x) - var(--space-2));
-  gap: 0;
   background-color: var(--surface-1);
 }
 
-.back-btn {
+/* "‹ Library" and the title sit on one text baseline, though one is the sans
+   at --text-sm and the other the serif at --text-lg. The lead takes whatever
+   the page controls leave and may shrink to nothing, so a long title
+   truncates rather than pushing them. */
+.topbar-lead {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 30px;
-  padding: 0 var(--space-3) 0 var(--space-2);
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+/* A plain inline box with a line-height of its own height, not a flex box: a
+   flex button takes its baseline from its first child, here the chevron, and
+   would sit the label off the title's baseline. 36px tall for an easy target. */
+.back-btn {
+  flex: none;
+  display: inline-block;
+  height: 36px;
+  padding: 0 var(--space-2);
+  line-height: 36px;
+  white-space: nowrap;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
+  font-weight: 500;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 
-.back-btn svg { width: 16px; height: 16px; }
-.back-btn:hover { background-color: var(--state-hover); }
+.back-btn:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.back-btn:active { background-color: var(--state-pressed); }
+
+/* Centred on the label's capitals rather than on its line box: the chevron's
+   middle sits 0.36em above the baseline, half the sans face's cap height. */
+.back-chevron {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: var(--space-hair);
+  vertical-align: calc(0.36em - 8px);
+}
+
+.back-chevron svg { display: block; width: 100%; height: 100%; }
 
 .doc-title {
-  margin-left: var(--space-2);
+  min-width: 0;
   font-family: var(--font-serif);
   font-size: var(--text-lg);
   font-weight: 400;
@@ -58,54 +90,70 @@ html, body { height: 100%; }
 }
 
 .spacer { flex: 1; }
-.topbar-gap { flex: none; width: var(--space-2); }
 
-.nav-btn { width: 30px; height: 30px; }
+/* Chevrons, page box, "of N" and zoom: every control 32px, on one centre line. */
+.page-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .nav-btn svg { width: 16px; height: 16px; }
 
+/* Room for five digits in tabular figures, so the box never changes width as
+   the reader moves through the document. */
 .page-input {
-  width: 46px;
-  height: 30px;
-  padding: 0;
-  line-height: 28px;
+  box-sizing: border-box;
+  width: calc(5ch + 2 * var(--space-2) + 2px);
+  height: 32px;
+  padding: 0 var(--space-2);
   text-align: center;
+  font-variant-numeric: tabular-nums;
   background-color: var(--surface-input);
   border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: var(--text-md);
   font-family: var(--font-sans);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
+
+.page-input:hover { border-color: var(--border-strong); }
+.page-input:focus { border-color: var(--accent); }
 
 .page-suffix {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  margin-left: var(--space-2);
-  margin-right: var(--space-3);
+  padding: 0 var(--space-1);
   color: var(--text-muted);
   font-size: var(--text-md);
-  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.zoom-control {
-  position: relative;
-  margin-left: var(--space-3);
-}
+.page-controls .vline.short { margin: 0 var(--space-2); }
+
+.zoom-control { position: relative; }
 
 .zoom-label {
-  width: 44px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  min-width: 56px;
+  padding: 0 var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
   background: transparent;
   border: none;
-  padding: var(--space-1) var(--space-hair);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   font-family: var(--font-sans);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 
 .zoom-label:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.zoom-label:active { background-color: var(--state-pressed); }
 
 .zoom-popover {
   position: absolute;
@@ -156,23 +204,17 @@ html, body { height: 100%; }
   margin: var(--space-2) 0;
 }
 
-.rail-fill { flex: 1; }
-
-.offline-label {
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-align: center;
-  line-height: 1.3;
-}
-
 .page-area {
   flex: 1;
   position: relative;
   background-color: var(--bg);
   min-width: 0;
 }
+
+/* Focus comes back here when the find bar closes, so the arrow keys keep
+   turning pages; the page itself is not a control, so it draws no ring. */
+.page-area:focus,
+.page-area:focus-visible { outline: none; }
 
 .book-scroll,
 .strip-scroll {
@@ -265,6 +307,126 @@ html, body { height: 100%; }
 .selection-rect.applied {
   background-color: var(--highlight);
 }
+
+/* ------------------------------------------------------------------ */
+/* Find in document                                                    */
+/* ------------------------------------------------------------------ */
+
+/* The same clipped, non-interactive overlay as .selection-layer, beneath it:
+   a drag across a match still shows what it is about to select. */
+.find-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Blue: a fourth hue on purpose. A match is neither a highlight (yellow), nor
+   about to become one (the green selection), nor voice (amber), and must not
+   be mistaken for any of them. Multiplied, like the selection, so the glyphs
+   underneath stay black. */
+.find-mark {
+  position: absolute;
+  border-radius: 1px;
+  background-color: var(--find-match);
+  mix-blend-mode: multiply;
+}
+
+.find-mark.is-current {
+  background-color: var(--find-match-current);
+  box-shadow: 0 0 0 2px var(--find-ring);
+}
+
+/* Floats over the page area's top-right corner. It grows to the left when the
+   status needs more room, and drops in with the page-entrance rise. */
+.find-bar {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: calc(100% - 2 * var(--space-4));
+  padding: var(--space-1);
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  box-shadow: var(--shadow-2);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--enter-rise)));
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out),
+              visibility 0s linear var(--dur-base);
+}
+
+.find-bar.is-open {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s;
+}
+
+/* The field follows the library search's recipe (shared/library-header.css):
+   the input surface, a quiet border that firms up on hover, and the focus
+   ring drawn round the whole field rather than the bare input. */
+.find-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-input);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.find-field:hover { border-color: var(--border-strong); }
+.find-field:focus-within { border-color: var(--accent); }
+.find-field:has(:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.find-field :focus-visible { outline: none; }
+
+.find-icon { flex: none; display: flex; width: 16px; height: 16px; color: var(--text-muted); }
+.find-icon svg { width: 100%; height: 100%; }
+
+.find-input {
+  flex: 1 1 200px;
+  width: 200px;
+  min-width: 80px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+}
+
+.find-input::placeholder { color: var(--text-muted); }
+
+/* Wide enough for "12 of 340", and kept while empty, so neither the first
+   result nor a changing count shifts the bar. */
+.find-status {
+  flex: none;
+  min-width: 56px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.find-bar.is-searching .find-status { color: var(--text-muted); }
+.find-bar .icon-btn--sm svg { width: 16px; height: 16px; }
 
 /* ------------------------------------------------------------------ */
 /* Voice-focus wash ("listening here")                                 */

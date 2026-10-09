@@ -22,7 +22,6 @@ const zoomPopover = document.getElementById("zoomPopover");
 const zoomSlider = document.getElementById("zoomSlider");
 const layoutBtn = document.getElementById("layoutBtn");
 const themeBtn = document.getElementById("themeBtn");
-const referenceRailBtn = document.getElementById("referenceRailBtn");
 const referenceFooterBtn = document.getElementById("referenceFooterBtn");
 
 const pageArea = document.getElementById("pageArea");
@@ -67,8 +66,10 @@ async function showImage(img, b64) {
 
 function updateChrome() {
   docTitle.textContent = state.title || "";
-  pageInput.max = state.page_count;
-  pageInput.value = state.page_index + 1;
+  pageInput.maxLength = String(state.page_count).length;
+  // Never under the reader's fingers: the strip's scroll tracking calls this
+  // on every page boundary, and would otherwise overwrite a half-typed number.
+  if (document.activeElement !== pageInput) pageInput.value = state.page_index + 1;
   pageSuffix.textContent = `of ${state.page_count}`;
   zoomLabel.textContent = `${state.zoom_pct}%`;
   zoomSlider.min = state.zoom_min_pct;
@@ -96,6 +97,7 @@ async function refresh({ animate = false } = {}) {
     await refreshStrip(animate);
   }
   scheduleViewportPush();
+  paintFindMarks();
 }
 
 async function refreshBook() {
@@ -113,6 +115,9 @@ async function refreshBook() {
 }
 
 let stripObserver = null;
+// The strip's page images by page index, so the find bar can look one up on
+// every scroll frame without searching the whole strip for it.
+let stripPageEls = [];
 
 // Rendering and base64-encoding every page up front (a real pixmap render
 // per page) made switching to strip mode take seconds on a large document,
@@ -142,6 +147,7 @@ async function buildStrip() {
     }
   }
   stripContainer.replaceChildren(fragment);
+  stripPageEls = imgs;
   stripDirty = false;
   renderedZoom = state.zoom;
   observeStripPages(imgs);
@@ -599,6 +605,8 @@ bookScroll.addEventListener("scroll", repaintSelectionOnScroll);
 stripScroll.addEventListener("scroll", repaintSelectionOnScroll);
 bookScroll.addEventListener("scroll", scheduleViewportPush);
 stripScroll.addEventListener("scroll", scheduleViewportPush);
+bookScroll.addEventListener("scroll", paintFindMarks);
+stripScroll.addEventListener("scroll", paintFindMarks);
 
 // ------------------------------------------------------------------ //
 // Navigation / zoom                                                    //
@@ -666,6 +674,7 @@ function applyZoomPreview() {
 
   if (stripAnchor) restoreStripAnchor(stripAnchor);
   if (bookFraction != null) applyPageScrollFraction(bookFraction);
+  paintFindMarks();
 }
 
 let zoomRefreshTimer = null;
@@ -964,7 +973,53 @@ async function closeApp() {
 
 prevBtn.addEventListener("click", goPrev);
 nextBtn.addEventListener("click", goNext);
-pageInput.addEventListener("change", () => goToPage(Number(pageInput.value)));
+// The page box: focusing it selects the number, so typing replaces it; Enter
+// jumps, Esc (or leaving the box) puts back the page being read. A number past
+// either end goes to the first or last page, and anything that isn't a number
+// is dropped as it is typed, so there is never an error to show.
+function revertPageInput() {
+  pageInput.value = state.page_index + 1;
+}
+
+function commitPageInput() {
+  const typed = Number.parseInt(pageInput.value, 10);
+  if (!Number.isFinite(typed) || !state.page_count) {
+    revertPageInput();
+    return;
+  }
+  const page = Math.min(Math.max(typed, 1), state.page_count);
+  pageInput.value = page;
+  if (page - 1 !== state.page_index) goToPage(page);
+}
+
+let pageInputSelectOnClick = false;
+pageInput.addEventListener("focus", () => {
+  pageInput.select();
+  pageInputSelectOnClick = true;
+});
+// The click that focused the box would otherwise put a caret where it landed,
+// undoing the select-all above. Only that first click: a second one is the
+// reader placing the caret on purpose.
+pageInput.addEventListener("mouseup", (ev) => {
+  if (pageInputSelectOnClick) ev.preventDefault();
+  pageInputSelectOnClick = false;
+});
+pageInput.addEventListener("input", () => {
+  const digits = pageInput.value.replace(/\D/g, "");
+  if (digits !== pageInput.value) pageInput.value = digits;
+});
+pageInput.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    commitPageInput();
+    pageInput.blur();
+  } else if (ev.key === "Escape") {
+    ev.preventDefault();
+    revertPageInput();
+    pageInput.blur();
+  }
+});
+pageInput.addEventListener("blur", revertPageInput);
 zoomInBtn.addEventListener("click", zoomIn);
 zoomOutBtn.addEventListener("click", zoomOut);
 zoomLabel.addEventListener("click", (ev) => {
@@ -982,10 +1037,9 @@ themeBtn.addEventListener("click", cycleTheme);
 undoBtn.addEventListener("click", undo);
 redoBtn.addEventListener("click", redo);
 highlightBtn.addEventListener("click", () => setHighlightMode(!highlightMode));
-// Two ways to the same panel, deliberately: the rail is where a reader
-// hunting for help looks, and the footer button sits next to the mic pill,
-// which is where the question "what can I say?" actually occurs to them.
-referenceRailBtn.addEventListener("click", openCommandReference);
+// The footer button is the reader's one button for the list: it sits next to
+// the mic pill, which is where the question "what can I say?" occurs, and it
+// says what it is. "?" and the spoken "what can I say" reach the same panel.
 // What the shared list needs to know about this screen (command-reference.js):
 // the real range for "go to page N".
 configureCommandReference({ ranges: () => ({ page: state && state.page_count }) });
@@ -1023,8 +1077,10 @@ document.addEventListener("keydown", (ev) => {
     case "Escape":
       // Abandons a selection mid-drag: the wash disappears and the release
       // that follows writes nothing, so a drag started by mistake costs
-      // nothing to back out of.
-      cancelSelection();
+      // nothing to back out of. With no drag on, Esc closes the find bar
+      // even once focus has moved to the page.
+      if (selection) cancelSelection();
+      else if (isFindBarOpen()) closeFindBar();
       break;
     case "z":
       if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); ev.shiftKey ? redo() : undo(); }
@@ -1047,6 +1103,26 @@ document.addEventListener("keydown", (ev) => {
 });
 
 bindSelection(pageSurface, () => state.page_index);
+
+// A truncated title shows in full on hover; one that fits needs no tooltip
+// repeating it.
+docTitle.addEventListener("pointerenter", () => {
+  docTitle.title = docTitle.scrollWidth > docTitle.clientWidth ? docTitle.textContent : "";
+});
+
+// What the find bar (find-bar.js) needs to know about this view's layouts.
+configureFindBar({
+  pageElement: (index) =>
+    layoutMode === "book"
+      ? (index === state.page_index ? pageSurface : null)
+      : stripPageEls[index] || null,
+  showPage: async (index) => {
+    if (layoutMode === "book" && index !== state.page_index) await goToPage(index + 1);
+  },
+  scroller: () => activeScrollEl(),
+  currentPage: () => state.page_index,
+  returnFocus: () => pageArea.focus({ preventScroll: true }),
+});
 
 // --- Voice navigation ---------------------------------------------------- //
 // Python recognizes the phrase and parses it into an intent

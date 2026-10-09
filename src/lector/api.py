@@ -28,6 +28,11 @@ from lector.features.voice.engine import VoiceEngine
 from lector.shared import window_chrome
 
 
+# Longer than any phrase a reader would look for; a pasted paragraph is cut
+# here rather than handed to MuPDF to scan every page with.
+MAX_FIND_QUERY_CHARS = 200
+
+
 def _pixmap_to_png_b64(pix) -> str:
     return base64.b64encode(pix.tobytes("png")).decode("ascii")
 
@@ -347,6 +352,31 @@ class Api:
                 for c in self._doc.chars_on_page(page_index)
             ],
         }
+
+    # ------------------------------------------------------------------ #
+    # Find in document                                                     #
+    # ------------------------------------------------------------------ #
+
+    def find_in_document(self, query: str, start_page: int = 0, end_page: int | None = None) -> dict:
+        """One slice of a find-in-document search, from `start_page` up to
+        (not including) `end_page`, or to the last page when that is None.
+
+        The frontend keeps calling with the returned `next_page` until it
+        comes back None, and simply stops calling once the reader has typed
+        something else — so a superseded search costs at most one slice.
+        Page numbers are clamped rather than rejected, and an overlong query
+        is cut: this is a bridge boundary, and a bad value from it should
+        find nothing, not raise.
+        """
+        if not self._doc.is_open:
+            return {"pages": [], "next_page": None, "text_pages": 0, "page_count": 0}
+        page_count = self._doc.page_count
+        needle = (query if isinstance(query, str) else "").strip()[:MAX_FIND_QUERY_CHARS]
+        start = max(0, min(int(start_page), page_count))
+        end = page_count if end_page is None else max(start, min(int(end_page), page_count))
+        if not needle:
+            return {"pages": [], "next_page": None, "text_pages": 0, "page_count": page_count}
+        return {**self._doc.search(needle, start, end), "page_count": page_count}
 
     def highlight_chars(self, page_index: int, start_idx: int, end_idx: int) -> dict:
         self._doc.highlight_char_indices(page_index, start_idx, end_idx)

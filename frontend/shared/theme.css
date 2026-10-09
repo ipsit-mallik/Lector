@@ -96,6 +96,12 @@
    * either (docs/DESIGN_SYSTEM.md, "selection wash"). */
   --paper: #FFFFFF;
   --selection: rgba(62, 98, 89, 0.42);
+  /* Find-in-document matches: blue, apart from the highlight yellow, the
+   * green selection and the voice amber. On the same paper, so not themed
+   * either. The current match is a deeper wash with a solid ring. */
+  --find-match: rgba(61, 116, 196, 0.28);
+  --find-match-current: rgba(61, 116, 196, 0.55);
+  --find-ring: #2E63B0;
 
   /* Toggle knob: a physical-looking white disc in every theme. */
   --knob: #FFFFFF;

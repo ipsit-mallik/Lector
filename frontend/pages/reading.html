@@ -8,26 +8,31 @@
 <body>
   <div class="reading-view">
     <div class="topbar">
-      <button class="back-btn" id="backBtn">
-        <span data-icon="chevron_left"></span>
-        Library
-      </button>
-      <div class="doc-title" id="docTitle"></div>
-      <div class="spacer"></div>
-      <button class="icon-btn nav-btn" id="prevBtn" title="Previous page  (←)" aria-label="Previous page">
-        <span data-icon="chevron_left"></span>
-      </button>
-      <input class="page-input" id="pageInput" type="number" min="1" value="1">
-      <span class="page-suffix" id="pageSuffix">of 1</span>
-      <button class="icon-btn nav-btn" id="nextBtn" title="Next page  (→)" aria-label="Next page">
-        <span data-icon="chevron_right"></span>
-      </button>
-      <span class="topbar-gap"></span>
-      <div class="vline short"></div>
-      <div class="zoom-control">
-        <button class="zoom-label" id="zoomLabel" type="button">150%</button>
-        <div class="zoom-popover" id="zoomPopover" hidden>
-          <input class="zoom-slider" id="zoomSlider" type="range" min="50" max="400" step="5" value="150">
+      <!-- The way back and what is open, sharing one text baseline. Takes the
+           room the page controls leave, so a long title truncates instead of
+           pushing them. -->
+      <div class="topbar-lead">
+        <button class="back-btn" id="backBtn" type="button" title="Back to Library">
+          <span class="back-chevron" data-icon="chevron_left"></span><span class="back-label">Library</span>
+        </button>
+        <div class="doc-title" id="docTitle"></div>
+      </div>
+      <div class="page-controls">
+        <button class="icon-btn icon-btn--sm nav-btn" id="prevBtn" type="button" title="Previous page  (←)" aria-label="Previous page">
+          <span data-icon="chevron_left"></span>
+        </button>
+        <input class="page-input" id="pageInput" type="text" inputmode="numeric"
+               autocomplete="off" spellcheck="false" value="1" aria-label="Page number">
+        <span class="page-suffix" id="pageSuffix">of 1</span>
+        <button class="icon-btn icon-btn--sm nav-btn" id="nextBtn" type="button" title="Next page  (→)" aria-label="Next page">
+          <span data-icon="chevron_right"></span>
+        </button>
+        <div class="vline short"></div>
+        <div class="zoom-control">
+          <button class="zoom-label" id="zoomLabel" type="button" title="Zoom" aria-label="Zoom level">150%</button>
+          <div class="zoom-popover" id="zoomPopover" hidden>
+            <input class="zoom-slider" id="zoomSlider" type="range" min="50" max="400" step="5" value="150" aria-label="Zoom">
+          </div>
         </div>
       </div>
     </div>
@@ -38,7 +43,8 @@
         <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)" aria-label="Highlight tool"></button>
         <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" aria-label="Undo highlight" disabled></button>
         <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" aria-label="Redo highlight" disabled></button>
-        <button class="icon-btn" data-icon="search" title="Find in document  (Milestone 4)" aria-label="Find in document" disabled></button>
+        <button class="icon-btn" id="findBtn" data-icon="search" title="Find in document  (Ctrl+F)"
+                aria-label="Find in document" aria-controls="findBar" aria-expanded="false"></button>
 
         <div class="rail-sep"></div>
 
@@ -49,16 +55,11 @@
 
         <button class="icon-btn active" id="layoutBtn" data-icon="book_layout" title="Book layout — one page at a time" aria-label="Book layout"></button>
         <button class="icon-btn" id="themeBtn" data-icon="theme" title="Cycle theme  (light / dark / sepia)" aria-label="Cycle theme"></button>
-        <button class="icon-btn" id="referenceRailBtn" data-icon="help"
-                title="What can I say?  (?)" aria-label="What can I say?"></button>
-
-        <div class="rail-fill"></div>
-        <div class="offline-label">OFF<br>LINE</div>
       </div>
 
       <div class="vline"></div>
 
-      <div class="page-area" id="pageArea">
+      <div class="page-area" id="pageArea" tabindex="-1">
         <div class="book-scroll" id="bookScroll">
           <div class="page-card" id="pageCard">
             <img class="page-surface" id="pageSurface" draggable="false">
@@ -77,6 +78,27 @@
              wash state, alongside the selection and highlight colors). Filled
              while a push-to-talk hold is in progress; see reading.js. -->
         <div class="voice-focus-layer" id="voiceFocusLayer" aria-hidden="true"></div>
+        <!-- Find-in-document matches (find-bar.js): blue, so they never read
+             as a highlight (yellow) or as voice (amber). Below the selection
+             wash, so a drag over a match still shows what it will select. -->
+        <div class="find-layer" id="findLayer" aria-hidden="true"></div>
+        <!-- Find bar (Ctrl+F or the rail's magnifier). Floats over the page
+             area's top-right corner rather than taking a row of its own, so
+             opening it moves nothing on the page. -->
+        <div class="find-bar" id="findBar" role="search">
+          <div class="find-field">
+            <span class="find-icon" data-icon="search"></span>
+            <input class="find-input" id="findInput" type="text" placeholder="Find in document"
+                   aria-label="Find in document" autocomplete="off" spellcheck="false">
+            <span class="find-status" id="findStatus" aria-live="polite"></span>
+          </div>
+          <button class="icon-btn icon-btn--sm" id="findPrevBtn" type="button" data-icon="chevron_up"
+                  title="Previous match  (Shift+Enter)" aria-label="Previous match" disabled></button>
+          <button class="icon-btn icon-btn--sm" id="findNextBtn" type="button" data-icon="chevron_down"
+                  title="Next match  (Enter)" aria-label="Next match" disabled></button>
+          <button class="icon-btn icon-btn--sm" id="findCloseBtn" type="button" data-icon="close"
+                  title="Close  (Esc)" aria-label="Close find"></button>
+        </div>
       </div>
     </div>
 
@@ -195,6 +217,7 @@
   <script src="../js/file-browser.js"></script>
   <script src="save-dialog.js"></script>
   <script src="command-reference.js"></script>
+  <script src="find-bar.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>

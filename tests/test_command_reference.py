@@ -174,8 +174,9 @@ class ListShapeTests(unittest.TestCase):
                 self.assertTrue(section["scope_note"].strip())
 
     def test_search_is_absent_until_it_exists(self):
-        # docs/PRD.md names a "Finding words" category, but in-document search
-        # has not been built. It belongs here when it is, and not before.
+        # docs/PRD.md names a "Finding words" category. Find in document exists
+        # now, but by keyboard and mouse only; this list is of things to say,
+        # so the category belongs here once voice search does, and not before.
         self.assertNotIn("Finding words", [s["title"] for s in reference.sections()])
 
     def test_the_panel_names_both_ways_of_starting(self):
@@ -336,11 +337,16 @@ class OneSharedComponentTests(unittest.TestCase):
         home = self.PAGES["home"][1].read_text(encoding="utf-8")
         settings = self.PAGES["settings"][1].read_text(encoding="utf-8")
         reading = self.PAGES["reading"][1].read_text(encoding="utf-8")
-        # The sidebar link, the reader's two buttons, and the spoken command.
+        # The sidebar link, the reader's footer button, and the spoken command.
         self.assertIn('getElementById("voiceHelpBtn").addEventListener("click", openCommandReference)', home)
         self.assertIn('getElementById("voiceHelpBtn").addEventListener("click", openCommandReference)', settings)
-        self.assertIn('referenceRailBtn.addEventListener("click", openCommandReference)', reading)
         self.assertIn('referenceFooterBtn.addEventListener("click", openCommandReference)', reading)
+        # The rail's "?" opened the very same list as the footer's labelled
+        # button beside the voice status, so it was removed; one button per
+        # screen is enough.
+        reading_html = (FRONTEND / "pages" / "reading.html").read_text(encoding="utf-8")
+        self.assertNotIn("referenceRailBtn", reading + reading_html)
+        self.assertNotIn('data-icon="help"', reading_html)
         for js in (home, settings, reading):
             self.assertIn("HELP: () => openCommandReference()", js)
         # The "?" shortcut is the component's own, so it exists on every screen
