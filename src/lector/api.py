@@ -105,6 +105,18 @@ class Api:
     def get_recent_files(self) -> list[dict]:
         return home_recent.list_recent()
 
+    def get_thumbnails(self, paths: list[str]) -> dict[str, str | None]:
+        """The first-page thumbnails (base64 PNG, or None) of rows the list
+        handed back with `thumbnail_pending`, by path. A few per call: each
+        bridge round trip costs several times what rendering one thumbnail
+        does. Only for files on the Recent or Favorites list, so the frontend
+        can't use this to read an arbitrary path."""
+        listed = home_recent.listed_paths()
+        return {
+            path: home_recent.load_thumbnail(path) if path in listed else None
+            for path in paths
+        }
+
     def remove_recent_file(self, path: str) -> dict:
         """Drops `path` from the Recent list only (Milestone 8.9) — never
         touches the file on disk, per docs/PRD.md's scope note. Returns

@@ -7,6 +7,7 @@ from pathlib import Path
 import webview
 
 from lector.api import Api
+from lector.features.home import recent as home_recent
 from lector.features.settings import store as settings
 from lector.shared import single_instance, theme, window_chrome
 from lector.shared.frontend_server import FrontendServer
@@ -72,8 +73,9 @@ def main(args: list[str] | None = None) -> None:
     api = Api()
     # Lector's own server, on a port picked fresh for this launch, sends every
     # page with the saved theme already in <html data-theme>, so the first
-    # frame is in it (see shared/frontend_server.py for why not pywebview's).
-    server = FrontendServer(FRONTEND_DIR, settings.get_theme)
+    # frame is in it (see shared/frontend_server.py for why not pywebview's),
+    # and Home with its view and file counts, for its loading placeholder.
+    server = FrontendServer(FRONTEND_DIR, settings.get_theme, home_recent.page_state)
     server.start()
     window_chrome.set_app_id()
     window = webview.create_window(

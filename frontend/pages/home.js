@@ -111,6 +111,18 @@ const EMPTY_STATE_COPY = {
 // init() before the first render; if the registry can't be reached the row is
 // left out rather than guessed at.
 let trySayingPhrases = [];
+// Settles once Home may draw its list: the first-run check has passed (so Home
+// never flashes up before onboarding) and the phrases have been asked for,
+// since an empty Recent shows them. init() sets it.
+let readyToDraw = Promise.resolve();
+
+async function loadTrySayingPhrases() {
+  try {
+    trySayingPhrases = (await callApi("get_command_reference")).try_saying || [];
+  } catch (err) {
+    console.error("Couldn't load the suggested phrases:", err);
+  }
+}
 
 function buildEmptyIcon(name) {
   const circle = document.createElement("div");
@@ -281,7 +293,7 @@ async function setHomeSection(section) {
   librarySearch.reset();
   homeSection = section;
   syncSectionChrome();
-  await loadSection();
+  await loadSectionWithPlaceholder();
 }
 
 recentNav.addEventListener("click", () => setHomeSection("recent"));
@@ -344,9 +356,14 @@ window.matchMedia(NARROW_RECENT_QUERY).addEventListener("change", (ev) => {
 });
 
 // Grid/list toggle (Recent screen, Motion & elevation foundation pass):
-// a persisted preference (settings.json via get_recent_view/
-// set_recent_view), not per-session UI state -- see docs/DESIGN_SYSTEM.md.
-let recentViewMode = "grid";
+// a persisted preference (settings.json, saved with set_recent_view), not
+// per-session UI state -- see docs/DESIGN_SYSTEM.md. The page server writes
+// the saved one into <html data-recent-view> as it sends the page, so it is
+// known before anything is drawn, and the loading skeleton below is the right
+// shape without waiting on a bridge call.
+let recentViewMode = document.documentElement.dataset.recentView === "list" ? "list" : "grid";
+recentViewGridBtn.setAttribute("aria-pressed", String(recentViewMode === "grid"));
+recentViewListBtn.setAttribute("aria-pressed", String(recentViewMode === "list"));
 
 function setRecentView(mode) {
   if (mode === recentViewMode) return;
@@ -384,6 +401,52 @@ const recentListHandlers = {
   },
 };
 
+// --- Loading (library-loading.js) ----------------------------------------- //
+// The last known length of each list: what the page server wrote into <html>
+// for this visit, then whatever each load actually returned. Sizes the skeleton.
+const knownCounts = {
+  recent: parseKnownCount(document.documentElement.dataset.recentCount),
+  favorites: parseKnownCount(document.documentElement.dataset.favoritesCount),
+};
+
+// As the skeleton comes up, what it replaces goes: the previous list (on a
+// switch between Recent and Favorites) and its count, and the numbers a voice
+// command could still reach.
+function showLoadingState() {
+  closeRowMenu();
+  displayedEntries = [];
+  recentCount.textContent = "";
+  recentArea.setAttribute("aria-busy", "true");
+  const note = document.createElement("span");
+  note.className = "sr-only";
+  note.textContent = "Loading your files…";
+  recentArea.replaceChildren(note);
+}
+
+const listSkeleton = createSkeletonGate(document.getElementById("librarySkeleton"), {
+  onShow: showLoadingState,
+});
+
+// Built when (if) it comes up, so it has whichever view and list are current then.
+function armListSkeleton() {
+  listSkeleton.arm(() =>
+    buildLibrarySkeleton(recentViewMode, skeletonCount(knownCounts[homeSection]), recentSort)
+  );
+}
+
+// Armed as the script loads, before init() awaits anything, so the 150ms is
+// counted from the page's first paint.
+armListSkeleton();
+
+// A thumbnail that arrives after its row goes straight into the row; rows
+// drawn later get it from renderRecent()'s thumbnails.withLoaded().
+const thumbnails = createThumbnailLoader((path, png) => showThumbnail(recentArea, path, png));
+
+// The order the rows will be on screen, so the top ones' thumbnails come first.
+function inScreenOrder(entries) {
+  return recentViewMode === "list" ? sortRecentEntries(entries, recentSort) : entries;
+}
+
 // Which header controls the list can use right now. A control the page has but
 // cannot use yet is hidden, not removed, so it keeps its slot and nothing moves
 // when the list arrives (.is-absent in home.css). Nothing to search or toggle on
@@ -402,8 +465,10 @@ function renderCount(shown, total, filtering) {
   recentCount.textContent = formatFileCount(shown, total, filtering);
 }
 
-function renderRecent(entries) {
+function renderRecent(listed) {
   closeRowMenu();
+  // With any thumbnail that has arrived since the list was fetched.
+  const entries = thumbnails.withLoaded(listed);
   recentEntries = entries;
   // A search over an empty list has nothing to apply to, and its field is
   // hidden: drop it so it can't reappear as a stale filter.
@@ -429,13 +494,15 @@ function renderRecent(entries) {
     recentArea.appendChild(
       buildRecentTable(displayedEntries, recentSort, recentListHandlers, homeSection)
     );
-    return;
+  } else {
+    displayedEntries = visible;
+    const grid = document.createElement("div");
+    grid.className = "recent-grid";
+    visible.forEach((entry) => grid.appendChild(buildCard(entry)));
+    recentArea.appendChild(grid);
   }
-  displayedEntries = visible;
-  const grid = document.createElement("div");
-  grid.className = "recent-grid";
-  visible.forEach((entry) => grid.appendChild(buildCard(entry)));
-  recentArea.appendChild(grid);
+  // Top of the screen first.
+  thumbnails.request(displayedEntries);
 }
 
 // The list could not be fetched. Without this the placeholder cards (index.html)
@@ -458,7 +525,7 @@ function buildLoadFailedState() {
   retryBtn.className = "btn empty-state-action";
   retryBtn.type = "button";
   retryBtn.textContent = "Try again";
-  retryBtn.addEventListener("click", loadSection);
+  retryBtn.addEventListener("click", loadSectionWithPlaceholder);
 
   el.append(buildEmptyIcon("empty_doc"), heading, body, retryBtn);
   return el;
@@ -476,17 +543,44 @@ function renderLoadFailed() {
 }
 
 // Only the fetch is guarded: a failure to *draw* a list that did arrive is a bug
-// to see in the console, not something "try again" would fix.
+// to see in the console, not something "try again" would fix. A load that a
+// newer one has overtaken (Recent, then Favorites, before Recent answered)
+// draws nothing, so the page can't end up on the list it left.
+let loadGeneration = 0;
+
 async function loadSection() {
+  const generation = ++loadGeneration;
   let entries;
   try {
     entries = await callApi(SECTION_LOADERS[homeSection]);
   } catch (err) {
+    if (generation !== loadGeneration) return;
     console.error(`Couldn't load ${homeSection}:`, err);
-    renderLoadFailed();
+    await drawWhenSettled(generation, renderLoadFailed);
     return;
   }
-  renderRecent(entries);
+  if (generation !== loadGeneration) return;
+  knownCounts[homeSection] = entries.length;
+  // Now, not once drawn: the skeleton may hold the rows back up to 300ms.
+  thumbnails.request(inScreenOrder(entries));
+  await drawWhenSettled(generation, () => renderRecent(entries));
+}
+
+// If the skeleton came up it is held for its minimum time, then the content is
+// drawn underneath it and it fades out on top.
+async function drawWhenSettled(generation, draw) {
+  await Promise.all([listSkeleton.settle(), readyToDraw]);
+  if (generation !== loadGeneration) return;
+  draw();
+  listSkeleton.release();
+}
+
+// A load that replaces the list with a different one (a switch between Recent
+// and Favorites, or "Try again") may show the skeleton; one that refreshes the
+// list in place (after starring or removing) keeps the old rows up instead.
+function loadSectionWithPlaceholder() {
+  armListSkeleton();
+  return loadSection();
 }
 
 // --- Remove-from-Recent confirmation (Milestone 8.9) --------------------- //
@@ -680,9 +774,20 @@ configureCommandReference({
 });
 
 (async function init() {
+  // The list is asked for first, alongside the first-run check and the
+  // suggested phrases rather than after them, and alongside the icons and voice
+  // set-up below: measured, those held a list back by 200-250ms that is ready
+  // in about 10ms once its thumbnails are cached, long enough to bring the
+  // skeleton up for nothing. readyToDraw still holds the drawing back until the
+  // check has passed and the phrases are in.
+  const onboardingSeen = callApi("get_onboarding_seen");
+  readyToDraw = Promise.all([onboardingSeen, loadTrySayingPhrases()]).then(([seen]) =>
+    seen ? undefined : new Promise(() => {})
+  );
+  const listShown = loadSection();
   // First run goes to the onboarding stub before anything else renders, so
   // the reader doesn't see Home flash past underneath it.
-  if (!(await callApi("get_onboarding_seen"))) {
+  if (!(await onboardingSeen)) {
     window.location.href = "pages/onboarding.html";
     return;
   }
@@ -691,6 +796,10 @@ configureCommandReference({
   // fails or redirects before reaching the end.
   const openDialogRequested = sessionStorage.getItem(OPEN_DIALOG_HANDOFF_KEY) === "1";
   sessionStorage.removeItem(OPEN_DIALOG_HANDOFF_KEY);
+  // The Settings hand-off was applied when the script loaded (above); it is
+  // one-shot, so clear it here and a later plain visit starts on Recent.
+  sessionStorage.removeItem(HOME_SECTION_HANDOFF_KEY);
+  syncSectionChrome();
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
@@ -704,19 +813,7 @@ configureCommandReference({
     voiceScopeError = `Voice commands couldn't start on this screen. ${err}`;
     console.error(voiceScopeError);
   }
-  try {
-    trySayingPhrases = (await callApi("get_command_reference")).try_saying || [];
-  } catch (err) {
-    console.error("Couldn't load the suggested phrases:", err);
-  }
-  recentViewMode = await callApi("get_recent_view");
-  recentViewGridBtn.setAttribute("aria-pressed", String(recentViewMode === "grid"));
-  recentViewListBtn.setAttribute("aria-pressed", String(recentViewMode === "list"));
-  // The Settings hand-off was applied when the script loaded (above); it is
-  // one-shot, so clear it here and a later plain visit starts on Recent.
-  sessionStorage.removeItem(HOME_SECTION_HANDOFF_KEY);
-  syncSectionChrome();
-  await loadSection();
+  await listShown;
   if (voiceScopeError) {
     voiceBox.showUnavailable(voiceScopeError);
   } else {

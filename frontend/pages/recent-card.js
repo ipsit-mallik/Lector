@@ -58,11 +58,7 @@ function buildCard(entry) {
 
   const thumb = document.createElement("div");
   thumb.className = "recent-thumb";
-  if (entry.thumbnail) {
-    const img = document.createElement("img");
-    img.src = `data:image/png;base64,${entry.thumbnail}`;
-    thumb.appendChild(img);
-  }
+  mountThumbnail(thumb, entry);
   thumb.appendChild(buildCardActions(entry));
   card.appendChild(thumb);
 

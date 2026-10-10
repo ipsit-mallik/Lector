@@ -178,20 +178,38 @@ html, body { height: 100%; }
 
 .recent-grid .recent-card { width: 268px; padding: var(--space-3); }
 
-/* Placeholder card shown while the list loads (index.html). Same footprint as a
-   real grid card -- thumbnail, a two-line title, a meta line -- so the page does
-   not jump when the cards arrive. Not clickable, so no pointer, no hover lift
-   (.card-lift is never put on it), and no shadow competing with the real cards'. */
-.recent-card--skeleton { cursor: default; box-shadow: none; }
+/* Placeholder card shown while the list loads (library-loading.js). Same
+   footprint as a real grid card -- thumbnail, title, meta line -- so the page
+   does not jump when the cards arrive. Not clickable, so no pointer, no hover
+   lift (.card-lift is never put on it), and no shadow competing with the real
+   cards'. */
+.recent-card--skeleton {
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+  box-shadow: none;
+}
 .recent-grid .recent-card--skeleton .skeleton-thumb {
   height: 118px;
   margin-bottom: var(--space-3);
   border-radius: var(--radius-xs);
 }
-.recent-card--skeleton .skeleton-title { width: 90%; height: 14px; margin-top: var(--space-2); }
-.recent-card--skeleton .skeleton-title + .skeleton-title,
-.recent-card--skeleton .skeleton-meta { margin-top: var(--space-2); }
-.recent-card--skeleton .skeleton-meta { width: 55%; height: 10px; margin-bottom: var(--space-1); }
+/* Each bar sits centred in the line box of the text it stands for (1lh at that
+   text's size), and the card is a flex column so those margins don't collapse:
+   it comes out exactly the height of a real card with a two-line name. */
+.recent-card--skeleton .skeleton-title,
+.recent-card--skeleton .skeleton-meta {
+  --bar-h: 10px;
+  height: var(--bar-h);
+  margin: calc((1lh - var(--bar-h)) / 2) 0;
+}
+.recent-card--skeleton .skeleton-title { font-size: var(--text-md); width: 90%; }
+.recent-card--skeleton .skeleton-title + .skeleton-title { width: 60%; }
+.recent-card--skeleton .skeleton-meta {
+  font-size: var(--text-xs);
+  width: 55%;
+  margin-top: calc(var(--space-1) + (1lh - var(--bar-h)) / 2);
+}
 
 /* Numbered-overlay picker (Milestone 8.6, docs/DESIGN_SYSTEM.md). Only
    present while the `picker` voice context is active — see
@@ -314,6 +332,8 @@ html, body { height: 100%; }
    line up. */
 .recent-table {
   --recent-columns: minmax(0, 1fr) 120px 96px 76px;
+  /* Shared with the loading skeleton's rows, so they are the same height. */
+  --recent-row-h: 64px;
   border-radius: var(--radius-lg);
   background-color: var(--surface-input);
   border: 1px solid var(--border-elevated);
@@ -366,7 +386,7 @@ html, body { height: 100%; }
 .recent-th.recent-col-pages .recent-sort-btn { flex-direction: row-reverse; }
 
 .recent-table .recent-item {
-  min-height: 64px;
+  min-height: var(--recent-row-h);
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out);
 }
@@ -474,6 +494,56 @@ html, body { height: 100%; }
 .recent-fav-btn.is-favorite,
 .recent-fav-btn.is-favorite:hover { color: var(--star); }
 
+/* --- Loading (library-loading.js) ----------------------------------------
+   The skeleton's layer lies over the top of #recentArea, so the content can be
+   drawn underneath while it is still up and it fades out on top: a crossfade
+   with nothing moving, since its rows and cards are the real ones' size. It
+   fades in too, from nothing, having waited 150ms before appearing at all. */
+.library-skeleton {
+  position: absolute;
+  inset: 0 0 auto;
+  pointer-events: none;
+}
+.library-skeleton.is-shown { animation: library-fade-in var(--dur-base) var(--ease-out); }
+.library-skeleton.is-leaving { animation: library-fade-out var(--dur-base) var(--ease-out) forwards; }
+
+@keyframes library-fade-in { from { opacity: 0; } }
+@keyframes library-fade-out { to { opacity: 0; } }
+
+/* A list row's placeholder: the real columns (the table's --recent-columns)
+   and height, a thumbnail block the size of the real one, and a bar for the
+   name, the date and the page count. Names vary in length, so their bars do. */
+.recent-table .recent-row--skeleton { min-height: var(--recent-row-h); }
+.recent-row--skeleton .skeleton-line { height: 10px; margin: 0; }
+.recent-row--skeleton .skeleton-row-thumb {
+  flex: none;
+  width: 32px;
+  height: 42px;
+  border-radius: var(--radius-xs);
+}
+.recent-row--skeleton .skeleton-name { height: 12px; width: 58%; }
+.recent-row--skeleton:nth-child(3n) .skeleton-name { width: 44%; }
+.recent-row--skeleton:nth-child(3n + 1) .skeleton-name { width: 70%; }
+.recent-row--skeleton .skeleton-when { width: 72px; }
+.recent-row--skeleton .skeleton-pages { width: 52px; }
+
+/* A thumbnail still being rendered: the real slot, at its real size, with the
+   shimmer in it until the image arrives and fades in. Its paper and edge wait
+   too: the shimmer is a translucent tint, invisible over white paper, and a
+   white page would read as a blank PDF rather than one still loading. On the
+   card surface it looks exactly like the skeleton's own thumbnail blocks. */
+[data-thumb-path]:is(.recent-thumb, .recent-table-thumb) {
+  background-color: var(--surface-input);
+  border-color: transparent;
+  box-shadow: none;
+}
+.thumb-pending {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.thumb-arrived { animation: library-fade-in var(--dur-base) var(--ease-out); }
+
 /* The thumbnail's corner, as on a grid card, pulled in a little so it
    stays inside the row. */
 .recent-table .picker-badge { top: -8px; left: -10px; }
@@ -545,6 +615,12 @@ html, body { height: 100%; }
    scrolls instead. */
 .home-content { display: flex; flex-direction: column; }
 .home-content .page-header { flex: none; }
+.home-content .library-body {
+  position: relative;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
 .home-content #recentArea { flex: 1 0 auto; display: flex; flex-direction: column; }
 
 .empty-state {

@@ -11,13 +11,19 @@ A new port is a new origin, so web storage no longer survives a restart and
 cannot carry the saved theme to the next launch's first paint. Instead each page
 is sent with the saved theme already in its `<html data-theme>`, read from
 settings.json as the page is requested, so the first frame is in the reader's
-theme without any script or bridge call.
+theme without any script or bridge call. A page can ask for more of the same:
+each attribute its `<html>` declares that `page_state()` names is filled in the
+same way (Home's grid/list view and file counts, which choose the shape and
+length of its loading placeholder). That is also why the view is not mirrored
+to `localStorage`: on a new origin every launch, the mirror would be empty on
+exactly the first visit it is needed for.
 
 Every response is `Cache-Control: no-store`: the files are on this disk, so a
 cache saves nothing and could only serve a stale page after an update.
 """
 
 import functools
+import html as html_text
 import http.server
 import io
 import logging
@@ -37,6 +43,7 @@ HOST = "127.0.0.1"
 FALLBACK_THEME = "light"
 
 _HTML_THEME = re.compile(r'(<html\b[^>]*?\bdata-theme=")[^"]*(")')
+_HTML_TAG = re.compile(r"<html\b[^>]*>")
 
 # Set here rather than taken from the OS: on Windows `mimetypes` reads the
 # registry, and a stylesheet sent as anything but text/css is not applied.
@@ -61,6 +68,22 @@ def with_theme(html: str, theme: str) -> str:
     return _HTML_THEME.sub(lambda m: f"{m.group(1)}{name}{m.group(2)}", html, count=1)
 
 
+def with_page_state(html: str, state: dict[str, str]) -> str:
+    """`html` with each attribute its `<html>` element already declares set to
+    `state`'s value for it. Attributes the page doesn't declare are not added,
+    so a page opts in by carrying its defaults; values are escaped, so they
+    can only ever be attribute text."""
+    tag = _HTML_TAG.search(html)
+    if tag is None:
+        return html
+    element = tag.group(0)
+    for name, value in state.items():
+        attribute = re.compile(rf'(\s{re.escape(name)}=")[^"]*(")')
+        escaped = html_text.escape(str(value), quote=True)
+        element = attribute.sub(lambda m: f"{m.group(1)}{escaped}{m.group(2)}", element, count=1)
+    return html[: tag.start()] + element + html[tag.end():]
+
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = _TYPES
 
@@ -75,7 +98,8 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         return super().send_head()
 
     def _send_page(self, path: Path) -> io.BytesIO:
-        body = with_theme(path.read_text(encoding="utf-8"), self.server.theme()).encode("utf-8")
+        page = with_theme(path.read_text(encoding="utf-8"), self.server.theme())
+        body = with_page_state(page, self.server.page_state()).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", _TYPES[".html"])
         self.send_header("Content-Length", str(len(body)))
@@ -94,8 +118,14 @@ class _Server(http.server.ThreadingHTTPServer):
     allow_reuse_address = False
     daemon_threads = True
 
-    def __init__(self, handler: Callable, current_theme: Callable[[], str]) -> None:
+    def __init__(
+        self,
+        handler: Callable,
+        current_theme: Callable[[], str],
+        page_state: Callable[[], dict[str, str]],
+    ) -> None:
         self._current_theme = current_theme
+        self._page_state = page_state
         super().__init__((HOST, 0), handler)
 
     def server_bind(self) -> None:
@@ -113,18 +143,32 @@ class _Server(http.server.ThreadingHTTPServer):
             log.exception("Could not read the saved theme; serving %s", FALLBACK_THEME)
             return FALLBACK_THEME
 
+    def page_state(self) -> dict[str, str]:
+        try:
+            return self._page_state()
+        except Exception:
+            log.exception("Could not read the page state; serving the pages' defaults")
+            return {}
+
 
 class FrontendServer:
-    """frontend/ on 127.0.0.1, with each page sent in `current_theme()`."""
+    """frontend/ on 127.0.0.1, with each page sent in `current_theme()` and
+    with the `<html>` attributes it declares filled in from `page_state()`."""
 
-    def __init__(self, root: Path, current_theme: Callable[[], str]) -> None:
+    def __init__(
+        self,
+        root: Path,
+        current_theme: Callable[[], str],
+        page_state: Callable[[], dict[str, str]] = dict,
+    ) -> None:
         self._root = Path(root)
         self._current_theme = current_theme
+        self._page_state = page_state
         self._httpd: _Server | None = None
 
     def start(self) -> None:
         handler = functools.partial(_Handler, directory=str(self._root))
-        self._httpd = _Server(handler, self._current_theme)
+        self._httpd = _Server(handler, self._current_theme, self._page_state)
         threading.Thread(
             target=self._httpd.serve_forever, name="frontend-server", daemon=True
         ).start()

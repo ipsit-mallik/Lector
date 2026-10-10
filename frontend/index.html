@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" data-recent-view="grid" data-recent-count="" data-favorites-count="">
 <head>
   <meta charset="UTF-8">
   <title>Lector — Home</title>
@@ -142,29 +142,20 @@
         </script>
       </header>
 
-      <!-- Placeholder cards until the list arrives (home.js's renderRecent()
-           replaces them, or buildLoadFailedState() if the load fails). Drawn here
-           rather than by script so they are on the very first paint. Hidden from
-           assistive tech; the sr-only line says what is happening instead. -->
-      <div id="recentArea" aria-busy="true">
-        <span class="sr-only">Loading your files…</span>
-        <div class="recent-grid" aria-hidden="true">
-          <div class="recent-card recent-card--skeleton">
-            <div class="skeleton skeleton-thumb"></div>
-            <div class="skeleton skeleton-line skeleton-title"></div>
-            <div class="skeleton skeleton-line skeleton-meta"></div>
-          </div>
-          <div class="recent-card recent-card--skeleton">
-            <div class="skeleton skeleton-thumb"></div>
-            <div class="skeleton skeleton-line skeleton-title"></div>
-            <div class="skeleton skeleton-line skeleton-meta"></div>
-          </div>
-          <div class="recent-card recent-card--skeleton">
-            <div class="skeleton skeleton-thumb"></div>
-            <div class="skeleton skeleton-line skeleton-title"></div>
-            <div class="skeleton skeleton-line skeleton-meta"></div>
-          </div>
+      <!-- The list, once it arrives (home.js's renderRecent(), or
+           buildLoadFailedState() if the load fails). Until then it is busy, and
+           the sr-only line says what is happening. If the wait passes 150ms a
+           skeleton comes up in the layer beside it, shaped like the view the
+           list will be in: cards or table rows, as many as the list last had.
+           Script draws it (pages/library-loading.js) from the view and counts
+           the page server writes into <html> above, so no bridge call stands
+           between the page and choosing its shape. The layer is decorative
+           and inert: nothing in it can be reached or clicked. -->
+      <div class="library-body">
+        <div id="recentArea" aria-busy="true">
+          <span class="sr-only">Loading your files…</span>
         </div>
+        <div class="library-skeleton" id="librarySkeleton" aria-hidden="true" inert hidden></div>
       </div>
     </div>
   </div>
@@ -236,6 +227,7 @@
   <script src="js/filedrop.js"></script>
   <script src="js/file-browser.js"></script>
   <script src="pages/recent-list.js"></script>
+  <script src="pages/library-loading.js"></script>
   <script src="pages/library-search.js"></script>
   <script src="pages/recent-card.js"></script>
   <script src="pages/command-reference.js"></script>

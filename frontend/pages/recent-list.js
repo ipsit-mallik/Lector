@@ -129,12 +129,7 @@ function buildNameCell(entry) {
   // badge — on the thumbnail's corner, the same spot it takes on a grid card.
   const thumb = document.createElement("div");
   thumb.className = "recent-table-thumb picker-anchor";
-  if (entry.thumbnail) {
-    const img = document.createElement("img");
-    img.src = `data:image/png;base64,${entry.thumbnail}`;
-    img.alt = "";
-    thumb.appendChild(img);
-  }
+  mountThumbnail(thumb, entry);
   cell.appendChild(thumb);
 
   const { head, tail } = splitForMiddleEllipsis(entry.title);

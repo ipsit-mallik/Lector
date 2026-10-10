@@ -1,12 +1,15 @@
-"""Home's first paint must not claim "no files yet" or look empty while the list
-is still loading.
+"""Home's first paint must not claim "no files yet", and a slow load shows a
+placeholder shaped like what is coming.
 
-The list arrives from the backend after the page has opened (it renders each PDF's
-first-page thumbnail, a couple of seconds for a long file). Until then the page
+The list arrives from the backend after the page has opened. Until then the page
 used to say "no files yet" with a blank area, which read as missing cards, buttons
-and icons. These tests pin the markup the reader sees first (frontend/index.html)
-and the wiring that replaces it (frontend/pages/home.js), so the false default and
-the blank wait cannot come back.
+and icons; then it drew three grid cards whatever the view, so a list-view reader
+saw cards turn into a table. The placeholder is now chosen by script from the view
+and file count the page server writes into `<html>` (no bridge call), and only
+appears if the wait passes 150ms (frontend/pages/library-loading.js). These tests
+pin the markup the reader sees first (frontend/index.html) and the wiring that
+replaces it (frontend/pages/home.js), so neither the false default nor the wrong
+shape can come back.
 """
 
 import re
@@ -18,6 +21,7 @@ FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 INDEX_HTML = (FRONTEND / "index.html").read_text(encoding="utf-8")
 HOME_JS = (FRONTEND / "pages" / "home.js").read_text(encoding="utf-8")
 HOME_CSS = (FRONTEND / "pages" / "home.css").read_text(encoding="utf-8")
+LOADING_JS = (FRONTEND / "pages" / "library-loading.js").read_text(encoding="utf-8")
 
 
 class _Element:
@@ -82,15 +86,24 @@ class HomeFirstPaintTest(unittest.TestCase):
         area = _by_id(self.page, "recentArea")
         self.assertEqual(area.attrs.get("aria-busy"), "true")
 
-    def test_list_area_shows_placeholder_cards_on_first_paint(self):
+    def test_no_placeholder_is_drawn_into_the_markup(self):
+        # Which placeholder (cards or table rows) and how many depend on the
+        # reader's view and list, so script chooses it; a fixed one in the
+        # markup was cards even in list view.
         area = _by_id(self.page, "recentArea")
-        cards = [el for el in area.walk() if "recent-card--skeleton" in el.classes]
-        self.assertGreaterEqual(len(cards), 3)
+        self.assertFalse([el for el in area.walk() if "skeleton" in el.classes])
 
-    def test_placeholder_cards_are_decorative_for_screen_readers(self):
-        area = _by_id(self.page, "recentArea")
-        grid = next(el for el in area.walk() if "recent-grid" in el.classes)
-        self.assertEqual(grid.attrs.get("aria-hidden"), "true")
+    def test_the_placeholder_layer_is_decorative_and_out_of_reach(self):
+        layer = _by_id(self.page, "librarySkeleton")
+        self.assertEqual(layer.attrs.get("aria-hidden"), "true")
+        self.assertIn("inert", layer.attrs)
+        self.assertIn("hidden", layer.attrs)
+
+    def test_the_page_declares_the_state_the_server_fills_in(self):
+        html = next(el for el in self.page.walk() if el.tag == "html")
+        self.assertEqual(html.attrs.get("data-recent-view"), "grid")
+        self.assertEqual(html.attrs.get("data-recent-count"), "")
+        self.assertEqual(html.attrs.get("data-favorites-count"), "")
 
     def test_screen_readers_are_told_the_list_is_loading(self):
         area = _by_id(self.page, "recentArea")
@@ -103,13 +116,46 @@ class HomeFirstPaintTest(unittest.TestCase):
 
 
 class HomeLoadingWiringTest(unittest.TestCase):
-    def test_placeholder_cards_use_the_shared_skeleton(self):
-        self.assertRegex(INDEX_HTML, r'class="[^"]*\bskeleton\b[^"]*"')
+    def test_placeholders_use_the_shared_skeleton(self):
+        self.assertRegex(LOADING_JS, r"[\"'`]skeleton ")
 
     def test_placeholder_card_has_its_own_non_interactive_style(self):
         rule = re.search(r"\.recent-card--skeleton\s*\{([^}]*)\}", HOME_CSS)
         self.assertIsNotNone(rule)
         self.assertIn("cursor: default", rule.group(1))
+
+    def test_the_view_is_read_from_the_page_not_asked_of_the_backend(self):
+        self.assertIn("document.documentElement.dataset.recentView", HOME_JS)
+        self.assertNotIn('callApi("get_recent_view")', HOME_JS)
+
+    def test_the_placeholder_is_armed_as_the_script_loads(self):
+        # Before init() awaits anything, so the 150ms clock starts at first paint.
+        arm = HOME_JS.index("\narmListSkeleton();")
+        self.assertLess(arm, HOME_JS.index("(async function init()"))
+
+    def test_the_timings_and_counts_are_the_agreed_ones(self):
+        for constant, value in (
+            ("SKELETON_DELAY_MS", "150"),
+            ("SKELETON_MIN_VISIBLE_MS", "300"),
+            ("SKELETON_FALLBACK_COUNT", "6"),
+            ("SKELETON_MAX_COUNT", "20"),
+            ("THUMBNAIL_BATCH_SIZE", "4"),
+        ):
+            with self.subTest(constant=constant):
+                self.assertRegex(LOADING_JS, rf"const {constant} = {value};")
+
+    def test_both_views_build_their_placeholder_in_one_place(self):
+        for builder in ("buildGridSkeleton", "buildListSkeleton"):
+            with self.subTest(builder=builder):
+                self.assertIn(f"function {builder}(", LOADING_JS)
+                self.assertNotIn(builder, INDEX_HTML)
+
+    def test_rows_wait_for_no_thumbnail(self):
+        for name in ("recent-card.js", "recent-list.js"):
+            with self.subTest(file=name):
+                source = (FRONTEND / "pages" / name).read_text(encoding="utf-8")
+                self.assertIn("mountThumbnail(", source)
+        self.assertIn('callApi("get_thumbnails"', LOADING_JS)
 
     def test_a_finished_render_clears_the_busy_state(self):
         self.assertRegex(HOME_JS, r"recentArea\.removeAttribute\(\"aria-busy\"\)")
