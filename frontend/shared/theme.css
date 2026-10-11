@@ -62,8 +62,16 @@
   --lift: -2px;
   --enter-rise: 6px;
 
+  /* The one looping animation: a search field's halo while voice is typing
+   * into it (shared/search-field.css). Slow, so it reads as breathing rather
+   * than as an alert. */
+  --dur-pulse: 1.8s;
+
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
+  /* A search field shows focus as a soft halo instead of the ring above
+   * (docs/DESIGN_SYSTEM.md, "Search field"). */
+  --field-halo-width: 3px;
   --overlay-blur: 8px;
 
   /* One height for the header row's controls (search, grid/list toggle, Open
@@ -139,6 +147,10 @@
   --shadow-2: 0 4px 10px rgba(22, 26, 24, 0.12), 0 2px 4px rgba(22, 26, 24, 0.08);
   --shadow-3: 0 24px 48px rgba(22, 26, 24, 0.22), 0 8px 16px rgba(22, 26, 24, 0.10);
   --shadow-page: 0 4px 24px rgba(22, 26, 24, 0.18);
+
+  /* A search field's lift (hover, focus) and how strong its halo is. */
+  --field-lift: var(--shadow-1);
+  --field-halo-mix: 20%;
 }
 
 [data-theme="dark"] {
@@ -173,6 +185,11 @@
   --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.35);
   --shadow-3: 0 24px 56px rgba(0, 0, 0, 0.6), 0 8px 16px rgba(0, 0, 0, 0.35);
   --shadow-page: 0 4px 24px rgba(0, 0, 0, 0.5);
+
+  /* A drop shadow is lost on the dark page, so a lifted search field gets a
+   * faint highlight along its top edge instead, and a stronger halo. */
+  --field-lift: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 8%, transparent);
+  --field-halo-mix: 30%;
 }
 
 [data-theme="sepia"] {
@@ -205,6 +222,10 @@
   --shadow-2: 0 4px 10px rgba(59, 47, 32, 0.14), 0 2px 4px rgba(59, 47, 32, 0.10);
   --shadow-3: 0 24px 48px rgba(59, 47, 32, 0.24), 0 8px 16px rgba(59, 47, 32, 0.12);
   --shadow-page: 0 4px 24px rgba(59, 47, 32, 0.2);
+
+  /* Sepia's --shadow-1 is already tinted warm. */
+  --field-lift: var(--shadow-1);
+  --field-halo-mix: 20%;
 }
 
 /* Derived tokens — computed from the per-theme values above, so they
@@ -218,6 +239,10 @@
   --voice-soft: color-mix(in srgb, var(--voice) 14%, transparent);
   --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);
   --focus-ring: var(--accent);
+  /* A search field's focus halo, and the voice-coloured one it pulses while
+   * voice is typing into it (orange is voice only, docs/DESIGN_SYSTEM.md). */
+  --field-halo: color-mix(in srgb, var(--accent) var(--field-halo-mix), transparent);
+  --field-halo-voice: color-mix(in srgb, var(--voice) var(--field-halo-mix), transparent);
 
   /* Interaction washes: a tint of the theme's own text colour, so hover
    * darkens on light surfaces and lightens on dark ones with one rule. */

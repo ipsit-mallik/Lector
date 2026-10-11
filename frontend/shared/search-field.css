@@ -1,0 +1,144 @@
+/* The one search field, used by every search in the app: the library header,
+   the Open / Save As folder search, "What can I say?" and find in document.
+   Imported by components.css, so every page has it; behaviour (the clear
+   button, the listening state) is frontend/js/search-field.js.
+
+     <div class="search-field" role="search">
+       <span class="search-field-icon" data-icon="search"></span>
+       <input class="search-field-input" type="text" placeholder="…">
+       <button class="search-field-clear" type="button" aria-label="Clear search"
+               title="Clear search"><span data-icon="close"></span></button>
+       <span class="search-field-mic" data-icon="mic" aria-hidden="true"></span>
+     </div>
+
+   The mic is only for a field voice can type into. The placeholder must not be
+   empty: the clear button shows from :placeholder-shown, so no script has to
+   keep it in step with the value.
+
+   Every field sits on --surface-2 (the page, a dialog, the find bar), so the
+   two surface steps either side of it do the work in every theme:
+     rest       no border, recessed on --surface-1, muted icon;
+     hover      lifts to --surface-input with --field-lift (a soft shadow, or a
+                top highlight in dark, where a shadow would be lost);
+     focus      the same lift plus a soft accent halo, and the icon turns accent.
+                The halo is the field's focus indicator, in place of the 2px
+                ring every other control has (docs/DESIGN_SYSTEM.md);
+     listening  voice is typing into it: the halo turns the voice colour and
+                pulses slowly, a mic shows at the trailing edge, and the
+                placeholder reads "Listening…".
+   A field sets only its own size and spacing (height, radius, margins). */
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.search-field:hover {
+  background-color: var(--surface-input);
+  box-shadow: var(--field-lift);
+}
+
+/* :focus-visible, not :focus-within, so a button inside clicked with the mouse
+   (the header's search icon) doesn't light it up; a text field always matches
+   :focus-visible once it has focus. */
+.search-field:has(:focus-visible) {
+  background-color: var(--surface-input);
+  box-shadow: var(--field-lift), 0 0 0 var(--field-halo-width) var(--field-halo);
+}
+.search-field :focus-visible { outline: none; }
+
+.search-field-icon {
+  flex: none;
+  display: flex;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.search-field-icon svg { width: 100%; height: 100%; }
+
+.search-field:has(:focus-visible) .search-field-icon { color: var(--accent); }
+
+.search-field-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+}
+.search-field-input::placeholder { color: var(--text-muted); }
+
+/* The field has its own clear button; the engine's (on type="search") would be
+   a second one. */
+.search-field-input::-webkit-search-decoration,
+.search-field-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.search-field-clear {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+.search-field-clear [data-icon] { display: flex; width: 14px; height: 14px; }
+.search-field-clear svg { width: 100%; height: 100%; }
+
+.search-field:has(.search-field-input:not(:placeholder-shown)) .search-field-clear { display: flex; }
+
+.search-field-clear:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.search-field-clear:active,
+.search-field-clear:focus-visible { background-color: var(--state-pressed); color: var(--text-primary); }
+
+/* Listening. After focus, so it wins when the field has both. The steady halo
+   is the rule itself and the pulse only swells it mid-cycle, so under
+   prefers-reduced-motion (theme.css plays every animation once, instantly)
+   the halo simply stays still. */
+.search-field-mic {
+  flex: none;
+  display: none;
+  width: 16px;
+  height: 16px;
+  color: var(--voice);
+}
+.search-field-mic svg { width: 100%; height: 100%; }
+
+.search-field.is-listening {
+  background-color: var(--surface-input);
+  box-shadow: var(--field-lift), 0 0 0 var(--field-halo-width) var(--field-halo-voice);
+  animation: search-field-listening var(--dur-pulse) var(--ease-out) infinite;
+}
+.search-field.is-listening .search-field-icon { color: var(--text-muted); }
+.search-field.is-listening .search-field-mic { display: flex; }
+/* Whatever is dictated replaces the whole query, so there is nothing to clear
+   by hand meanwhile, and the trailing edge is the mic's. */
+.search-field.is-listening .search-field-clear { display: none; }
+
+@keyframes search-field-listening {
+  50% {
+    box-shadow: var(--field-lift), 0 0 0 calc(var(--field-halo-width) * 2) var(--field-halo-voice);
+  }
+}

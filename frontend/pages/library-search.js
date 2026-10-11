@@ -69,17 +69,19 @@ function isTypingTarget(target) {
   return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 }
 
-// Wires the icon button, field, its clear (x) button, Esc and the shortcuts.
-// `onChange` receives the query once typing has paused (and at once for a
-// clear, close or reset); `canFocus` says whether the search is currently in
-// play (it is hidden on an empty list), and `isBlocked` whether a dialog or
-// panel is up that should keep the keyboard to itself.
+// Wires the icon button, field, Esc and the shortcuts. The field's clear (x)
+// button is the shared one (js/search-field.js), which empties the field with
+// an ordinary "input" event. `onChange` receives the query once typing has
+// paused (and at once when the field is emptied, closed or reset); `canFocus`
+// says whether the search is currently in play (it is hidden on an empty
+// list), and `isBlocked` whether a dialog or panel is up that should keep the
+// keyboard to itself.
 //
 // Opening focuses the field. Closing — the icon again, Esc, or focus leaving
 // an empty field — clears the query and hands focus to the icon if it was
 // inside. A field with text stays open when focus leaves, so a filter in
 // effect is never hidden.
-function createLibrarySearch({ wrap, input, toggleBtn, clearBtn, onChange, canFocus, isBlocked }) {
+function createLibrarySearch({ wrap, input, toggleBtn, onChange, canFocus, isBlocked }) {
   // What the list is filtered by: the query as of the last pause in typing.
   let committed = "";
   // A press that started inside the search. WebKit does not focus a button on
@@ -97,12 +99,6 @@ function createLibrarySearch({ wrap, input, toggleBtn, clearBtn, onChange, canFo
 
   const isOpen = () => wrap.classList.contains("is-open");
 
-  function syncClear() {
-    const hasText = input.value.length > 0;
-    clearBtn.hidden = !hasText;
-    wrap.classList.toggle("has-text", hasText);
-  }
-
   function setOpen(open) {
     wrap.classList.toggle("is-open", open);
     toggleBtn.setAttribute("aria-expanded", String(open));
@@ -117,22 +113,16 @@ function createLibrarySearch({ wrap, input, toggleBtn, clearBtn, onChange, canFo
   function close(notify = true) {
     const hadFocus = wrap.contains(document.activeElement);
     input.value = "";
-    syncClear();
     commit("", notify);
     setOpen(false);
     if (hadFocus) toggleBtn.focus();
   }
 
+  // An emptied field (the clear button, or deleting the last character) is
+  // shown at once: there is nothing to wait for.
   input.addEventListener("input", () => {
-    syncClear();
-    debouncer.schedule(input.value);
-  });
-
-  clearBtn.addEventListener("click", () => {
-    input.value = "";
-    syncClear();
-    commit("");
-    input.focus();
+    if (input.value === "") commit("");
+    else debouncer.schedule(input.value);
   });
 
   // On the whole search, so Esc works whichever part has focus (field, clear
@@ -173,13 +163,11 @@ function createLibrarySearch({ wrap, input, toggleBtn, clearBtn, onChange, canFo
     open();
   });
 
-  syncClear();
   return {
     getQuery: () => committed,
     // Empties the query but keeps the field open (the "no matches" card's Clear).
     clear: () => {
       input.value = "";
-      syncClear();
       commit("");
     },
     // For a caller that is about to render anyway: empty and closed, no notice.

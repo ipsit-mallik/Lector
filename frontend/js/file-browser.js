@@ -711,8 +711,16 @@ function createFileBrowser({
   cancelBtn.addEventListener("click", () => closeWith({ cancelled: true }));
   if (confirmBtn) confirmBtn.addEventListener("click", confirmSave);
 
+  // Ctrl+F is the search of whatever is in front, and while this is up that is
+  // the folder search (the page's own search stands aside for any open dialog).
   document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && isOpen()) closeWith({ cancelled: true });
+    if (!isOpen()) return;
+    if (ev.key === "Escape") closeWith({ cancelled: true });
+    else if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "f") {
+      ev.preventDefault();
+      searchEl.focus();
+      searchEl.select();
+    }
   });
 
   return { open, handleCommand, isOpen };

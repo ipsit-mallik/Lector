@@ -70,6 +70,8 @@ lector/
 │   │   ├── components.css       # Shared primitives: buttons, icon buttons,
 │   │   │                        #   toggle, radio card, checkbox, chip, tooltip,
 │   │   │                        #   toast, progress, skeleton, dialog frame
+│   │   ├── search-field.css     # The one search field, used by every search
+│   │   │                        #   (imported by components.css)
 │   │   ├── file-browser.css     # Open/Save-As dialog body (imported by
 │   │   │                        #   components.css)
 │   │   └── scrollbars.css       # The only place scrollbars are styled
@@ -79,6 +81,8 @@ lector/
 │       ├── ui.js                # Tooltip + Toast behaviour, loaded on every page
 │       ├── scrollbars.js        # Shows/hides every scrollbar on activity,
 │       │                        #   loaded on every page
+│       ├── search-field.js      # Search field clear button and listening
+│       │                        #   state, on every page with a search
 │       └── (per-page JS files, mirroring frontend/pages/)
 │
 ├── assets/

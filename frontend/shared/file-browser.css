@@ -241,26 +241,12 @@
   padding: var(--space-4) var(--space-5) var(--space-4);
 }
 
+/* The shared search field (search-field.css), placed above the list. */
 .browser-search {
-  position: relative;
   flex: none;
   margin-bottom: var(--space-3);
 }
 
-.browser-search [data-icon] {
-  position: absolute;
-  top: 50%;
-  left: 12px;
-  width: 16px;
-  height: 16px;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
-.browser-search [data-icon] svg { width: 100%; height: 100%; }
-
-.browser-search input,
 .browser-filename-row input {
   height: 36px;
   padding: 0 var(--space-3);
@@ -272,9 +258,6 @@
   font-family: var(--font-sans);
 }
 
-.browser-search input { width: 100%; padding-left: var(--space-7); box-sizing: border-box; }
-
-.browser-search input:focus-visible,
 .browser-filename-row input:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: 1px;

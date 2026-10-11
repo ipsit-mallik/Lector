@@ -43,28 +43,28 @@
 }
 
 /* --- Search ----------------------------------------------------------------
-   A search icon at rest. Opening grows the field to the left from the icon
-   (--dur-base, the app's one ease-out); the icon stays where it is and closes it
-   again. It is absolutely placed in the spacer, so the width change moves
-   nothing else. prefers-reduced-motion makes the grow instant (theme.css). */
+   The shared search field (search-field.css: its surfaces, lift, halo and
+   clear button), placed here. A search icon at rest. Opening grows the field to
+   the left from the icon (--dur-base, the app's one ease-out); the icon stays
+   where it is and closes it again. It is absolutely placed in the spacer, so
+   the width change moves nothing else. prefers-reduced-motion makes the grow
+   instant (theme.css). Its overflow clips only what is inside it, so the halo
+   (a box-shadow) still shows in full. */
 .header-search {
   --search-open-width: 280px;
   position: absolute;
   top: 0;
   right: 0;
-  display: flex;
-  align-items: center;
-  box-sizing: border-box;
   width: var(--control-h);
   height: 100%;
-  padding-left: 0;
+  gap: 0;
+  padding: 0;
   overflow: hidden;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background-color: var(--surface-input);
+  /* The field's own two transitions, plus the grow. */
   transition: width var(--dur-base) var(--ease-out),
               padding-left var(--dur-base) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out);
+              background-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .header-search.is-open {
@@ -72,21 +72,14 @@
   padding-left: var(--space-3);
 }
 
-/* Focus is shown on the whole field, whichever part has it. The parts' own
-   rings would be cut off by the field's overflow. */
-.header-search:has(:focus-visible) {
-  border-color: var(--accent);
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
-}
-.header-search :focus-visible { outline: none; }
-
 /* Collapsed, the field and its clear button are out of sight and out of the tab
    order; they only appear once the grow has begun, and go after it has ended. */
 .header-search input,
 .header-search-clear {
   visibility: hidden;
-  transition: visibility 0s linear var(--dur-base);
+  transition: visibility 0s linear var(--dur-base),
+              background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 .header-search.is-open input,
 .header-search.is-open .header-search-clear {
@@ -94,56 +87,28 @@
   transition-delay: 0s;
 }
 
-.header-search input {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--text-md);
-}
-.header-search input::placeholder { color: var(--text-muted); }
+.header-search-clear { margin-right: var(--space-1); }
 
-.header-search-clear,
+/* The field's search icon, at its trailing edge: the button that opens and
+   closes it. Collapsed it is the whole field, so the field's own hover is its
+   hover; open, it gets the wash of any small button. */
 .header-search-toggle {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: var(--control-h);
+  height: 100%;
   padding: 0;
   border: none;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-secondary);
-  transition: background-color var(--dur-fast) var(--ease-out),
-              color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
-.header-search-clear:hover,
-.header-search-toggle:hover { background-color: var(--state-hover); color: var(--text-primary); }
-.header-search-clear:active,
-.header-search-toggle:active,
-.header-search-clear:focus-visible,
-.header-search-toggle:focus-visible { background-color: var(--state-pressed); }
-
-.header-search-clear {
-  width: 28px;
-  height: 28px;
-  margin-right: var(--space-1);
-  border-radius: var(--radius-sm);
-}
-.header-search-clear[hidden] { display: none; }
-.header-search-clear [data-icon] { display: flex; width: 14px; height: 14px; }
-
-.header-search-toggle {
-  /* The field's own 1px border on each side takes the rest of the control. */
-  width: calc(var(--control-h) - 2px);
-  height: 100%;
-  border-radius: calc(var(--radius-md) - 1px);
-}
-.header-search-toggle [data-icon] { display: flex; width: 18px; height: 18px; }
-.header-search svg { width: 100%; height: 100%; }
+.header-search.is-open .header-search-toggle:hover { background-color: var(--state-hover); }
+.header-search.is-open .header-search-toggle:active,
+.header-search.is-open .header-search-toggle:focus-visible { background-color: var(--state-pressed); }
+.header-search-toggle [data-icon] { width: 18px; height: 18px; }
 
 /* --- Grid/list toggle --------------------------------------------------------
    A segmented pair, so the pressed state reads as "one of these two, always

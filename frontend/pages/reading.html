@@ -86,10 +86,13 @@
              area's top-right corner rather than taking a row of its own, so
              opening it moves nothing on the page. -->
         <div class="find-bar" id="findBar" role="search">
-          <div class="find-field">
-            <span class="find-icon" data-icon="search"></span>
-            <input class="find-input" id="findInput" type="text" placeholder="Find in document"
+          <div class="search-field find-field">
+            <span class="search-field-icon" data-icon="search"></span>
+            <input class="search-field-input find-input" id="findInput" type="text" placeholder="Find in document"
                    aria-label="Find in document" autocomplete="off" spellcheck="false">
+            <button class="search-field-clear" type="button" aria-label="Clear search" title="Clear search">
+              <span data-icon="close"></span>
+            </button>
             <span class="find-status" id="findStatus" aria-live="polite"></span>
           </div>
           <button class="icon-btn icon-btn--sm" id="findPrevBtn" type="button" data-icon="chevron_up"
@@ -189,9 +192,13 @@
           <div class="browser-tree" id="saveAsDialogTree" role="tree"></div>
         </div>
         <div class="browser-main">
-          <div class="browser-search">
-            <span data-icon="search"></span>
-            <input type="text" id="saveAsDialogSearch" placeholder="Search this folder…" autocomplete="off" aria-label="Search this folder">
+          <div class="search-field browser-search" role="search">
+            <span class="search-field-icon" data-icon="search"></span>
+            <input class="search-field-input" type="text" id="saveAsDialogSearch" placeholder="Search this folder…"
+                   autocomplete="off" aria-label="Search this folder">
+            <button class="search-field-clear" type="button" aria-label="Clear search" title="Clear search">
+              <span data-icon="close"></span>
+            </button>
           </div>
           <div class="browser-list" id="saveAsDialogList"></div>
           <div class="browser-filename-row">
@@ -214,6 +221,7 @@
   <script src="../js/bridge.js"></script>
   <script src="../js/voice.js"></script>
   <script src="../js/filedrop.js"></script>
+  <script src="../js/search-field.js"></script>
   <script src="../js/file-browser.js"></script>
   <script src="save-dialog.js"></script>
   <script src="command-reference.js"></script>

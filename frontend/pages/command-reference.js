@@ -36,10 +36,14 @@ const REFERENCE_MARKUP = `
           <button class="reference-close" id="referenceCloseBtn" title="Close  (Esc)"
                   aria-label="Close">&times;</button>
         </div>
-        <div class="reference-search">
-          <span class="reference-search-icon" data-icon="search"></span>
-          <input type="search" id="referenceSearch" autocomplete="off"
+        <div class="search-field reference-search" role="search">
+          <span class="search-field-icon" data-icon="search"></span>
+          <input class="search-field-input" type="search" id="referenceSearch" autocomplete="off"
                  placeholder="Search commands" aria-label="Search commands">
+          <button class="search-field-clear" type="button" aria-label="Clear search" title="Clear search">
+            <span data-icon="close"></span>
+          </button>
+          <span class="search-field-mic" data-icon="mic" aria-hidden="true"></span>
         </div>
       </div>
 
@@ -70,10 +74,6 @@ const referenceEmpty = document.getElementById("referenceEmpty");
 const referenceEmptyText = document.getElementById("referenceEmptyText");
 const referenceClearBtn = document.getElementById("referenceClearBtn");
 const referenceSearch = document.getElementById("referenceSearch");
-// The `.dictating` cue paints the bordered wrapper around the input, the
-// same element the focus ring styles — not the bare `<input>`, which carries
-// no border of its own to color.
-const referenceSearchWrap = referenceSearch.closest(".reference-search");
 const referenceActivation = document.getElementById("referenceActivation");
 const referenceCloseBtn = document.getElementById("referenceCloseBtn");
 const referenceGotItBtn = document.getElementById("referenceGotItBtn");
@@ -409,6 +409,11 @@ document.addEventListener(
 // (Milestone 8.12), so ending it pops back to the panel and closing the panel
 // pops back to whichever screen opened it — Home, Settings or Reading — rather
 // than a context hardcoded here.
+//
+// While it lasts the field shows the shared search field's listening state
+// (js/search-field.js): a slow voice-coloured pulse, a mic at its trailing
+// edge and "Listening…" — distinct from plain focus, so "listening for a
+// command" and "listening for dictated text" can be told apart at a glance.
 let dictationActive = false;
 let dictationPreviousValue = "";
 const dictationScope = createVoiceScope("dictation");
@@ -417,20 +422,20 @@ function startDictation() {
   if (dictationActive) return;
   dictationActive = true;
   dictationPreviousValue = referenceSearch.value;
-  referenceSearchWrap.classList.add("dictating");
+  setSearchFieldListening(referenceSearch, true);
   dictationScope.enter().then((taken) => {
     if (taken) return;
     // A failed context switch must not leave the field looking like it is
     // listening when it is not.
     dictationActive = false;
-    referenceSearchWrap.classList.remove("dictating");
+    setSearchFieldListening(referenceSearch, false);
   });
 }
 
 function endDictation({ restore }) {
   if (!dictationActive) return;
   dictationActive = false;
-  referenceSearchWrap.classList.remove("dictating");
+  setSearchFieldListening(referenceSearch, false);
   if (restore) {
     referenceSearch.value = dictationPreviousValue;
     applyReferenceFilter();

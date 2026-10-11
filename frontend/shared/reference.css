@@ -61,58 +61,19 @@
 
 .reference-close:hover { color: var(--text-primary); }
 
-/* The search field: 16px under the description, with the band's padding all
-   round so the ring has room on every side. */
+/* The shared search field (search-field.css), 16px under the description, with
+   the band's padding all round so its halo has room on every side. Its focus
+   halo follows :focus-visible, and the list doesn't focus the field when it
+   opens, so the halo appears when the reader goes to the field (Tab, "/",
+   Ctrl+F, a click) and not just because the list opened. While dictation is
+   on it shows the field's listening state (command-reference.js). */
 .reference-search {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 36px;
-  padding: 0 var(--space-3);
   margin-top: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-input);
 }
-
-/* The ring follows :focus-visible on the field, not :focus-within, and the list
-   no longer focuses the field when it opens, so it appears when the reader
-   goes to the field (Tab, "/", a click) and not just because the list opened. */
-.reference-search:has(input:focus-visible) {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-/* Milestone 8.8: "voice is paying attention here" while dictation mode is
-   active, the same --voice convention .mic-pill.listening uses
-   (docs/DESIGN_SYSTEM.md) rather than the plain focus outline above, so a
-   reader can tell "listening for a command" and "listening for dictated
-   text" apart at a glance. */
-.reference-search.dictating {
-  border-color: var(--voice);
-  outline: 2px solid var(--voice);
-  outline-offset: 2px;
-  background-color: color-mix(in srgb, var(--voice) 6%, var(--surface-input));
-}
-
-.reference-search-icon { display: flex; color: var(--text-muted); }
-.reference-search-icon svg { width: 15px; height: 15px; }
-
-.reference-search input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: none;
-  font: inherit;
-  font-size: var(--text-md);
-  color: var(--text-primary);
-}
-
-.reference-search input::placeholder { color: var(--text-muted); }
 
 /* The only part that scrolls, beneath the band. The first section's label sits
-   ~20px under the search field: the band's 8px (which is also the room the focus
-   ring's lowest 4px needs) plus the hairline plus this 12px. */
+   ~20px under the search field: the band's 8px (which is also the room the
+   halo's lowest edge needs) plus the hairline plus this 12px. */
 .reference-body {
   flex: 1;
   min-height: 0;

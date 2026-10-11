@@ -61,17 +61,17 @@
         <!-- The search opens leftwards over this spacer from its icon, so nothing
              beside it moves (shared/library-header.css). -->
         <div class="page-header-fill">
-          <div class="header-search is-absent" id="headerSearch" role="search">
-            <input type="text" id="headerSearchInput" autocomplete="off" spellcheck="false"
-                   placeholder="Search Recent" aria-label="Search Recent">
-            <button class="header-search-clear" id="headerSearchClear" type="button"
-                    aria-label="Clear search" title="Clear search" hidden>
+          <div class="search-field header-search is-absent" id="headerSearch" role="search">
+            <input class="search-field-input" type="text" id="headerSearchInput" autocomplete="off"
+                   spellcheck="false" placeholder="Search Recent" aria-label="Search Recent">
+            <button class="search-field-clear header-search-clear" id="headerSearchClear" type="button"
+                    aria-label="Clear search" title="Clear search">
               <span data-icon="close"></span>
             </button>
             <button class="header-search-toggle" id="headerSearchToggle" type="button"
                     aria-label="Search Recent" aria-expanded="false" aria-controls="headerSearchInput"
-                    title="Search  (Ctrl+F)">
-              <span data-icon="search"></span>
+                    title="Search">
+              <span class="search-field-icon" data-icon="search"></span>
             </button>
           </div>
         </div>
@@ -181,9 +181,13 @@
           <div class="browser-tree" id="openDialogTree" role="tree"></div>
         </div>
         <div class="browser-main">
-          <div class="browser-search">
-            <span data-icon="search"></span>
-            <input type="text" id="openDialogSearch" placeholder="Search this folder…" autocomplete="off" aria-label="Search this folder">
+          <div class="search-field browser-search" role="search">
+            <span class="search-field-icon" data-icon="search"></span>
+            <input class="search-field-input" type="text" id="openDialogSearch" placeholder="Search this folder…"
+                   autocomplete="off" aria-label="Search this folder">
+            <button class="search-field-clear" type="button" aria-label="Clear search" title="Clear search">
+              <span data-icon="close"></span>
+            </button>
           </div>
           <div class="browser-list" id="openDialogList"></div>
         </div>
@@ -225,6 +229,7 @@
   <script src="js/voice.js"></script>
   <script src="js/voice-box.js"></script>
   <script src="js/filedrop.js"></script>
+  <script src="js/search-field.js"></script>
   <script src="js/file-browser.js"></script>
   <script src="pages/recent-list.js"></script>
   <script src="pages/library-loading.js"></script>

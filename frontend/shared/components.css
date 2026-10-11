@@ -1,7 +1,10 @@
 /* Shared UI primitives reused across pages. The file browser (Open /
    Save-As dialogs) lives in its own file-browser.css, imported here so
    every page that has components gets it too — as does scrollbars.css, the
-   one place the app's auto-hiding scrollbars are styled. */
+   one place the app's auto-hiding scrollbars are styled. search-field.css,
+   the one search field, comes first so the files that place a field (the
+   header, the file browser) can size it. */
+@import "search-field.css";
 @import "file-browser.css";
 @import "scrollbars.css";
 @import "library-header.css";

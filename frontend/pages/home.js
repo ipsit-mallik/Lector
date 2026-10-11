@@ -258,12 +258,10 @@ let homeSection = "recent";
 // memory, so there is no backend call whose results could arrive out of order;
 // all that can go stale is a keystroke still waiting out the debounce, and the
 // component drops that when the field is cleared or closed.
-const headerSearchClear = document.getElementById("headerSearchClear");
 const librarySearch = createLibrarySearch({
   wrap: headerSearch,
   input: headerSearchInput,
   toggleBtn: headerSearchToggle,
-  clearBtn: headerSearchClear,
   onChange: () => {
     // The picker's numbers belong to the rows it was shown on.
     hidePicker();
