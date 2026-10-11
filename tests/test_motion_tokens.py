@@ -97,9 +97,15 @@ class SharedCardHoverTests(unittest.TestCase):
     def test_card_lift_is_the_recent_card_recipe(self):
         rule = COMPONENTS_CSS[COMPONENTS_CSS.index(".card-lift:hover,"):]
         rule = rule[:rule.index("}")]
-        self.assertIn("border-color: var(--accent)", rule)
-        self.assertIn("box-shadow: var(--shadow-2)", rule)
+        # The hover edge is the theme's: the accent in light and sepia, a
+        # brighter white edge in dark (theme.css --card-hover-border).
+        self.assertIn("border-color: var(--card-hover-border)", rule)
+        self.assertRegex(rule, r"box-shadow: var\(--card-highlight\), var\(--shadow-2\)")
         self.assertIn("translateY(var(--lift))", rule)
+        for theme_name, value in (("light", "var(--accent)"), ("sepia", "var(--accent)"),
+                                  ("dark", "rgba(255, 255, 255, 0.10)")):
+            block = THEME_CSS[THEME_CSS.index(f'[data-theme="{theme_name}"]'):]
+            self.assertIn(f"--card-hover-border: {value};", block[:block.index("}")])
         self.assertIn(".card-lift:focus-visible", COMPONENTS_CSS)
 
     def test_no_card_writes_its_own_hover_css(self):
@@ -122,10 +128,17 @@ class SharedCardHoverTests(unittest.TestCase):
         self.assertRegex(COMPONENTS_CSS, r"\.card-lift\.selected:hover[^{]*\{[^}]*0 0 0 1px var\(--accent\)")
 
     def test_selected_option_is_distinguishable_from_a_hovered_neighbour(self):
-        # Hover and selected share the accent border, so selected also has a
-        # fill that hover never sets, and the stacked rows keep a real gap.
-        self.assertRegex(COMPONENTS_CSS, r"\.option-row\.selected\s*\{\s*background-color: color-mix")
-        self.assertNotRegex(COMPONENTS_CSS, r"\.card-lift:hover[^{]*\{[^}]*background")
+        # Selected (an option row or a theme card: one treatment) has an accent
+        # fill. Hover's fill is the theme's neutral one, never the accent, and
+        # never replaces a selected card's; the stacked rows keep a real gap.
+        selected = re.search(r"\.option-row\.selected,\s*\.theme-card\.selected\s*\{([^}]*)\}", COMPONENTS_CSS)
+        self.assertIsNotNone(selected)
+        self.assertRegex(selected.group(1),
+                         r"background-color: color-mix\(in srgb, var\(--accent\) var\(--selected-tint\), var\(--surface-input\)\)")
+        self.assertRegex(COMPONENTS_CSS,
+                         r"\.card-lift:not\(\.selected\):is\(:hover, :focus-visible\)\s*\{\s*background-color: var\(--card-hover-fill\); \}")
+        for rule in re.findall(r"\.card-lift[^{]*:hover[^{]*\{([^}]*)\}", COMPONENTS_CSS):
+            self.assertNotRegex(rule, r"background[^;]*--accent")
         self.assertRegex(COMPONENTS_CSS, r"\.option-row \+ \.option-row\s*\{\s*margin-top: var\(--space-3\)")
 
     def test_voice_cards_keep_the_option_card_fill_in_both_states(self):

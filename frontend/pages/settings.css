@@ -35,7 +35,7 @@
 .theme-card-footer-label { font-size: var(--text-md); font-weight: 500; color: var(--text-primary); }
 
 .theme-preview-mock {
-  background-color: var(--surface-2);
+  background-color: var(--surface-page);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   padding: var(--space-3);
@@ -135,9 +135,10 @@
 }
 
 /* Key and Phrase are facts, not controls (neither can be changed yet), so they
-   are drawn as a muted pill: no border, no hover, default cursor -- nothing
-   that looks like a button. While the card is off the pill's fill goes too and
-   the value is plain text. */
+   are read-only chips: a muted pill with no border and no response of its own
+   to the pointer (it ignores it, so only the card's own lift answers a hover)
+   -- nothing that looks like a button. The same chip whether the card is on or
+   off; only the text dims with the card. */
 .key-chip {
   display: inline-flex;
   align-items: center;
@@ -150,15 +151,8 @@
   font-size: var(--text-sm);
   font-weight: 500;
   color: inherit;
-  cursor: default;
-  transition: background-color var(--dur-base) var(--ease-out),
-              color var(--dur-base) var(--ease-out);
+  pointer-events: none;
 }
-.voice-card:not(:has(.toggle input:checked)) .key-chip { background-color: transparent; }
-
-/* The small secondary label, pushed to the card's far edge so it reads as an
-   annotation on the value rather than part of it. */
-.voice-card-note { margin-left: auto; font-size: var(--text-xs); }
 
 /* Off dims by colour, not opacity: the text stays --text-muted (>= 4.5:1 on the
    card). On is the brighter state, secondary text on the same card. */

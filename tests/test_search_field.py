@@ -135,8 +135,12 @@ class StateTests(unittest.TestCase):
     def test_rest_is_borderless_and_recessed_with_a_muted_icon(self):
         rest = _rule(self.css, ".search-field")
         self.assertRegex(rest, r"border:\s*none")
-        # One step below the --surface-2 every field sits on.
-        self.assertRegex(rest, r"background-color:\s*var\(--surface-1\)")
+        # Recessed: --surface-1 below the page in light and sepia; in dark a
+        # translucent darkening, since dark's --surface-1 is above the page.
+        self.assertRegex(rest, r"background-color:\s*var\(--field-rest\)")
+        for theme in ("light", "sepia"):
+            self.assertRegex(_theme_block(theme), r"--field-rest:\s*var\(--surface-1\);")
+        self.assertRegex(_theme_block("dark"), r"--field-rest:\s*rgba\(0, 0, 0, 0\.\d+\);")
         self.assertRegex(_rule(self.css, ".search-field-icon"), r"color:\s*var\(--text-muted\)")
 
     def test_hover_lifts_one_step_lighter_with_the_soft_shadow(self):

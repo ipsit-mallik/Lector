@@ -186,7 +186,9 @@ button {
   max-width: calc(100vw - 48px);
   background-color: var(--surface-2);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-3);
+  /* In dark a dialog also gets the card edge and top highlight (theme.css):
+     its drop shadow is lost against the dark scrim. */
+  box-shadow: var(--card-highlight), var(--dialog-edge), var(--shadow-3);
   overflow: hidden;
 }
 
@@ -247,13 +249,16 @@ button {
    <button role="radio"> elements: the whole card is the click target, Tab
    reaches it, and Space/Enter select it without any key handling of our own.
    A plain .card (the voice cards) is a container for its own controls. How
-   a card responds to the pointer is not defined here but in .card-lift below. */
+   a card responds to the pointer is not defined here but in .card-lift below.
+   The card edge and the top highlight (a no-op outside dark) are tokens, so
+   each theme decides how a card stands off the page (theme.css). */
 .card,
 .option-row,
 .theme-card {
   background-color: var(--surface-input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-elevated);
   border-radius: var(--radius-md);
+  box-shadow: var(--card-highlight);
 }
 
 .card { padding: var(--space-4); }
@@ -282,20 +287,20 @@ button {
    has to stay clearly open while it does. */
 .option-row + .option-row { margin-top: var(--space-3); }
 
-/* Selected: the accent border plus a matching 1px ring, so the edge reads as
-   2px without the border ever changing width (which would shift the layout). */
+/* Selected, the one treatment for every pick-one card (an option row, a theme
+   card): the accent border plus a matching 1px ring, so the edge reads as 2px
+   without the border ever changing width (which would shift the layout), and a
+   soft accent fill. A hovered card never takes the accent fill (in dark it
+   only steps lighter, with a white edge), so the two can't be mistaken for each
+   other; --selected-tint is stronger in dark to keep it apart from that hover
+   step. The subtitle steps up to secondary on the fill: muted text would fall
+   below 4.5:1 on it in dark. */
 .option-row.selected,
 .theme-card.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  background-color: color-mix(in srgb, var(--accent) var(--selected-tint), var(--surface-input));
+  box-shadow: var(--card-highlight), 0 0 0 1px var(--accent);
 }
-
-/* An option row is a stacked pick-one list, where a hovered card sits right
-   under (or over) the selected one and shares its accent border. Selected also
-   gets a soft accent fill, which hover never does, so the two can't be mistaken
-   for each other. The subtitle steps up to secondary on that fill: muted text
-   would fall to ~4.5:1 on it in dark. */
-.option-row.selected { background-color: color-mix(in srgb, var(--surface-input) 90%, var(--accent)); }
 .option-row.selected .option-subtitle { color: var(--text-secondary); }
 
 /* The one pointer/keyboard response for every card: Recent's grid cards and
@@ -309,18 +314,26 @@ button {
 .card-lift {
   transition: transform var(--dur-base) var(--ease-out),
               box-shadow var(--dur-base) var(--ease-out),
-              border-color var(--dur-base) var(--ease-out);
+              border-color var(--dur-base) var(--ease-out),
+              background-color var(--dur-base) var(--ease-out);
 }
+/* The edge and fill are the theme's (theme.css): light and sepia turn the edge
+   accent and keep the fill; dark steps the fill one lighter with a brighter
+   white edge. A selected card keeps its accent edge and fill. */
 .card-lift:hover,
 .card-lift:focus-visible {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-2);
+  border-color: var(--card-hover-border);
+  box-shadow: var(--card-highlight), var(--shadow-2);
   transform: translateY(var(--lift));
 }
-.card-lift:active { transform: translateY(calc(var(--lift) / 2)); box-shadow: var(--shadow-1); }
+.card-lift:not(.selected):is(:hover, :focus-visible) { background-color: var(--card-hover-fill); }
+.card-lift:active { transform: translateY(calc(var(--lift) / 2)); box-shadow: var(--card-highlight), var(--shadow-1); }
 .card-lift.selected:hover,
-.card-lift.selected:focus-visible { box-shadow: 0 0 0 1px var(--accent), var(--shadow-2); }
-.card-lift.selected:active { box-shadow: 0 0 0 1px var(--accent), var(--shadow-1); }
+.card-lift.selected:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--card-highlight), 0 0 0 1px var(--accent), var(--shadow-2);
+}
+.card-lift.selected:active { box-shadow: var(--card-highlight), 0 0 0 1px var(--accent), var(--shadow-1); }
 
 .option-radio {
   flex: none;

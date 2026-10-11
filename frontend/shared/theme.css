@@ -119,6 +119,7 @@
 :root,
 [data-theme="light"] {
   --bg: #E7E2D9;
+  --surface-page: #F6F3EE;
   --surface-1: #EFEAE2;
   --surface-2: #F6F3EE;
   --surface-input: #FFFDF9;
@@ -148,28 +149,49 @@
   --shadow-3: 0 24px 48px rgba(22, 26, 24, 0.22), 0 8px 16px rgba(22, 26, 24, 0.10);
   --shadow-page: 0 4px 24px rgba(22, 26, 24, 0.18);
 
-  /* A search field's lift (hover, focus) and how strong its halo is. */
+  /* A search field's recessed rest fill, its lift (hover, focus) and how
+   * strong its halo is. */
+  --field-rest: var(--surface-1);
   --field-lift: var(--shadow-1);
   --field-halo-mix: 20%;
+
+  /* Cards: the hover fill and edge (the shared .card-lift), the faint top
+   * highlight and the extra edge a dialog gets. Light and sepia lift a card
+   * with a shadow and an accent edge, so the fill stays put and the
+   * highlight and dialog edge are transparent no-ops. */
+  --card-hover-fill: var(--surface-input);
+  --card-hover-border: var(--accent);
+  --card-highlight: inset 0 0 0 0 transparent;
+  --dialog-edge: 0 0 0 0 transparent;
+  --selected-tint: 10%;
+  --thumb-filter: none;
+  --thumb-paper: var(--paper);
 }
 
 [data-theme="dark"] {
+  /* Higher is lighter, never darker, and each step is far enough from the
+   * next to read without a shadow: the page, then the sidebar and other
+   * chrome, then dialogs and popovers, then cards and inputs (and a hovered
+   * card one step above those). In light the chrome sits below the page;
+   * here it sits above it, as a raised panel. */
   --bg: #171512;
-  --surface-1: #201C18;
-  --surface-2: #2A2621;
-  --surface-input: #322D26;
+  --surface-page: #1C1916;
+  --surface-1: #25211C;
+  --surface-2: #302B25;
+  --surface-input: #3A352E;
   --overlay: rgba(0, 0, 0, 0.65);
 
   --text-primary: #EDE8DF;
-  --text-secondary: #B7B1A4;
-  --text-muted: #9C948A;
-  --text-tertiary: #7A7369;
+  --text-secondary: #C5BFB2;
+  --text-muted: #B4ACA2;
+  --text-tertiary: #928B81;
 
-  --border: #3A362F;
+  /* Translucent white, so a divider reads the same on the page, a dialog or a
+   * card. Black shadows don't read on a near-black canvas, so cards and
+   * dialogs separate by a lighter edge instead. */
+  --border: rgba(255, 255, 255, 0.08);
   --border-strong: #4A453C;
-  /* Black shadows don't read on a near-black canvas, so dark-mode cards
-   * separate by a lighter border instead. */
-  --border-elevated: #4A453C;
+  --border-elevated: rgba(255, 255, 255, 0.06);
 
   --accent: #6FA394;
   --accent-hover: #7FB3A4;
@@ -179,7 +201,7 @@
   --voice: #E0954F;
   --star: #F0B93A;
   --highlight: #6B5A24;
-  --danger: #DD7A6F;
+  --danger: #E68A80;
 
   --shadow-1: none;
   --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.35);
@@ -187,16 +209,35 @@
   --shadow-page: 0 4px 24px rgba(0, 0, 0, 0.5);
 
   /* A drop shadow is lost on the dark page, so a lifted search field gets a
-   * faint highlight along its top edge instead, and a stronger halo. */
+   * faint highlight along its top edge instead, and a stronger halo. Its
+   * rest fill darkens whatever it sits on, since the chrome step is above the
+   * page here, not below it. */
+  --field-rest: rgba(0, 0, 0, 0.24);
   --field-lift: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 8%, transparent);
   --field-halo-mix: 30%;
+
+  /* Cards rise by lightness, not shadow: a hovered card is one step lighter
+   * with a brighter edge, every card and dialog has a faint highlight along
+   * its top edge, and a dialog gets the card edge too. The selected tint is
+   * stronger so it stays apart from the hover step. PDF thumbnails are dimmed
+   * a little so a white page doesn't glare, never inverted: the image by the
+   * filter, and the paper around it in its slot to the same 90%. */
+  --card-hover-fill: var(--surface-hover);
+  --card-hover-border: rgba(255, 255, 255, 0.10);
+  --card-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --dialog-edge: 0 0 0 1px var(--border-elevated);
+  --selected-tint: 18%;
+  --thumb-filter: brightness(0.9);
+  --thumb-paper: color-mix(in srgb, var(--paper) 90%, #000000);
 }
 
 [data-theme="sepia"] {
   --bg: #F1E7D0;
+  --surface-page: #F8F0DE;
   --surface-1: #EDE2C8;
   --surface-2: #F8F0DE;
-  --surface-input: #FCF7EA;
+  /* As far above the page as light's card is (CIELAB L* +3.4). */
+  --surface-input: #FEFAF1;
   --overlay: rgba(30, 22, 12, 0.5);
 
   --text-primary: #3B2F20;
@@ -224,8 +265,18 @@
   --shadow-page: 0 4px 24px rgba(59, 47, 32, 0.2);
 
   /* Sepia's --shadow-1 is already tinted warm. */
+  --field-rest: var(--surface-1);
   --field-lift: var(--shadow-1);
   --field-halo-mix: 20%;
+
+  /* Cards: as light. */
+  --card-hover-fill: var(--surface-input);
+  --card-hover-border: var(--accent);
+  --card-highlight: inset 0 0 0 0 transparent;
+  --dialog-edge: 0 0 0 0 transparent;
+  --selected-tint: 10%;
+  --thumb-filter: none;
+  --thumb-paper: var(--paper);
 }
 
 /* Derived tokens — computed from the per-theme values above, so they
@@ -234,7 +285,9 @@
  * previews — resolves them against its own theme. */
 :root,
 [data-theme] {
-  --on-accent: var(--surface-2);
+  /* The page colour: in dark the darkest surface a label can take, so it
+   * clears 4.5:1 on every accent fill, pressed included. */
+  --on-accent: var(--surface-page);
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --voice-soft: color-mix(in srgb, var(--voice) 14%, transparent);
   --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);

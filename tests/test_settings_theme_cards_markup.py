@@ -75,7 +75,7 @@ class ThemePreviewColoursComeFromTheTokensTest(unittest.TestCase):
     def test_each_part_of_the_preview_reads_its_token(self):
         expected = {
             ".theme-preview": ("var(--bg)",),
-            ".theme-preview-mock": ("var(--surface-2)", "var(--border)"),
+            ".theme-preview-mock": ("var(--surface-page)", "var(--border)"),
             ".theme-preview-line": ("var(--border-strong)",),
             ".theme-preview-line.title": ("var(--text-primary)",),
             ".theme-preview-line.accent": ("var(--highlight)",),

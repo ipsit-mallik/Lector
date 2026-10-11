@@ -61,10 +61,11 @@ class TokenContrastTests(unittest.TestCase):
                         self.assertGreaterEqual(ratio, TEXT_AA)
 
     def test_button_label_on_accent(self):
+        # --on-accent is the page colour (theme.css).
         for theme_name in theme.THEME_ORDER:
             for fill in ("accent", "accent-hover", "accent-pressed"):
                 with self.subTest(theme=theme_name, fill=fill):
-                    ratio = contrast(theme.token(theme_name, "surface-2"), theme.token(theme_name, fill))
+                    ratio = contrast(theme.token(theme_name, "surface-page"), theme.token(theme_name, fill))
                     self.assertGreaterEqual(ratio, TEXT_AA)
 
     def test_voice_badge_numeral(self):

@@ -15,9 +15,11 @@
    empty: the clear button shows from :placeholder-shown, so no script has to
    keep it in step with the value.
 
-   Every field sits on --surface-2 (the page, a dialog, the find bar), so the
-   two surface steps either side of it do the work in every theme:
-     rest       no border, recessed on --surface-1, muted icon;
+   Every field sits on the page, a dialog or the find bar, and the states are
+   steps either side of that surface in every theme:
+     rest       no border, recessed (--field-rest: --surface-1 in light and
+                sepia; in dark, a translucent darkening of whatever is under
+                it, since dark's chrome step sits above the page), muted icon;
      hover      lifts to --surface-input with --field-lift (a soft shadow, or a
                 top highlight in dark, where a shadow would be lost);
      focus      the same lift plus a soft accent halo, and the icon turns accent.
@@ -36,7 +38,7 @@
   padding: 0 var(--space-2) 0 var(--space-3);
   border: none;
   border-radius: var(--radius-md);
-  background-color: var(--surface-1);
+  background-color: var(--field-rest);
   transition: background-color var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
 }
