@@ -1,7 +1,51 @@
+from dataclasses import dataclass
+
 import fitz  # PyMuPDF
 
 from lector.features.annotations import highlighter
 from lector.features.reading import search
+
+
+@dataclass
+class _HighlightRef:
+    """Which annotation a run of edits is about, by xref.
+
+    Mutable on purpose, and shared by every edit to the same highlight: an
+    undone removal (or a redone add) writes a *new* annotation with a new
+    xref, and each later edit to that highlight has to find the new one.
+    Holding live Annot handles instead does not work — PyMuPDF invalidates
+    one the moment it is deleted, and also once the Page wrapper it came from
+    is garbage collected.
+    """
+
+    xref: int
+
+
+@dataclass(frozen=True)
+class _Edit:
+    """One reversible change to one highlight: its colour going from `before`
+    to `after`, where None means "no highlight". An add is None -> colour, a
+    removal colour -> None, a recolour colour -> colour, so undo and redo are
+    the same operation run in opposite directions.
+
+    Colours are raw RGB rather than palette names because a highlight another
+    app wrote can be recoloured or removed too, and undoing that has to put
+    back its own colour. `rects` and `info` are what a removal needs to put
+    the highlight back: its per-line boxes, and the note/author another app
+    may have attached.
+    """
+
+    page_index: int
+    ref: _HighlightRef
+    rects: tuple[fitz.Rect, ...]
+    info: tuple[tuple[str, str], ...]
+    before: highlighter.RGB | None
+    after: highlighter.RGB | None
+
+
+# What `Annot.set_info` accepts back from `Annot.info`; the rest (id, dates)
+# is regenerated for a re-added annotation.
+_RESTORED_INFO_KEYS = ("content", "title", "subject")
 
 
 class PdfDocument:
@@ -16,17 +60,16 @@ class PdfDocument:
         self._page_index = 0
         self._zoom = self.DEFAULT_ZOOM
         self._dirty = False
-        # Undo entries keep the live Annot handle *and* the Page object it
-        # came from — fitz.Document.__getitem__ hands back a fresh Page
-        # wrapper on every call, and an Annot handle is silently invalidated
-        # once the Page wrapper it was created from is garbage collected, so
-        # the Page must be kept alive alongside its Annot. Redo entries only
-        # keep the selected run, since PyMuPDF invalidates an Annot handle the
-        # moment it's deleted — redoing re-adds a fresh annotation instead.
-        # The run is chars for a mouse-drag highlight, words for a future
-        # voice-matched one (Milestone 7) — both satisfy highlighter.LineBounded.
-        self._undo_stack: list[tuple[int, list[highlighter.LineBounded], object, object]] = []
-        self._redo_stack: list[tuple[int, list[highlighter.LineBounded]]] = []
+        # Every highlight change — adding one, recolouring it, removing it —
+        # is one `_Edit` on these stacks, so Undo takes back whichever came
+        # last. Edits name their annotation by xref through a shared
+        # `_HighlightRef` rather than holding Annot handles (see there).
+        self._undo_stack: list[_Edit] = []
+        self._redo_stack: list[_Edit] = []
+        # The one `_HighlightRef` per highlight currently in the document that
+        # any edit names, by its current xref — so every edit to a highlight
+        # shares the ref that gets repointed when it is re-added.
+        self._refs: dict[int, _HighlightRef] = {}
 
     def open(self, path: str):
         if self._doc:
@@ -41,6 +84,7 @@ class PdfDocument:
         self._dirty = False
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._refs.clear()
 
     def close(self):
         if self._doc:
@@ -156,7 +200,9 @@ class PdfDocument:
         rect = self._doc[page_index].rect
         return (rect.width, rect.height)
 
-    def highlight_char_indices(self, page_index: int, start_idx: int, end_idx: int):
+    def highlight_char_indices(
+        self, page_index: int, start_idx: int, end_idx: int, color: str = highlighter.DEFAULT_COLOR
+    ):
         """Highlight the reading-order run between two character indices.
 
         Indices are into this page's `chars_on_page` list — the same list the
@@ -170,9 +216,11 @@ class PdfDocument:
         start_idx = max(0, min(int(start_idx), last))
         end_idx = max(0, min(int(end_idx), last))
         selected = highlighter.chars_between(chars, start_idx, end_idx)
-        return self._commit_highlight(page_index, selected)
+        return self._commit_highlight(page_index, selected, color)
 
-    def highlight_word_indices(self, page_index: int, start_idx: int, end_idx: int):
+    def highlight_word_indices(
+        self, page_index: int, start_idx: int, end_idx: int, color: str = highlighter.DEFAULT_COLOR
+    ):
         """Highlight the reading-order run between two word indices.
 
         Indices are into this page's `words_on_page` list — the same list the
@@ -186,16 +234,111 @@ class PdfDocument:
         start_idx = max(0, min(int(start_idx), last))
         end_idx = max(0, min(int(end_idx), last))
         selected = highlighter.words_between(words, start_idx, end_idx)
-        return self._commit_highlight(page_index, selected)
+        return self._commit_highlight(page_index, selected, color)
 
-    def _commit_highlight(self, page_index: int, selected: list[highlighter.LineBounded]):
+    def _commit_highlight(
+        self, page_index: int, selected: list[highlighter.LineBounded], color: str
+    ) -> int | None:
+        """Write the highlight and record it; returns its xref, or None when
+        there was nothing to highlight."""
+        if color not in highlighter.HIGHLIGHT_COLORS:
+            color = highlighter.DEFAULT_COLOR
+        rgb = highlighter.HIGHLIGHT_COLORS[color]
+        page = self._doc[page_index]  # held while `annot` is used (see _move_highlight)
+        annot = highlighter.add_highlight(page, selected, color)
+        if annot is None:
+            return None
+        rects = tuple(highlighter.merge_line_rects(selected))
+        self._record(_Edit(page_index, self._ref(annot.xref), rects, (), None, rgb))
+        return annot.xref
+
+    def highlights_on_page(self, page_index: int) -> list[highlighter.Highlight]:
+        if not self._doc or not 0 <= page_index < len(self._doc):
+            return []
+        return highlighter.highlights_on_page(self._doc[page_index])
+
+    def text_in_rects(self, page_index: int, rects) -> str:
+        """The page text inside `rects`, one line each, joined into one line."""
+        if not self._doc or not 0 <= page_index < len(self._doc):
+            return ""
         page = self._doc[page_index]
-        annot = highlighter.add_highlight(page, selected)
-        if annot is not None:
-            self._dirty = True
-            self._undo_stack.append((page_index, selected, annot, page))
-            self._redo_stack.clear()
-        return annot
+        return " ".join(" ".join(page.get_textbox(rect).split()) for rect in rects).strip()
+
+    def _load_highlight(self, page_index: int, xref: int):
+        """The page and its highlight annotation `xref`, or None if there is
+        no such highlight there (a stale id from the frontend). The Page is
+        returned too because the Annot is only valid while it is alive."""
+        if not self._doc or not 0 <= page_index < len(self._doc):
+            return None
+        page = self._doc[page_index]
+        for annot in page.annots(types=[fitz.PDF_ANNOT_HIGHLIGHT]) or []:
+            if annot.xref == xref:
+                return page, annot
+        return None
+
+    def set_highlight_color(self, page_index: int, xref: int, color: str) -> bool:
+        """Recolour an existing highlight. False if there is no such highlight,
+        the colour is not in the palette, or it already is that colour."""
+        found = self._load_highlight(page_index, xref)
+        if found is None or color not in highlighter.HIGHLIGHT_COLORS:
+            return False
+        page, annot = found
+        before = highlighter.stroke_rgb(annot)
+        if highlighter.color_name(before) == color:
+            return False
+        after = highlighter.HIGHLIGHT_COLORS[color]
+        rects = tuple(highlighter.highlight_rects(annot))
+        highlighter.recolor_highlight(page, annot, after)
+        self._record(_Edit(page_index, self._ref(xref), rects, (), before, after))
+        return True
+
+    def remove_highlight(self, page_index: int, xref: int) -> bool:
+        """Delete an existing highlight, undoably. False if there is none."""
+        found = self._load_highlight(page_index, xref)
+        if found is None:
+            return False
+        page, annot = found
+        # A highlight with no /C of its own (a viewer picks one) comes back
+        # from an undo in the default colour, the nearest thing to "unset".
+        before = highlighter.stroke_rgb(annot) or highlighter.HIGHLIGHT_COLORS[highlighter.DEFAULT_COLOR]
+        rects = tuple(highlighter.highlight_rects(annot))
+        info = tuple((key, annot.info.get(key, "")) for key in _RESTORED_INFO_KEYS)
+        page.delete_annot(annot)
+        # Popped, not just looked up: MuPDF can hand a freed xref to the next
+        # annotation, which is a different highlight and must get its own ref.
+        ref = self._refs.pop(xref, None) or _HighlightRef(xref)
+        self._record(_Edit(page_index, ref, rects, info, before, None))
+        return True
+
+    def _ref(self, xref: int) -> _HighlightRef:
+        return self._refs.setdefault(xref, _HighlightRef(xref))
+
+    def _record(self, edit: _Edit) -> None:
+        self._undo_stack.append(edit)
+        self._redo_stack.clear()
+        self._dirty = True
+
+    def _move_highlight(self, edit: _Edit, frm: highlighter.RGB | None, to: highlighter.RGB | None) -> None:
+        """Take `edit`'s highlight from colour `frm` to colour `to` (None:
+        absent), re-adding or deleting the annotation when either is None."""
+        if frm is None:
+            # A named local, not `self._doc[i]` inline: the Annot is unbound
+            # once that Page wrapper is collected, and set_info below needs it.
+            page = self._doc[edit.page_index]
+            annot = highlighter.add_highlight_rects(page, edit.rects, to)
+            if any(value for _, value in edit.info):
+                annot.set_info(dict(edit.info))
+            edit.ref.xref = annot.xref
+            self._refs[annot.xref] = edit.ref
+            return
+        # Present by construction: the stacks are the only thing that changes
+        # highlights between an edit and its undo or redo.
+        page, annot = self._load_highlight(edit.page_index, edit.ref.xref)
+        if to is None:
+            page.delete_annot(annot)
+            self._refs.pop(edit.ref.xref, None)
+        else:
+            highlighter.recolor_highlight(page, annot, to)
 
     @property
     def can_undo(self) -> bool:
@@ -206,27 +349,27 @@ class PdfDocument:
         return bool(self._redo_stack)
 
     def undo_highlight(self) -> int | None:
-        """Removes the most recently added highlight. Returns the page index
-        it was on, or None if there's nothing to undo."""
+        """Takes back the most recent highlight change — an add, a recolour
+        or a removal. Returns the page index it was on, or None if there's
+        nothing to undo."""
         if not self._undo_stack:
             return None
-        page_index, words, annot, page = self._undo_stack.pop()
-        page.delete_annot(annot)
-        self._redo_stack.append((page_index, words))
+        edit = self._undo_stack.pop()
+        self._move_highlight(edit, edit.after, edit.before)
+        self._redo_stack.append(edit)
         self._dirty = True
-        return page_index
+        return edit.page_index
 
     def redo_highlight(self) -> int | None:
-        """Re-applies the most recently undone highlight. Returns the page
-        index it was applied to, or None if there's nothing to redo."""
+        """Re-applies the most recently undone highlight change. Returns the
+        page index it was on, or None if there's nothing to redo."""
         if not self._redo_stack:
             return None
-        page_index, words = self._redo_stack.pop()
-        page = self._doc[page_index]
-        annot = highlighter.add_highlight(page, words)
-        self._undo_stack.append((page_index, words, annot, page))
+        edit = self._redo_stack.pop()
+        self._move_highlight(edit, edit.before, edit.after)
+        self._undo_stack.append(edit)
         self._dirty = True
-        return page_index
+        return edit.page_index
 
     def highlight_count_on_current_page(self) -> int:
         if not self._doc:

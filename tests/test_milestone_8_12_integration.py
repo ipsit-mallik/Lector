@@ -56,6 +56,7 @@ def reference_test_phrase(phrase: str) -> str:
     """A phrase from the list with its variable filled in, to say it for real."""
     return (
         phrase.replace("{page}", "12").replace("{number}", "3").replace("{words}", "the quick brown fox")
+        .replace("{color}", "green")
     )
 
 

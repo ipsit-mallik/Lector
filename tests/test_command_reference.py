@@ -26,7 +26,7 @@ FRONTEND = ROOT / "frontend"
 COMPONENT = FRONTEND / "pages" / "command-reference.js"
 SCREENS = (router.HOME, router.SETTINGS, router.READING)
 # What a variable is filled with to say a phrase for real.
-SAMPLE = {"{page}": "12", "{number}": "3", "{words}": "the quick brown fox"}
+SAMPLE = {"{page}": "12", "{number}": "3", "{words}": "the quick brown fox", "{color}": "green"}
 
 
 def sayable(phrase: str) -> str:
@@ -57,6 +57,11 @@ def registry_patterns() -> list[tuple[str, tuple[str, ...], str]]:
         ("go to a page", grammar.GOTO_PREFIXES, reference.PAGE),
         ("highlight", grammar.HIGHLIGHT_TRIGGERS, reference.WORDS),
         ("highlight a sentence", grammar.HIGHLIGHT_SENTENCE_TRIGGERS, reference.WORDS),
+        ("highlight in a color", tuple(
+            f"{t} {reference.WORDS} {grammar.HIGHLIGHT_COLOR_JOINER}"
+            for t in grammar.HIGHLIGHT_TRIGGERS + grammar.HIGHLIGHT_SENTENCE_TRIGGERS
+        ), reference.COLOR),
+        ("set the highlight color", grammar.HIGHLIGHT_COLOR_PREFIXES, reference.COLOR),
         ("open a numbered file", router.OPEN_NUMBER_PREFIXES, reference.NUMBER),
     ]
 
@@ -101,6 +106,25 @@ class NothingListedThatDoesNotWorkTests(unittest.TestCase):
                 if reference.WORDS in phrase:
                     with self.subTest(phrase=phrase):
                         self.assertTrue(grammar.parse(sayable(phrase)).get("query"))
+
+    def test_a_color_pattern_carries_the_color(self):
+        # "{color}" is filled with a real color name; every card that has one
+        # must then parse to that color, as a one-off highlight (with the
+        # words still to look for) or as setting the active color.
+        cards = [c for c in all_commands() if any(reference.COLOR in p for p in c["phrases"])]
+        self.assertEqual(len(cards), 2)
+        for card in cards:
+            for phrase in card["phrases"]:
+                with self.subTest(phrase=phrase):
+                    parsed = grammar.parse(sayable(phrase))
+                    self.assertEqual(parsed["color"], "green")
+                    if reference.WORDS in phrase:
+                        self.assertEqual(parsed["query"], "the quick brown fox")
+                    else:
+                        self.assertEqual(parsed["intent"], grammar.SET_HIGHLIGHT_COLOR)
+
+    def test_the_color_placeholder_lists_the_grammars_own_colors(self):
+        self.assertEqual(reference.panel()["highlight_colors"], list(grammar.HIGHLIGHT_COLORS))
 
     def test_every_phrase_is_a_pattern_not_one_invented_example(self):
         # A variable is a placeholder the page fills with the real range. A

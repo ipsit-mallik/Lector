@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from lector.shared.theme import THEME_ORDER
+from lector.shared.theme import DEFAULT_HIGHLIGHT_COLOR, HIGHLIGHT_COLOR_NAMES, THEME_ORDER
 
 ASK = "ask"
 COPY = "copy"
@@ -48,6 +48,11 @@ RECENT_VIEW_LIST = "list"
 # is precisely that they are not alternatives: both on, both off, or either
 # alone all have to be expressible, and a single "mode" key could not say
 # "both" without growing a value that means the same thing as two flags.
+# The active highlight colour: what the next highlight is drawn in, by mouse
+# or by voice. One app-wide choice rather than one per document, so it is
+# still the reader's colour when they open the next PDF.
+_HIGHLIGHT_COLOR_KEY = "highlight_color"
+
 _PUSH_TO_TALK_KEY = "push_to_talk_enabled"
 _WAKE_PHRASE_KEY = "wake_phrase_enabled"
 
@@ -140,6 +145,19 @@ def set_reopen_behavior(mode: str) -> None:
         raise ValueError(f"invalid reopen behavior: {mode!r}")
     data = _load()
     data[_REOPEN_BEHAVIOR_KEY] = mode
+    _save(data)
+
+
+def get_highlight_color() -> str:
+    value = _load().get(_HIGHLIGHT_COLOR_KEY, DEFAULT_HIGHLIGHT_COLOR)
+    return value if value in HIGHLIGHT_COLOR_NAMES else DEFAULT_HIGHLIGHT_COLOR
+
+
+def set_highlight_color(name: str) -> None:
+    if name not in HIGHLIGHT_COLOR_NAMES:
+        raise ValueError(f"invalid highlight color: {name!r}")
+    data = _load()
+    data[_HIGHLIGHT_COLOR_KEY] = name
     _save(data)
 
 

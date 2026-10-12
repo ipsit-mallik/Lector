@@ -19,9 +19,29 @@ from typing import Protocol, Sequence
 
 import fitz  # PyMuPDF
 
-# docs/DESIGN_SYSTEM.md "Highlight background" token, as 0..1 floats for
-# PyMuPDF's Annot.set_colors.
-HIGHLIGHT_COLOR = (0xF7 / 255, 0xDE / 255, 0x7A / 255)
+from lector.shared import theme
+
+
+def _rgb(hex_color: str) -> tuple[float, float, float]:
+    """`#RRGGBB` as the 0..1 floats PyMuPDF's Annot.set_colors takes."""
+    return tuple(int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+
+# The palette's values are theme.css's `--highlight-<name>` tokens, read from
+# there so the swatch a reader picks and the colour written into the PDF
+# cannot drift apart.
+COLOR_NAMES = theme.HIGHLIGHT_COLOR_NAMES
+DEFAULT_COLOR = theme.DEFAULT_HIGHLIGHT_COLOR
+HIGHLIGHT_COLORS: dict[str, tuple[float, float, float]] = {
+    name: _rgb(theme.shared_token(f"highlight-{name}")) for name in COLOR_NAMES
+}
+
+# How far (per 0..1 channel) a stored /C may sit from a palette colour and
+# still count as it. PDF stores colours as reals, and PyMuPDF hands them back
+# through float32 (0.6 reads as 0.6000000238), so exact comparison would
+# never match; a highlight another app wrote in its own yellow does not match
+# either, and is shown with no swatch selected rather than mislabelled.
+_COLOR_TOLERANCE = 0.02
 
 
 class LineBounded(Protocol):
@@ -122,7 +142,9 @@ def merge_line_rects(items: Sequence[LineBounded]) -> list[fitz.Rect]:
     return [rect for _, rect in merged]
 
 
-def _set_rectangular_appearance(page: fitz.Page, annot, rects: list[fitz.Rect]) -> None:
+def _set_rectangular_appearance(
+    page: fitz.Page, annot, rects: list[fitz.Rect], rgb: tuple[float, float, float]
+) -> None:
     """Repaint `annot` as one plain rectangle per line, replacing MuPDF's default.
 
     MuPDF draws a /Highlight annotation marker-pen style: each quad is filled
@@ -147,7 +169,7 @@ def _set_rectangular_appearance(page: fitz.Page, annot, rects: list[fitz.Rect]) 
     ops = ["q"]
     if gs_name:
         ops.append(f"/{gs_name.group(1).decode()} gs")
-    ops.append("{:g} {:g} {:g} rg".format(*HIGHLIGHT_COLOR))
+    ops.append("{:g} {:g} {:g} rg".format(*rgb))
     to_pdf_space = ~page.transformation_matrix
     for rect in rects:
         box = rect * to_pdf_space
@@ -159,7 +181,35 @@ def _set_rectangular_appearance(page: fitz.Page, annot, rects: list[fitz.Rect]) 
     annot._setAP(("\n".join(ops) + "\n").encode())
 
 
-def add_highlight(page: fitz.Page, items: Sequence[LineBounded]):
+RGB = tuple[float, float, float]
+
+
+def _paint(page: fitz.Page, annot, rects: list[fitz.Rect], rgb: RGB) -> None:
+    """Give `annot` the colour `rgb` in both places a viewer can read it from:
+    /C, which a viewer that draws its own highlights uses, and the appearance
+    stream, which every other viewer (and Lector) renders as-is. Writing only
+    one of them is how a highlight ends up a different colour in another app."""
+    annot.set_colors(stroke=rgb)
+    # Must precede the appearance rewrite: update() is what generates the
+    # stream, so overwriting it any earlier would simply be undone here.
+    annot.update()
+    _set_rectangular_appearance(page, annot, rects, rgb)
+
+
+def add_highlight_rects(page: fitz.Page, rects: Sequence[fitz.Rect], rgb: RGB):
+    """Write one real PDF highlight annotation covering `rects`, one per line.
+
+    Takes a raw colour rather than a palette name because undoing the removal
+    of another app's highlight has to put back that app's own colour."""
+    if not rects:
+        return None
+    rects = [fitz.Rect(rect) for rect in rects]
+    annot = page.add_highlight_annot(quads=[rect.quad for rect in rects])
+    _paint(page, annot, rects, rgb)
+    return annot
+
+
+def add_highlight(page: fitz.Page, items: Sequence[LineBounded], color: str = DEFAULT_COLOR):
     """Write `items` as one real PDF highlight annotation (not a UI overlay).
 
     One quad per line of the selection (see `merge_line_rects`) so a selection
@@ -168,14 +218,57 @@ def add_highlight(page: fitz.Page, items: Sequence[LineBounded]):
     """
     if not items:
         return None
-    rects = merge_line_rects(items)
-    annot = page.add_highlight_annot(quads=[rect.quad for rect in rects])
-    annot.set_colors(stroke=HIGHLIGHT_COLOR)
-    # Must precede the appearance rewrite: update() is what generates the
-    # stream, so overwriting it any earlier would simply be undone here.
-    annot.update()
-    _set_rectangular_appearance(page, annot, rects)
-    return annot
+    return add_highlight_rects(page, merge_line_rects(items), HIGHLIGHT_COLORS[color])
+
+
+def highlight_rects(annot) -> list[fitz.Rect]:
+    """The per-line boxes a highlight covers, read back from its /QuadPoints
+    (four vertices per line, in the same page space `add_highlight_rects`
+    was given) — what a recolour repaints and an undone removal re-adds."""
+    points = annot.vertices or []
+    return [fitz.Quad(points[i:i + 4]).rect for i in range(0, len(points) - 3, 4)]
+
+
+def stroke_rgb(annot) -> RGB | None:
+    """`annot`'s /C colour, or None when it has none (a viewer then picks)."""
+    stroke = (annot.colors or {}).get("stroke") or []
+    return tuple(stroke) if len(stroke) == 3 else None
+
+
+def color_name(rgb: RGB | None) -> str | None:
+    """Which palette colour `rgb` is, or None for a colour Lector did not
+    write (another app's highlight in its own shade)."""
+    if rgb is None:
+        return None
+    for name, palette_rgb in HIGHLIGHT_COLORS.items():
+        if all(abs(a - b) <= _COLOR_TOLERANCE for a, b in zip(rgb, palette_rgb)):
+            return name
+    return None
+
+
+def recolor_highlight(page: fitz.Page, annot, rgb: RGB) -> None:
+    """Repaint an existing highlight in `rgb`, keeping its shape, its /NM id
+    and anything another app attached to it (author, note)."""
+    _paint(page, annot, highlight_rects(annot), rgb)
+
+
+@dataclass(frozen=True)
+class Highlight:
+    """One highlight annotation on a page, as the editor needs it. `xref` is
+    the annotation's PDF object number: stable for the life of the open
+    document, so it is what the frontend sends back to name a highlight."""
+
+    xref: int
+    rects: tuple[fitz.Rect, ...]
+    color: str | None
+
+
+def highlights_on_page(page: fitz.Page) -> list[Highlight]:
+    """Every highlight annotation on `page`, Lector's and other apps' alike."""
+    return [
+        Highlight(annot.xref, tuple(highlight_rects(annot)), color_name(stroke_rgb(annot)))
+        for annot in (page.annots(types=[fitz.PDF_ANNOT_HIGHLIGHT]) or [])
+    ]
 
 
 def highlight_count(page: fitz.Page) -> int:

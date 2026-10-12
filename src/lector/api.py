@@ -14,7 +14,7 @@ import threading
 import webview
 from webview.dom import DOMEventHandler
 
-from lector.features.annotations import highlight_matcher
+from lector.features.annotations import highlight_matcher, highlighter
 from lector.features.annotations.highlighter import words_between
 from lector.features.dialogs import browser as dialog_browser
 from lector.features.home import file_drop
@@ -280,6 +280,7 @@ class Api:
             "can_redo": self._doc.can_redo,
             "highlight_count_page": self._doc.highlight_count_on_current_page(),
             "highlight_count_total": self._doc.highlight_count_total(),
+            "highlight_color": settings.get_highlight_color(),
             "layout_mode": self._layout_mode,
         }
 
@@ -391,8 +392,61 @@ class Api:
         return {**self._doc.search(needle, start, end), "page_count": page_count}
 
     def highlight_chars(self, page_index: int, start_idx: int, end_idx: int) -> dict:
-        self._doc.highlight_char_indices(page_index, start_idx, end_idx)
+        self._doc.highlight_char_indices(page_index, start_idx, end_idx, settings.get_highlight_color())
         return self._state()
+
+    def get_highlight_palette(self) -> list[str]:
+        """The five colour names, in the order the swatches show them. Names
+        only: each one's colour is theme.css's `--highlight-<name>`."""
+        return list(highlighter.COLOR_NAMES)
+
+    def get_highlight_color(self) -> str:
+        return settings.get_highlight_color()
+
+    def set_highlight_color(self, name: str) -> dict:
+        """Make `name` the active colour. An unknown name is ignored rather
+        than raised: this is a bridge boundary. Returns the state, whose
+        `highlight_color` is what was actually stored."""
+        if name in highlighter.COLOR_NAMES:
+            settings.set_highlight_color(name)
+        return self._state()
+
+    def get_page_highlights(self, page_index: int) -> dict:
+        """Every highlight on one page, so the frontend can make each one a
+        clickable, focusable target: `{"width", "height", "highlights":
+        [{"id", "color", "rects", "text"}]}`, sizes and rects in PDF points
+        like `get_page_chars`'s. `color` is None for a colour another app
+        wrote that is not in the palette; `text` is what the highlight covers,
+        for the target's accessible name."""
+        page_index = int(page_index)
+        if not self._doc.is_open:
+            return {"width": 0, "height": 0, "highlights": []}
+        width, height = self._doc.page_size_points(page_index)
+        return {
+            "width": width,
+            "height": height,
+            "highlights": [
+                {
+                    "id": h.xref,
+                    "color": h.color,
+                    "rects": [{"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1} for r in h.rects],
+                    "text": self._doc.text_in_rects(page_index, h.rects),
+                }
+                for h in self._doc.highlights_on_page(page_index)
+            ],
+        }
+
+    def recolor_highlight(self, page_index: int, highlight_id: int, color: str) -> dict:
+        changed = self._doc.set_highlight_color(int(page_index), int(highlight_id), color)
+        state = self._state()
+        state["affected_page"] = int(page_index) if changed else None
+        return state
+
+    def remove_highlight(self, page_index: int, highlight_id: int) -> dict:
+        removed = self._doc.remove_highlight(int(page_index), int(highlight_id))
+        state = self._state()
+        state["affected_page"] = int(page_index) if removed else None
+        return state
 
     def undo_highlight(self) -> dict:
         affected_page = self._doc.undo_highlight()
@@ -406,9 +460,12 @@ class Api:
         state["affected_page"] = affected_page
         return state
 
-    def highlight_by_voice(self, query: str, sentence: bool = False) -> dict:
+    def highlight_by_voice(self, query: str, sentence: bool = False, color: str | None = None) -> dict:
         """Matches a spoken phrase against the viewport `start_listening` was
         last called with, and writes the highlight if one is found.
+
+        `color` is a one-off ("highlight <words> in green"): it colours this
+        highlight only and leaves the active colour as it was.
 
         `query` is already normalized (lowercase, no punctuation) by
         `command_grammar.parse` — the same treatment `highlight_matcher`
@@ -432,12 +489,15 @@ class Api:
         start_idx, end_idx = match.start_idx, match.end_idx
         if sentence:
             start_idx, end_idx = highlight_matcher.extend_to_sentence(words, start_idx, end_idx)
-        self._doc.highlight_word_indices(match.page_index, start_idx, end_idx)
+        if color not in highlighter.COLOR_NAMES:
+            color = settings.get_highlight_color()
+        self._doc.highlight_word_indices(match.page_index, start_idx, end_idx, color)
 
         state = self._state()
         state["voice_highlight"] = {
             "matched": True,
             "query": query,
+            "color": color,
             "affected_page": match.page_index,
             "text": " ".join(w.text for w in words_between(words, start_idx, end_idx)),
         }

@@ -110,6 +110,25 @@
   --find-match: rgba(61, 116, 196, 0.28);
   --find-match-current: rgba(61, 116, 196, 0.55);
   --find-ring: #2E63B0;
+  /* The five highlight colours, written into the PDF itself
+   * (features/annotations/highlighter.py reads them from here), so they are
+   * on the white paper in every theme and are not themed. Multiplied onto the
+   * page: black text keeps >= 8.3:1 under each. Pairwise CIEDE2000 >= 23
+   * (>= 6.9 under simulated colour-blindness, by stepping lightness: yellow,
+   * green, blue, pink, orange from lightest to darkest), and >= 16 from the
+   * find-match blue and the selection wash. Yellow is the default. */
+  --highlight-yellow: #F7DE7A;
+  --highlight-green: #94DE9C;
+  --highlight-blue: #74D3EC;
+  --highlight-pink: #F6A5CB;
+  --highlight-orange: #FB9C55;
+  /* What sits on a highlight swatch (its check), and the rings a highlight's
+   * own target draws on the paper when hovered and when focused: dark, since
+   * the paper and every highlight under them are light (the focus ring is
+   * 10.2:1 on white and 4.9:1 on orange, the darkest highlight). */
+  --on-swatch: #161A18;
+  --paper-hover-ring: rgba(22, 26, 24, 0.45);
+  --paper-focus-ring: #2C463F;
 
   /* Toggle knob: a physical-looking white disc in every theme. */
   --knob: #FFFFFF;
@@ -143,6 +162,9 @@
   --star: #9A6B00;
   --highlight: #F7DE7A;
   --danger: #B44137;
+  /* The edge on a highlight swatch, so the light ones (yellow, green) keep
+   * their outline on the light chrome around them. */
+  --swatch-edge: rgba(22, 26, 24, 0.24);
 
   --shadow-1: 0 1px 2px rgba(22, 26, 24, 0.06), 0 1px 3px rgba(22, 26, 24, 0.08);
   --shadow-2: 0 4px 10px rgba(22, 26, 24, 0.12), 0 2px 4px rgba(22, 26, 24, 0.08);
@@ -202,6 +224,8 @@
   --star: #F0B93A;
   --highlight: #6B5A24;
   --danger: #E68A80;
+  /* On dark chrome every swatch already stands out; the edge only crisps it. */
+  --swatch-edge: rgba(0, 0, 0, 0.35);
 
   --shadow-1: none;
   --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.35);
@@ -258,6 +282,8 @@
   --star: #966700;
   --highlight: #E8C468;
   --danger: #AA4137;
+  /* Warm, like sepia's shadows: the yellow swatch is closest to this chrome. */
+  --swatch-edge: rgba(59, 47, 32, 0.30);
 
   --shadow-1: 0 1px 2px rgba(59, 47, 32, 0.08), 0 1px 3px rgba(59, 47, 32, 0.10);
   --shadow-2: 0 4px 10px rgba(59, 47, 32, 0.14), 0 2px 4px rgba(59, 47, 32, 0.10);

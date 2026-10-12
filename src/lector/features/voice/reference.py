@@ -12,10 +12,10 @@ and it is built from those tables rather than retyped beside them.
 * **Nothing that doesn't work.** Phrases are generated from the tables, never
   typed here, and `tests/test_command_reference.py` resolves each one through
   `router.resolve` in the contexts the card names. A phrase with a variable
-  (a page number, a row number, the words to highlight) is a pattern with a
-  placeholder (`{page}`, `{number}`, `{words}`) that the page fills with the real
-  range when it knows it, so the list shows "open number 1–12", not one
-  invented example.
+  (a page number, a row number, the words to highlight, a colour) is a pattern
+  with a placeholder (`{page}`, `{number}`, `{words}`, `{color}`) that the page
+  fills with the real range when it knows it, so the list shows "open number
+  1–12", not one invented example.
 * **One list for the whole app.** Every screen shows the same sections from the
   same payload; a screen differs only in which sections come first
   (`panel(context)` puts that screen's own first, then the rest in
@@ -44,6 +44,7 @@ from lector.features.voice import router, wake
 PAGE = "{page}"
 NUMBER = "{number}"
 WORDS = "{words}"
+COLOR = "{color}"
 
 _HOME = (router.HOME,)
 _SETTINGS = (router.SETTINGS,)
@@ -247,6 +248,16 @@ def _reading_sections() -> list[dict]:
             _command(_then(grammar.HIGHLIGHT_SENTENCE_TRIGGERS, WORDS),
                      "The same, extended out to the sentence those words sit in.",
                      "Drag across the whole sentence", _READING),
+            _command([f"{lead} {grammar.HIGHLIGHT_COLOR_JOINER} {COLOR}"
+                      for lead in _then(grammar.HIGHLIGHT_TRIGGERS + grammar.HIGHLIGHT_SENTENCE_TRIGGERS,
+                                        WORDS)],
+                     "Either of the above in that color, this once. The color new "
+                     "highlights use stays as it was.",
+                     "Pick the color under the highlight tool, then drag", _READING),
+            _command(_then(grammar.HIGHLIGHT_COLOR_PREFIXES, COLOR),
+                     "Makes that the color every new highlight is drawn in, until you "
+                     "change it again — it is remembered next time you open Lector.",
+                     "Click the color under the highlight tool and pick one", _READING),
         ]),
         _section("undo_redo", "Undo and redo", scope, [
             _command(_all(g, router.UNDO), "Takes back the last highlight change.",
@@ -405,6 +416,8 @@ def panel(context: str = router.READING) -> dict:
         "context": context if context in _SCREENS else router.READING,
         "sections": sections(context),
         "try_saying": try_saying(context),
+        # What `{color}` stands for, from the grammar's own list.
+        "highlight_colors": list(grammar.HIGHLIGHT_COLORS),
         "wake_phrase": wake.WAKE_PHRASE,
         "wake_phrase_display": wake.WAKE_PHRASE_DISPLAY,
         "push_to_talk_key": "Space",

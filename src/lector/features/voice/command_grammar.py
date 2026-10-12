@@ -33,6 +33,7 @@ Three things live here, and they are connected:
   closed-set problem instead of open transcription.
 """
 from lector.features.voice import fuzzy
+from lector.shared import theme
 
 # Intent names cross the bridge to JS as plain strings, so they are part of
 # the frontend contract (see `frontend/pages/reading.js`), not private
@@ -45,6 +46,7 @@ SCROLL_DOWN = "SCROLL_DOWN"
 SAVE = "SAVE"
 HIGHLIGHT = "HIGHLIGHT"
 HIGHLIGHT_SENTENCE = "HIGHLIGHT_SENTENCE"
+SET_HIGHLIGHT_COLOR = "SET_HIGHLIGHT_COLOR"
 
 # Phrasings per intent, each ordered most-explicit first. Order is load
 # bearing: `fuzzy.best_match` breaks ties by taking the earliest candidate,
@@ -104,6 +106,26 @@ HIGHLIGHT_TRIGGERS: tuple[str, ...] = (
     # query's first word. A single, short trigger has no such window.
     "highlight",
 )
+
+# The palette's colour names, said as themselves ("green"). Both colour
+# commands end in one, the same way GOTO_PAGE ends in a number.
+HIGHLIGHT_COLORS: tuple[str, ...] = theme.HIGHLIGHT_COLOR_NAMES
+
+# What may precede a colour to make it the active one ("highlight color
+# green"). Every phrasing contains "color", and `_parse_highlight_color`
+# insists on hearing that word: without it, a highlight query that happens to
+# end in a colour ("highlight cool in green" scores 0.76 against "highlight
+# color") would change the colour instead of highlighting.
+HIGHLIGHT_COLOR_PREFIXES: tuple[str, ...] = (
+    "highlight color",
+    "set highlight color to",
+    "change highlight color to",
+)
+_COLOR_WORD = "color"
+
+# "highlight <words> in <colour>": the word that splits a one-off colour off
+# the end of a highlight query.
+HIGHLIGHT_COLOR_JOINER = "in"
 
 # What may precede a page number. A bare number is deliberately not a jump
 # command: "five" alone is far more likely to be a misfire than an intent,
@@ -246,14 +268,63 @@ def _parse_highlight(words: list[str]) -> dict | None:
         score = fuzzy.similarity(lead, trigger)
         if score < fuzzy.DEFAULT_THRESHOLD:
             continue
-        query = " ".join(words[n:])
-        return {
+        query_words, color = _split_color(words[n:])
+        result = {
             "intent": intent,
-            "query": query,
+            "query": " ".join(query_words),
             "matched": f"{trigger} <query>",
             "score": score,
         }
+        if color is not None:
+            result["color"] = color
+            result["matched"] = f"{trigger} <query> {HIGHLIGHT_COLOR_JOINER} <color>"
+        return result
     return None
+
+
+def _split_color(query_words: list[str]) -> tuple[list[str], str | None]:
+    """Split a trailing "in <colour>" off a highlight query.
+
+    Exact words, not fuzzy: the recognizer only ever returns words from its
+    closed vocabulary, so a colour is either heard as one of the five or not
+    at all. Only when words remain in front of it — "highlight in green"
+    leaves nothing to look for, so it is a search for the words "in green".
+    A page whose text really is "<words> in green" is therefore highlighted
+    without those last two words, in green: a predictable rule beats
+    guessing which of the two the reader meant.
+    """
+    if (
+        len(query_words) >= 3
+        and query_words[-2] == HIGHLIGHT_COLOR_JOINER
+        and query_words[-1] in HIGHLIGHT_COLORS
+    ):
+        return query_words[:-2], query_words[-1]
+    return query_words, None
+
+
+def _parse_highlight_color(words: list[str]) -> dict | None:
+    """"highlight color green" -> SET_HIGHLIGHT_COLOR green.
+
+    Mirrors `_parse_goto`: a trailing argument (a colour, not a number) and a
+    fuzzy-matched lead in front of it. The lead must contain the word "color"
+    (see HIGHLIGHT_COLOR_PREFIXES), and "... in <colour>" is never this
+    command — that ending belongs to a one-off highlight.
+    """
+    if len(words) < 2 or words[-1] not in HIGHLIGHT_COLORS:
+        return None
+    lead = words[:-1]
+    if _COLOR_WORD not in lead or lead[-1] == HIGHLIGHT_COLOR_JOINER:
+        return None
+    match = fuzzy.best_match(" ".join(lead), HIGHLIGHT_COLOR_PREFIXES)
+    if match is None:
+        return None
+    matched, score = match
+    return {
+        "intent": SET_HIGHLIGHT_COLOR,
+        "color": words[-1],
+        "matched": f"{matched} <color>",
+        "score": score,
+    }
 
 
 def parse(text: str) -> dict | None:
@@ -266,7 +337,9 @@ def parse(text: str) -> dict | None:
     reader never gave.
 
     The returned dict is `{"intent", "phrase", "matched", "score"}`, plus
-    `"page"` for `GOTO_PAGE` or `"query"` for `HIGHLIGHT`/`HIGHLIGHT_SENTENCE`.
+    `"page"` for `GOTO_PAGE`, `"color"` for `SET_HIGHLIGHT_COLOR`, or
+    `"query"` for `HIGHLIGHT`/`HIGHLIGHT_SENTENCE` (with `"color"` too when
+    one was said after it).
     """
     words = _normalize(text)
     if not words:
@@ -288,6 +361,12 @@ def parse(text: str) -> dict | None:
             "matched": matched,
             "score": score,
         }
+
+    # Before the highlight triggers, which would otherwise take "highlight
+    # color green" as a search for the words "color green".
+    set_color = _parse_highlight_color(words)
+    if set_color is not None:
+        return {**set_color, "phrase": phrase}
 
     # Highlight triggers last: they are free-form (an open-ended query
     # follows the trigger), so a fixed phrase above should get first refusal
@@ -371,6 +450,10 @@ def vocabulary() -> list[str]:
         words.update(prefix.split())
     for trigger in HIGHLIGHT_SENTENCE_TRIGGERS + HIGHLIGHT_TRIGGERS:
         words.update(trigger.split())
+    for prefix in HIGHLIGHT_COLOR_PREFIXES:
+        words.update(prefix.split())
+    words.update(HIGHLIGHT_COLORS)
+    words.add(HIGHLIGHT_COLOR_JOINER)
     words.update(_UNITS)
     words.update(_TENS)
     words.add(_HUNDRED)

@@ -40,7 +40,18 @@
 
     <div class="body-row">
       <div class="rail">
-        <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)" aria-label="Highlight tool"></button>
+        <!-- The highlight tool and, attached under it, the color it draws in.
+             The color button opens the five swatches beside the rail
+             (highlight-colors.js); the dot shows the active color. -->
+        <div class="rail-highlight">
+          <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)" aria-label="Highlight tool"></button>
+          <button class="color-btn" id="highlightColorBtn" type="button" title="Highlight color"
+                  aria-label="Highlight color" aria-haspopup="true" aria-expanded="false" aria-controls="highlightColorFlyout">
+            <span class="color-btn-dot"></span>
+            <span class="color-btn-chevron" data-icon="chevron_right"></span>
+          </button>
+          <div class="color-flyout" id="highlightColorFlyout" aria-label="Highlight color" hidden></div>
+        </div>
         <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" aria-label="Undo highlight" disabled></button>
         <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" aria-label="Redo highlight" disabled></button>
         <button class="icon-btn" id="findBtn" data-icon="search" title="Find in document  (Ctrl+F)"
@@ -67,6 +78,17 @@
         </div>
         <div class="strip-scroll" id="stripScroll" hidden>
           <div class="strip-container" id="stripContainer"></div>
+        </div>
+        <!-- A transparent button over every highlight on screen, so each can be
+             clicked or tabbed to and opens the editor below
+             (highlight-colors.js). Under the selection wash. -->
+        <div class="highlight-target-layer" id="highlightTargetLayer"></div>
+        <div class="highlight-editor" id="highlightEditor" role="dialog" aria-label="Highlight" hidden>
+          <div class="swatch-row" id="highlightEditorSwatches" aria-label="Highlight color"></div>
+          <div class="highlight-editor-sep"></div>
+          <button class="btn-secondary highlight-editor-remove" id="highlightEditorRemoveBtn" type="button">
+            <span data-icon="remove"></span>Remove
+          </button>
         </div>
         <!-- Live selection wash painted while a highlight is being dragged
              out (see reading.js). Sits outside both scrollers, as a sibling
@@ -226,6 +248,7 @@
   <script src="save-dialog.js"></script>
   <script src="command-reference.js"></script>
   <script src="find-bar.js"></script>
+  <script src="highlight-colors.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>

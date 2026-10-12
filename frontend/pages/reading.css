@@ -305,8 +305,200 @@ html, body { height: 100%; }
  * removed once that re-rendered page image is on screen, and what it is
  * replaced by is the same shape in the same color. */
 .selection-rect.applied {
-  background-color: var(--highlight);
+  /* The active highlight color (highlight-colors.js sets the variable). On
+   * the paper, so the unthemed --highlight-<name>, never the themed
+   * --highlight, which in dark is a fill for dark chrome. */
+  background-color: var(--applied-highlight, var(--highlight-yellow));
 }
+
+/* ------------------------------------------------------------------ */
+/* Highlight colors (highlight-colors.js)                              */
+/* ------------------------------------------------------------------ */
+
+/* The highlight tool with its color button attached underneath: the pair is
+   one rail item, so the rail's 8px gap separates it from Undo, not the two
+   halves from each other. Positioned so the flyout can sit beside it. */
+.rail-highlight {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-hair);
+}
+
+.color-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-hair);
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-secondary);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+
+.color-btn:hover,
+.color-btn[aria-expanded="true"] {
+  background-color: var(--state-hover);
+  color: var(--text-primary);
+}
+
+.color-btn:active { background-color: var(--state-pressed); }
+
+.color-btn-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--swatch);
+  box-shadow: inset 0 0 0 1px var(--swatch-edge);
+}
+
+.color-btn-chevron { display: inline-flex; }
+.color-btn-chevron svg { width: 12px; height: 12px; }
+
+/* Beside the rail, level with the highlight tool, over the page area. Looks
+   like the zoom popover, the reader's other small popover. */
+.color-flyout,
+.highlight-editor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  box-shadow: var(--shadow-2), var(--dialog-edge);
+}
+
+.color-flyout {
+  position: absolute;
+  top: 0;
+  /* Past the rail's own padding and the 1px divider beside it. */
+  left: calc(100% + var(--space-2) + var(--space-2));
+  z-index: 10;
+}
+
+.color-flyout[hidden],
+.highlight-editor[hidden] { display: none; }
+
+.swatch-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* One swatch: the highlight color itself, as it lands on the paper. Chosen
+   = the accent ring a selected card has, plus a check, so the choice never
+   rests on telling colors apart. */
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--swatch);
+  color: var(--on-swatch);
+  box-shadow: inset 0 0 0 1px var(--swatch-edge);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.swatch:hover {
+  box-shadow: inset 0 0 0 1px var(--swatch-edge),
+              0 0 0 2px var(--surface-2), 0 0 0 4px var(--border-strong);
+}
+
+.swatch.selected {
+  box-shadow: inset 0 0 0 1px var(--swatch-edge),
+              0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent);
+}
+
+/* Outside the 4px ring, so focus and the choice both stay visible. */
+.swatch:focus-visible { outline-offset: 5px; }
+
+.swatch-check {
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.swatch-check svg { width: 16px; height: 16px; }
+.swatch.selected .swatch-check { opacity: 1; }
+
+/* A clear, unclipped overlay like the selection layer, beneath it. Only the
+   targets' line boxes take the pointer, and none do while the highlight tool
+   is on (a drag has to be able to start on a highlight). */
+.highlight-target-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.highlight-target {
+  position: absolute;
+  padding: 0;
+  border: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.highlight-target-line {
+  position: absolute;
+  border-radius: 1px;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.highlight-target-layer.is-selecting .highlight-target-line {
+  pointer-events: none;
+  cursor: text;
+}
+
+/* Rings, not fills: a fill would change the highlight's own color, which is
+   the one thing the reader is looking at. On the paper, so unthemed. */
+.highlight-target:hover .highlight-target-line,
+.highlight-target.is-editing .highlight-target-line {
+  box-shadow: 0 0 0 1px var(--paper-hover-ring);
+}
+
+.highlight-target:focus-visible { outline: none; }
+
+.highlight-target:focus-visible .highlight-target-line {
+  box-shadow: 0 0 0 var(--focus-ring-width) var(--paper-focus-ring);
+}
+
+.highlight-editor {
+  position: absolute;
+  z-index: 6;
+}
+
+.highlight-editor-sep {
+  width: 1px;
+  align-self: stretch;
+  background-color: var(--border);
+}
+
+.highlight-editor-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.highlight-editor-remove svg { width: 16px; height: 16px; }
+.highlight-editor-remove span { display: inline-flex; }
 
 /* ------------------------------------------------------------------ */
 /* Find in document                                                    */

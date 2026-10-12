@@ -79,6 +79,7 @@ function updateChrome() {
   nextBtn.disabled = state.page_index >= state.page_count - 1;
   undoBtn.disabled = !state.can_undo;
   redoBtn.disabled = !state.can_redo;
+  showActiveHighlightColor(state.highlight_color);
 }
 
 // `animate` is for a page jump the reader asked for (next, previous, go to):
@@ -98,6 +99,7 @@ async function refresh({ animate = false } = {}) {
   }
   scheduleViewportPush();
   paintFindMarks();
+  paintHighlightTargets();
 }
 
 async function refreshBook() {
@@ -280,6 +282,7 @@ function setHighlightMode(on) {
   document.querySelectorAll(".page-surface").forEach((el) => {
     el.classList.toggle("selecting", on);
   });
+  setHighlightTargetsPassive(on);
   if (!on) cancelSelection();
 }
 
@@ -517,6 +520,10 @@ function beginSelection(el, pageIndex, ev) {
     // starting in whitespace only earns an anchor once it reaches text.
     anchor: null,
     range: null,
+    // Whether the pointer has travelled since the press: a press and release
+    // in one place on an existing highlight opens its editor (see
+    // endSelection) instead of highlighting the character under it again.
+    moved: false,
   };
   selection = sel;
   clearSelection();
@@ -527,8 +534,19 @@ function beginSelection(el, pageIndex, ev) {
   });
 }
 
+// How far the pointer may drift between press and release and still count as
+// a click, in CSS pixels — a hand on a mouse is never perfectly still.
+const CLICK_SLOP_PX = 3;
+
 function onSelectionMove(ev) {
-  if (!selection || !selection.page) return;
+  if (!selection) return;
+  if (!selection.moved) {
+    const rect = selection.el.getBoundingClientRect();
+    const dx = ev.clientX - rect.left - selection.startOffset.x;
+    const dy = ev.clientY - rect.top - selection.startOffset.y;
+    selection.moved = Math.hypot(dx, dy) > CLICK_SLOP_PX;
+  }
+  if (!selection.page) return;
   const range = selectionRange(selection, selection.page, ev);
   if (!range) return;
   selection.range = range;
@@ -545,6 +563,18 @@ async function endSelection(ev) {
   // character clicked, as it did before.
   const page = sel.page || (await getPageChars(sel.pageIndex));
   sel.page = page;
+  // A click on an existing highlight is a question about that highlight
+  // (change its color, remove it), not a request for a one-character
+  // highlight on top of it — the same as a click on it with the tool off.
+  const scale = pageScale(sel.el, page);
+  if (!sel.moved && scale) {
+    const at = highlightAtPoint(sel.pageIndex, sel.startOffset.x / scale, sel.startOffset.y / scale);
+    if (at) {
+      clearSelection();
+      openHighlightEditor(sel.pageIndex, at);
+      return;
+    }
+  }
   sel.range = selectionRange(sel, page, ev);
   if (!sel.range) {
     clearSelection();
@@ -563,6 +593,8 @@ async function endSelection(ev) {
 async function applyHighlight(pageIndex, range) {
   state = await callApi("highlight_chars", pageIndex, range.lo, range.hi);
   updateChrome();
+  forgetPageHighlights(pageIndex);
+  paintHighlightTargets();
   if (layoutMode === "strip") {
     highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
     await updateStripPageImage(pageIndex);
@@ -607,6 +639,11 @@ bookScroll.addEventListener("scroll", scheduleViewportPush);
 stripScroll.addEventListener("scroll", scheduleViewportPush);
 bookScroll.addEventListener("scroll", paintFindMarks);
 stripScroll.addEventListener("scroll", paintFindMarks);
+bookScroll.addEventListener("scroll", paintHighlightTargets);
+stripScroll.addEventListener("scroll", paintHighlightTargets);
+// Book layout centres its page, so a resize moves the highlights under the
+// targets laid over them.
+window.addEventListener("resize", paintHighlightTargets);
 
 // ------------------------------------------------------------------ //
 // Navigation / zoom                                                    //
@@ -675,6 +712,7 @@ function applyZoomPreview() {
   if (stripAnchor) restoreStripAnchor(stripAnchor);
   if (bookFraction != null) applyPageScrollFraction(bookFraction);
   paintFindMarks();
+  paintHighlightTargets();
 }
 
 let zoomRefreshTimer = null;
@@ -796,6 +834,8 @@ async function redo() {
 // comment above, which looked like the view snapping back to page 1.
 async function afterAnnotationChange(affectedPage) {
   updateChrome();
+  forgetPageHighlights(affectedPage);
+  paintHighlightTargets();
   if (layoutMode === "strip") {
     highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
     if (stripDirty) {
@@ -1080,6 +1120,8 @@ document.addEventListener("keydown", (ev) => {
       // nothing to back out of. With no drag on, Esc closes the find bar
       // even once focus has moved to the page.
       if (selection) cancelSelection();
+      else if (isHighlightEditorOpen()) closeHighlightEditor({ returnFocus: true });
+      else if (isColorFlyoutOpen()) closeColorFlyout({ returnFocus: true });
       else if (isFindBarOpen()) closeFindBar();
       break;
     case "z":
@@ -1121,6 +1163,25 @@ configureFindBar({
   },
   scroller: () => activeScrollEl(),
   currentPage: () => state.page_index,
+  returnFocus: () => pageArea.focus({ preventScroll: true }),
+});
+
+// What highlight-colors.js needs to know about this view's layouts.
+configureHighlightColors({
+  visiblePages: () => {
+    if (layoutMode === "book") return [{ index: state.page_index, el: pageSurface }];
+    const view = stripScroll.getBoundingClientRect();
+    return stripPageEls
+      .map((el, index) => ({ index, el }))
+      .filter(({ el }) => {
+        const rect = el.getBoundingClientRect();
+        return rect.bottom > view.top && rect.top < view.bottom;
+      });
+  },
+  afterChange: async (next) => {
+    state = next;
+    await afterAnnotationChange(state.affected_page);
+  },
   returnFocus: () => pageArea.focus({ preventScroll: true }),
 });
 
@@ -1268,12 +1329,14 @@ async function voiceScroll(delta) {
 // through the mic pill, the same way "heard" already does for navigation —
 // a highlight that silently fails to match would otherwise look identical to
 // a dropped command.
-async function voiceHighlight(query, sentence) {
-  state = await callApi("highlight_by_voice", query, sentence);
+async function voiceHighlight(query, sentence, color = null) {
+  state = await callApi("highlight_by_voice", query, sentence, color);
   const result = state.voice_highlight || { matched: false, query };
   if (result.matched) {
     await afterAnnotationChange(result.affected_page);
-    setMicHint(`Highlighted “${result.text}”`);
+    // The color is named only when it was a one-off, since that is the case
+    // where it differs from what the color button shows.
+    setMicHint(color ? `Highlighted “${result.text}” in ${result.color}` : `Highlighted “${result.text}”`);
   } else {
     updateChrome();
     setMicHint(`Couldn't find “${result.query}” on this page`);
@@ -1286,8 +1349,12 @@ const VOICE_ACTIONS = {
   GOTO_PAGE: (command) => goToPage(command.page),
   SCROLL_DOWN: () => voiceScroll(1),
   SCROLL_UP: () => voiceScroll(-1),
-  HIGHLIGHT: (command) => voiceHighlight(command.query, false),
-  HIGHLIGHT_SENTENCE: (command) => voiceHighlight(command.query, true),
+  HIGHLIGHT: (command) => voiceHighlight(command.query, false, command.color),
+  HIGHLIGHT_SENTENCE: (command) => voiceHighlight(command.query, true, command.color),
+  SET_HIGHLIGHT_COLOR: async (command) => {
+    await setActiveHighlightColor(command.color);
+    setMicHint(`Highlight color: ${command.color}`);
+  },
   // Voice must never save as a side effect of anything else (docs/PRD.md):
   // this reaches the exact same prompt-or-save flow Ctrl+S does, rather than
   // a shortcut that skips the dialog.
@@ -1495,5 +1562,6 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
   // start-at-the-beginning defaults; this view just renders what it is given.
   layoutMode = state.layout_mode === "strip" ? "strip" : "book";
   applyLayoutChrome();
+  await initHighlightColors(state.highlight_color);
   await refresh();
 })();
