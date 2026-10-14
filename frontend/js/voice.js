@@ -147,8 +147,8 @@ function createVoiceScope(context) {
  * Wire voice activation to the document and report state changes.
  *
  * @param {(state: {state: string, text: string, error: ?string,
- *   command: ?object, clarify: ?object, wake: boolean, pushToTalk: boolean,
- *   viaWake: boolean}) => void} onState
+ *   command: ?object, clarify: ?object, ocr: ?object, wake: boolean,
+ *   pushToTalk: boolean, viaWake: boolean}) => void} onState
  *   Called with one of:
  *     {state: "unavailable", error}   — no model, or no microphone
  *     {state: "off"}                  — voice works, but the reader has both
@@ -165,7 +165,11 @@ function createVoiceScope(context) {
  *                                       null if nothing matched; `clarify`,
  *                                       when non-null, is a near-miss worth
  *                                       asking "did you mean '<candidate>'?"
- *                                       about instead (Milestone 8.3)
+ *                                       about instead (Milestone 8.3); `ocr`,
+ *                                       when non-null, is {page_index,
+ *                                       status} for a bare "highlight" heard
+ *                                       over a scanned page whose text had
+ *                                       not been read yet
  * @param {() => (Array<{page_index: number, y0: number, y1: number}> |
  *   Promise<Array<{page_index: number, y0: number, y1: number}>>)} [getViewport]
  *   Called on each key-down to get the currently visible page regions, in PDF
@@ -193,6 +197,7 @@ function initVoice(onState, getViewport = () => []) {
       error: null,
       command: null,
       clarify: null,
+      ocr: null,
       wake: activation.wake_phrase,
       pushToTalk: activation.push_to_talk,
       viaWake: false,
@@ -247,13 +252,15 @@ function initVoice(onState, getViewport = () => []) {
 
   // Partial and final results arriving from Python's worker thread.
   window.addEventListener("lector:voice", (ev) => {
-    const { text, final, command, clarify, wake } = ev.detail || {};
+    const { text, final, command, clarify, ocr, wake } = ev.detail || {};
     // A wake carries no text — it is the moment the phrase was recognized
     // and the command window opened. Everything after it, up to the final,
     // belongs to that window.
     if (wake) viaWake = true;
     if (final) {
-      report("heard", { text: text || "", command: command || null, clarify: clarify || null, viaWake });
+      report("heard", {
+        text: text || "", command: command || null, clarify: clarify || null, ocr: ocr || null, viaWake,
+      });
       viaWake = false;
       // Re-broadcast for feature code. Deliberately a separate event from
       // `lector:voice`: that one is the raw transport, this one is the

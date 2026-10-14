@@ -30,6 +30,20 @@ Rejected alternatives and why (unchanged from the original evaluation, PySide6 i
 
 The only library that provides page rendering, word/line-level bounding-box extraction, AND real PDF annotation writing in one dependency. Avoids stitching together a separate rendering library (e.g. PDFium) with a separate annotation-writing approach.
 
+## Text recognition for scanned pages: Tesseract, as built into PyMuPDF
+
+A scanned page has no text layer, so nothing on it can be selected or matched. PyMuPDF's wheel already has Tesseract compiled into MuPDF (`Pixmap.pdfocr_tobytes`), so OCR adds no new library: the only new file is the English language data, `eng.traineddata` from `tesseract-ocr/tessdata_fast` (~4 MB, Apache-2.0), in `assets/tessdata/`, fetched by `scripts/fetch_tessdata.py`. English only. Offline, like everything else.
+
+- **Install size:** the estimated addition is that ~4 MB file, copied into the bundle as-is; the engine is already inside PyMuPDF's DLL. Not measured from a Nuitka build — Milestone 9 measures it with the rest.
+- **Runs in a worker process,** not a thread: PyMuPDF holds the GIL for the whole OCR call, which would stall every bridge call while a page is read. Standard-library `multiprocessing` (spawn), so no new dependency; Milestone 9 has to confirm the spawned worker starts in the Nuitka build.
+- `tessdata_fast` over `tessdata_best` (~15 MB): for printed pages the accuracy difference is small next to the size and speed difference.
+- Straightening and despeckling a scan before OCR use numpy, already a dependency (voice's audio front end). No image-processing library (OpenCV, Pillow, scikit-image) is added: a projection-profile skew search and a neighbour-count speck filter are a few lines each, and the rotation itself is done by MuPDF rendering the page turned.
+
+Rejected:
+- **Cloud OCR** (Google Vision, Azure, etc.) — paid and online; ruled out by the $0/offline constraints.
+- **A separately installed Tesseract** (`pytesseract`) — a second copy of an engine PyMuPDF already ships, plus an external install for the reader.
+- **EasyOCR / PaddleOCR** — deep-learning stacks of hundreds of MB, against the lightweight-install goal.
+
 ## Voice recognition: Vosk (offline)
 
 Free, runs fully on-device, grammar-constrained against a small fixed command vocabulary — not general-purpose transcription.
@@ -52,6 +66,8 @@ Compiles Python to C; produces smaller and faster standalone binaries than PyIns
 State is limited to two kinds of data:
 1. **Highlight/annotation data** — lives inside the PDF file itself as real PyMuPDF-written annotations, not in a separate store.
 2. **App-level settings** — theme, save-behavior preference, voice activation mode, recent-files list (capped at 20). Stored via a local JSON settings file (no `QSettings` equivalent under pywebview — this is a straightforward substitution, not a design change). This file is the only place app-level state persists: the web view's storage does not outlive a launch (see "Serving the pages" above).
+
+Besides those two, one disposable cache: the text OCR found on scanned pages, one JSON file per page in an `ocr` folder beside the settings file, capped at 100 MB and evicted least recently used first. It is derived data — deleting it only means a page is read again — and is kept out of the PDF on purpose, since Lector only ever writes highlights into a document (see `docs/ARCHITECTURE.md`).
 
 A database would be unjustified complexity for this data shape — there is no multi-record relational data, no concurrent access, and no querying need beyond "read this small settings blob."
 

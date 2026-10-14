@@ -1,9 +1,10 @@
+import threading
 from dataclasses import dataclass
 
 import fitz  # PyMuPDF
 
 from lector.features.annotations import highlighter
-from lector.features.reading import search
+from lector.features.reading import ocr, ocr_cache, search
 
 
 @dataclass
@@ -70,6 +71,18 @@ class PdfDocument:
         # any edit names, by its current xref — so every edit to a highlight
         # shares the ref that gets repointed when it is re-added.
         self._refs: dict[int, _HighlightRef] = {}
+        # Scanned pages (see `ocr.py`), per page index of the open document.
+        # `_ocr_text` holds the boxes OCR found and is what chars_on_page/
+        # words_on_page hand out in place of the (empty) text layer. The lock
+        # is there because results land from the OCR thread while bridge
+        # threads read; `_generation` tells a result for this document apart
+        # from one for a PDF that was open when its job started.
+        self._ocr_lock = threading.Lock()
+        self._generation = 0
+        self._scanned: dict[int, bool] = {}
+        self._ocr_keys: dict[int, str] = {}
+        self._ocr_status: dict[int, str] = {}
+        self._ocr_text: dict[int, tuple[list[highlighter.Char], list[highlighter.Word]]] = {}
 
     def open(self, path: str):
         if self._doc:
@@ -85,6 +98,12 @@ class PdfDocument:
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._refs.clear()
+        with self._ocr_lock:
+            self._generation += 1
+            self._scanned.clear()
+            self._ocr_keys.clear()
+            self._ocr_status.clear()
+            self._ocr_text.clear()
 
     def close(self):
         if self._doc:
@@ -176,6 +195,9 @@ class PdfDocument:
     def chars_on_page(self, page_index: int) -> list[highlighter.Char]:
         if not self._doc:
             return []
+        ocr_text = self._ocr_text_for(page_index)
+        if ocr_text is not None:
+            return list(ocr_text[0])
         return highlighter.chars_on_page(self._doc[page_index])
 
     def words_on_current_page(self) -> list[highlighter.Word]:
@@ -184,6 +206,9 @@ class PdfDocument:
     def words_on_page(self, page_index: int) -> list[highlighter.Word]:
         if not self._doc:
             return []
+        ocr_text = self._ocr_text_for(page_index)
+        if ocr_text is not None:
+            return list(ocr_text[1])
         return highlighter.words_on_page(self._doc[page_index])
 
     def page_size_points(self, page_index: int) -> tuple[float, float]:
@@ -261,8 +286,109 @@ class PdfDocument:
         """The page text inside `rects`, one line each, joined into one line."""
         if not self._doc or not 0 <= page_index < len(self._doc):
             return ""
+        ocr_text = self._ocr_text_for(page_index)
+        if ocr_text is not None:
+            # A scanned page's image has no text to clip, so the words OCR
+            # found are matched to the rects by where each one's centre is.
+            return " ".join(
+                w.text for rect in rects for w in ocr_text[1]
+                if fitz.Rect(rect).contains((w.rect.tl + w.rect.br) / 2)
+            ).strip()
         page = self._doc[page_index]
         return " ".join(" ".join(page.get_textbox(rect).split()) for rect in rects).strip()
+
+    # ------------------------------------------------------------------ #
+    # Scanned pages (OCR)                                                  #
+    # ------------------------------------------------------------------ #
+
+    def ocr_status(self, page_index: int) -> str | None:
+        """Where a page stands on OCR (one of `ocr`'s statuses), or None for
+        a page with its own text layer or nothing on it to read.
+
+        The first ask about a scanned page also looks in the on-disk cache,
+        so a page read in an earlier session — or in the file this one was
+        saved from — has its text at once instead of being read again.
+        """
+        if not self._doc or not 0 <= page_index < len(self._doc):
+            return None
+        with self._ocr_lock:
+            status = self._ocr_status.get(page_index)
+        if status is not None:
+            return status
+        if not self._is_scanned(page_index):
+            return None
+        payload = ocr_cache.load(self._ocr_key(page_index))
+        with self._ocr_lock:
+            if page_index not in self._ocr_status:
+                if payload is None or not self._install_ocr(page_index, payload):
+                    self._ocr_status[page_index] = ocr.NEEDED
+            return self._ocr_status[page_index]
+
+    def begin_ocr(self, page_index: int) -> ocr.OcrJob | None:
+        """Mark a scanned page as being read and return the job that reads
+        it, or None when there is nothing to start: a page with a text layer,
+        one already being read, or one whose reading already finished."""
+        if self.ocr_status(page_index) not in ocr.RESTARTABLE:
+            return None
+        with self._ocr_lock:
+            if self._ocr_status.get(page_index) not in ocr.RESTARTABLE:
+                return None
+            self._ocr_status[page_index] = ocr.RUNNING
+            generation = self._generation
+        return ocr.OcrJob(
+            generation,
+            page_index,
+            self._ocr_key(page_index),
+            ocr.single_page_pdf(self._doc, page_index),
+        )
+
+    def finish_ocr(self, job: ocr.OcrJob, status: str, payload: dict | None) -> bool:
+        """Take in a job's outcome. False when the job belonged to a document
+        that is no longer open, which is then simply forgotten. A result is
+        cached on disk whether or not it held legible text, so a page that
+        could not be read is not read again either."""
+        with self._ocr_lock:
+            if job.generation != self._generation:
+                return False
+            installed = status == ocr.DONE and self._install_ocr(job.page_index, payload)
+            if not installed:
+                self._ocr_status[job.page_index] = ocr.ERROR if status == ocr.DONE else status
+        if installed:
+            ocr_cache.store(job.key, payload)
+        return True
+
+    def _install_ocr(self, page_index: int, payload: dict) -> bool:
+        """Adopt an OCR payload for a page; call with `_ocr_lock` held. False
+        if the payload is malformed (a hand-edited cache file, say)."""
+        try:
+            chars, words = ocr.text_from_payload(payload)
+        except (KeyError, ValueError, TypeError):
+            return False
+        if ocr.is_readable(words):
+            self._ocr_text[page_index] = (chars, words)
+            self._ocr_status[page_index] = ocr.DONE
+        else:
+            self._ocr_status[page_index] = ocr.NO_TEXT
+        return True
+
+    def _ocr_text_for(self, page_index: int):
+        """The OCR boxes standing in for a scanned page's text layer, or None.
+        Goes through `ocr_status` so that text cached in an earlier session
+        is loaded by whichever call reaches the page first — reading
+        `_ocr_text` directly missed it until something asked for the status."""
+        if self.ocr_status(page_index) != ocr.DONE:
+            return None
+        return self._ocr_text.get(page_index)
+
+    def _is_scanned(self, page_index: int) -> bool:
+        if page_index not in self._scanned:
+            self._scanned[page_index] = ocr.page_needs_ocr(self._doc[page_index])
+        return self._scanned[page_index]
+
+    def _ocr_key(self, page_index: int) -> str:
+        if page_index not in self._ocr_keys:
+            self._ocr_keys[page_index] = ocr.page_key(self._doc, self._doc[page_index])
+        return self._ocr_keys[page_index]
 
     def _load_highlight(self, page_index: int, xref: int):
         """The page and its highlight annotation `xref`, or None if there is

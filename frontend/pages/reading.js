@@ -98,6 +98,7 @@ async function refresh({ animate = false } = {}) {
     await refreshStrip(animate);
   }
   scheduleViewportPush();
+  scheduleOcrPrefetch();
   paintFindMarks();
   paintHighlightTargets();
 }
@@ -575,9 +576,22 @@ async function endSelection(ev) {
       return;
     }
   }
+  // A scanned page has no characters until its text has been read. Pressing
+  // on it is what asks for that; the reader drags again once it is done
+  // rather than having this drag replayed against boxes it never saw.
+  if (page.ocr && page.ocr !== "done") {
+    clearSelection();
+    readPageForSelection(sel.pageIndex, page.ocr);
+    return;
+  }
   sel.range = selectionRange(sel, page, ev);
   if (!sel.range) {
     clearSelection();
+    // OCR can miss part of a page (a big heading, a line lost to noise), and
+    // a drag over text the reader can plainly see that then does nothing
+    // would look like a broken highlighter. A drag, not a click: a click in
+    // the margin is not an attempt to highlight anything.
+    if (page.ocr === "done" && sel.moved) showToast(OCR_MISSED_THERE);
     return;
   }
   // Repaint in the highlight color before the round trip, so the highlight
@@ -641,6 +655,139 @@ bookScroll.addEventListener("scroll", paintFindMarks);
 stripScroll.addEventListener("scroll", paintFindMarks);
 bookScroll.addEventListener("scroll", paintHighlightTargets);
 stripScroll.addEventListener("scroll", paintHighlightTargets);
+bookScroll.addEventListener("scroll", scheduleOcrPrefetch);
+stripScroll.addEventListener("scroll", scheduleOcrPrefetch);
+
+// --- Scanned pages (OCR) --------------------------------------------------- //
+// A scanned page is a picture with no text layer, so it has nothing to select
+// or match until Python has read its text (features/reading/ocr.py). That
+// happens one page at a time and never on open: when the reader presses on
+// the page to highlight, when a voice highlight there comes up empty, or —
+// with voice on — once the page has stayed on screen for OCR_DWELL_MS, so the
+// words are usually already in the recognizer's vocabulary by the time the
+// reader speaks. Every outcome is said out loud, in a toast for the mouse and
+// in the mic pill for voice: a press that silently did nothing would look
+// exactly like a broken highlighter.
+
+const OCR_MESSAGES = {
+  running: "Reading text on this page…",
+  no_text: "No text found on this page",
+  unavailable: "Text recognition isn't installed",
+  error: "Couldn't read the text on this page",
+};
+const OCR_READ_FOR_MOUSE = "Text read — drag to highlight";
+const OCR_READ_FOR_VOICE = "Text read — say it again";
+const OCR_MISSED_THERE = "Couldn't read the text there";
+// How long a scanned page must stay on screen, unscrolled, before it is read
+// ahead of a voice highlight: long enough that paging past it costs nothing.
+const OCR_DWELL_MS = 1000;
+// The "Reading…" toast outlives the backend's own OCR timeout (ocr.py's
+// OCR_TIMEOUT_S), so it is always the lector:ocr outcome that takes it down.
+const OCR_READING_TOAST_MS = 150000;
+
+// Page index -> dismiss() of the "Reading…" toast a press on it put up.
+const mouseOcrWaits = new Map();
+// The page the mic pill is showing "Reading…" for, if any.
+let voiceOcrWait = null;
+// The page being read ahead for voice — one at a time.
+let ocrPrefetchPage = null;
+let ocrDwellTimer = null;
+// Whether voice can be used at all right now (mic state not off/unavailable).
+let voiceEnabled = false;
+
+function ocrMessage(status) {
+  return OCR_MESSAGES[status] || OCR_MESSAGES.error;
+}
+
+async function readPageForSelection(pageIndex, status) {
+  if (status === "no_text") {
+    showToast(OCR_MESSAGES.no_text);
+    return;
+  }
+  if (mouseOcrWaits.has(pageIndex)) return; // already reading; its toast is up
+  let result;
+  try {
+    result = await callApi("ocr_page", pageIndex);
+  } catch (err) {
+    console.error("ocr_page failed:", err);
+    showToast(OCR_MESSAGES.error);
+    return;
+  }
+  if (result.status === "running") {
+    mouseOcrWaits.set(pageIndex, showToast(OCR_MESSAGES.running, { durationMs: OCR_READING_TOAST_MS }));
+    return;
+  }
+  // Finished between the press and now (a read ahead for voice, say).
+  charCache.delete(pageIndex);
+  showToast(result.status === "done" ? OCR_READ_FOR_MOUSE : ocrMessage(result.status));
+}
+
+// The mic pill's half of the story: `ocr` is {page_index, status} from a
+// voice highlight that could not have matched because the page's text was
+// not ready when the reader started speaking.
+function showVoiceOcr({ page_index: pageIndex, status }) {
+  if (status === "running") {
+    // Held, not lingered: it stays until the page has been read.
+    clearTimeout(heardTimer);
+    micHint.textContent = OCR_MESSAGES.running;
+    voiceOcrWait = pageIndex;
+    return;
+  }
+  voiceOcrWait = null;
+  setMicHint(status === "done" ? OCR_READ_FOR_VOICE : ocrMessage(status));
+}
+
+window.addEventListener("lector:ocr", (ev) => {
+  const { page_index: pageIndex, status } = ev.detail || {};
+  // The boxes cached for this page were the empty pre-OCR ones.
+  charCache.delete(pageIndex);
+  const dismiss = mouseOcrWaits.get(pageIndex);
+  if (dismiss) {
+    mouseOcrWaits.delete(pageIndex);
+    dismiss();
+    showToast(status === "done" ? OCR_READ_FOR_MOUSE : ocrMessage(status));
+  }
+  // Not over a new utterance the reader has already started.
+  if (voiceOcrWait === pageIndex && !micPill.classList.contains("listening")) {
+    voiceOcrWait = null;
+    setMicHint(status === "done" ? OCR_READ_FOR_VOICE : ocrMessage(status));
+  }
+  if (ocrPrefetchPage === pageIndex) ocrPrefetchPage = null;
+  scheduleOcrPrefetch(); // another scanned page may be on screen too
+});
+
+// Restarted on every scroll and page change, so only a page the reader has
+// actually stopped on is read ahead.
+function scheduleOcrPrefetch() {
+  clearTimeout(ocrDwellTimer);
+  if (!voiceEnabled || ocrPrefetchPage !== null || !state.is_open) return;
+  ocrDwellTimer = setTimeout(prefetchVisiblePage, OCR_DWELL_MS);
+}
+
+async function prefetchVisiblePage() {
+  if (!voiceEnabled || ocrPrefetchPage !== null || !state.is_open) return;
+  // Not computeVoiceViewport(): that paints the "listening here" outline.
+  const { regions } =
+    layoutMode === "book" ? await computeBookViewport() : await computeStripViewport();
+  for (const { page_index: pageIndex } of regions) {
+    const page = await getPageChars(pageIndex);
+    if (page.ocr !== "needed") continue;
+    ocrPrefetchPage = pageIndex;
+    try {
+      const result = await callApi("ocr_page", pageIndex);
+      if (result.status !== "running") {
+        ocrPrefetchPage = null;
+        charCache.delete(pageIndex);
+      }
+    } catch (err) {
+      // Nobody asked for this read, so nothing to tell the reader; a
+      // highlight attempt on the page will ask again and report properly.
+      ocrPrefetchPage = null;
+      console.error("OCR prefetch failed:", err);
+    }
+    return;
+  }
+}
 // Book layout centres its page, so a resize moves the highlights under the
 // targets laid over them.
 window.addEventListener("resize", paintHighlightTargets);
@@ -1337,6 +1484,9 @@ async function voiceHighlight(query, sentence, color = null) {
     // The color is named only when it was a one-off, since that is the case
     // where it differs from what the color button shows.
     setMicHint(color ? `Highlighted “${result.text}” in ${result.color}` : `Highlighted “${result.text}”`);
+  } else if (result.ocr) {
+    updateChrome();
+    showVoiceOcr(result.ocr);
   } else {
     updateChrome();
     setMicHint(`Couldn't find “${result.query}” on this page`);
@@ -1465,8 +1615,15 @@ function idleHint(wake, pushToTalk) {
   return "Hold Space to talk";
 }
 
-function renderMicState({ state: micState, text, error, command, clarify, wake, pushToTalk, viaWake }) {
+function renderMicState({ state: micState, text, error, command, clarify, ocr, wake, pushToTalk, viaWake }) {
   clearTimeout(heardTimer);
+  // A new utterance replaces whatever the pill was waiting to report.
+  if (micState === "listening") voiceOcrWait = null;
+  const enabled = micState !== "off" && micState !== "unavailable";
+  if (enabled !== voiceEnabled) {
+    voiceEnabled = enabled;
+    scheduleOcrPrefetch();
+  }
   micPill.classList.toggle("listening", micState === "listening");
   micPill.classList.toggle("unavailable", micState === "unavailable" || micState === "off");
   // Idle listening for the phrase is its own look: the microphone is open,
@@ -1503,6 +1660,13 @@ function renderMicState({ state: micState, text, error, command, clarify, wake, 
     case "heard":
       micLabel.textContent = text ? `"${text}"` : "Didn't catch that";
       micPill.title = "";
+      // A bare "highlight" over a scanned page not yet read: the words after
+      // it were dropped because they could not have been heard, which is a
+      // different story from "not a command I know".
+      if (ocr) {
+        showVoiceOcr(ocr);
+        break;
+      }
       // A near-miss (Milestone 8.3) gets its own hint, ahead of the generic
       // "not a command I know" — a phrase close enough to guess at deserves
       // a named guess, not the same catch-all a totally unrelated one gets.

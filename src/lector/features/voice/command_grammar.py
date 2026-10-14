@@ -282,6 +282,23 @@ def _parse_highlight(words: list[str]) -> dict | None:
     return None
 
 
+def is_bare_highlight(text: str) -> bool:
+    """True when `text` is a highlight trigger with nothing after it.
+
+    `parse` gives that no intent — there is no query to look for. It is
+    still worth recognizing, because it is what "highlight <words>" turns
+    into when none of the words were in the recognizer's vocabulary (the
+    engine drops `[unk]`), which is what happens on a scanned page whose
+    text has not been read yet.
+    """
+    words = _normalize(text)
+    return any(
+        len(words) == len(trigger.split())
+        and fuzzy.similarity(" ".join(words), trigger) >= fuzzy.DEFAULT_THRESHOLD
+        for _, trigger in _HIGHLIGHT_TRIGGERS
+    )
+
+
 def _split_color(query_words: list[str]) -> tuple[list[str], str | None]:
     """Split a trailing "in <colour>" off a highlight query.
 

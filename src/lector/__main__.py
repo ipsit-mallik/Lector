@@ -119,6 +119,7 @@ def main(args: list[str] | None = None) -> None:
         # origin changes every launch, and settings.json holds what persists.
         webview.start(private_mode=False, storage_path=str(webview_dir))
     finally:
+        api.shutdown_ocr()
         server.stop()
         lock.release()
 

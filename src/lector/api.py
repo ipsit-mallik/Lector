@@ -20,9 +20,10 @@ from lector.features.dialogs import browser as dialog_browser
 from lector.features.home import file_drop
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
+from lector.features.reading import ocr
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
-from lector.features.voice import reference, router
+from lector.features.voice import command_grammar, reference, router
 from lector.features.voice import engine as engine_module
 from lector.features.voice.engine import VoiceEngine
 from lector.shared import window_chrome
@@ -61,6 +62,13 @@ class Api:
         # reader hears the page they were looking at when they started
         # talking, not whatever is on screen by the time recognition finishes.
         self._voice_viewport: list[dict] = []
+        # Scanned pages in that viewport whose text was not ready when the
+        # recognizer's vocabulary was last built — their words could not
+        # have been heard, so a failed highlight there is explained by OCR,
+        # not by the reader (see `_voice_ocr_outcome`).
+        self._voice_ocr_pages: list[int] = []
+        # Reads scanned pages in a worker process, one at a time, on demand.
+        self._ocr = ocr.OcrRunner(self._on_ocr_finished)
         # Which screen/dialog is currently listening (Milestone 8.4). Starts
         # at `router.DEFAULT_CONTEXT` (`reading`) rather than `home` so a
         # caller that never makes a `set_voice_context` call — every test in
@@ -216,6 +224,11 @@ class Api:
 
     def open_pdf(self, path: str) -> dict:
         self._doc.open(path)
+        # A viewport names pages of the document it was measured on; kept
+        # across an open, the next vocabulary rebuild would ask the new one
+        # for pages it may not have.
+        self._voice_viewport = []
+        self._voice_ocr_pages = []
         self._title = os.path.splitext(os.path.basename(path))[0]
         self._path = path
         self._layout_mode = settings.BOOK
@@ -347,13 +360,21 @@ class Api:
         gets written is what the reader saw selected. Character granularity
         (rather than word) is what lets a drag stop mid-word, the way Adobe
         Reader and other desktop PDF viewers select text.
+
+        `ocr` is None for a page with a text layer. For a scanned page it is
+        one of `ocr`'s statuses, and `chars` is empty until it is "done" —
+        `ocr_page` is how the frontend asks for it to be read.
         """
         if not self._doc.is_open:
-            return {"width": 0, "height": 0, "chars": []}
+            return {"width": 0, "height": 0, "chars": [], "ocr": None}
         width, height = self._doc.page_size_points(page_index)
+        # First, because for a scanned page read in an earlier session this
+        # is what loads its cached text — and with it the chars below.
+        ocr_status = self._doc.ocr_status(page_index)
         return {
             "width": width,
             "height": height,
+            "ocr": ocr_status,
             "chars": [
                 {
                     "x0": c.rect.x0,
@@ -365,6 +386,61 @@ class Api:
                 for c in self._doc.chars_on_page(page_index)
             ],
         }
+
+    def ocr_page(self, page_index: int) -> dict:
+        """Start reading a scanned page's text, if it needs it.
+
+        Returns at once with `{"page_index", "status"}`: "running" when a
+        read was started or is already under way, otherwise where the page
+        already stands ("done", "no_text", or None for a page with its own
+        text). A read that was started ends with a `lector:ocr` page event
+        carrying the same two keys. Never called on file open — the frontend
+        asks when a highlight is attempted on a scanned page, or, with voice
+        on, once one has stayed on screen.
+        """
+        page_index = int(page_index)
+        job = self._doc.begin_ocr(page_index)
+        if job is not None:
+            self._ocr.submit(job)
+        return {"page_index": page_index, "status": self._doc.ocr_status(page_index)}
+
+    def _on_ocr_finished(self, job: ocr.OcrJob, status: str, payload: dict | None) -> None:
+        """Runs on the OCR thread. Takes the result in, widens the voice
+        vocabulary with the page's new words (a wake-phrase recognizer is
+        built before anything is said, so it has to hear about them now),
+        and tells the page."""
+        if not self._doc.finish_ocr(job, status, payload):
+            return
+        with self._voice_context_lock:
+            self._refresh_voice_vocabulary()
+        self._dispatch_page_event(
+            "lector:ocr",
+            {"page_index": job.page_index, "status": self._doc.ocr_status(job.page_index)},
+        )
+
+    def _voice_ocr_outcome(self) -> dict | None:
+        """Why a voice highlight could not have matched, when the reason is a
+        scanned page's text: `{"page_index", "status"}` for the first such
+        page in the viewport, or None when OCR is not the explanation.
+
+        Covers the pages whose text was missing when the vocabulary was last
+        built (`_voice_ocr_pages`). One not read yet is started now, so the
+        reader who spoke before the dwell prefetch got there is not left
+        waiting on nothing; one that finished since reports "done", which
+        the frontend words as "say it again".
+        """
+        for page_index in self._voice_ocr_pages:
+            job = self._doc.begin_ocr(page_index)
+            if job is not None:
+                self._ocr.submit(job)
+            status = self._doc.ocr_status(page_index)
+            if status is not None:
+                return {"page_index": page_index, "status": status}
+        return None
+
+    def shutdown_ocr(self) -> None:
+        """Stop the OCR worker process. Called once the window has closed."""
+        self._ocr.shutdown()
 
     # ------------------------------------------------------------------ #
     # Find in document                                                     #
@@ -482,7 +558,11 @@ class Api:
         match = highlight_matcher.find_word_match(pages, query)
         state = self._state()
         if match is None:
-            state["voice_highlight"] = {"matched": False, "query": query}
+            state["voice_highlight"] = {
+                "matched": False,
+                "query": query,
+                "ocr": self._voice_ocr_outcome(),
+            }
             return state
 
         words = self._doc.words_on_page(match.page_index)
@@ -762,6 +842,13 @@ class Api:
         if self._voice_context == router.DICTATION:
             self._voice.set_vocabulary(None)
             return
+        # Asked before the vocabulary is built, because for a scanned page
+        # read in an earlier session this is what loads its cached words.
+        self._voice_ocr_pages = [
+            region["page_index"]
+            for region in self._voice_viewport
+            if self._doc.ocr_status(region["page_index"]) not in (None, ocr.DONE)
+        ]
         extra = self._viewport_vocabulary(self._voice_viewport) if self._doc.is_open else []
         self._voice.set_vocabulary(router.vocabulary_for(self._voice_context) + extra)
 
@@ -822,6 +909,12 @@ class Api:
                 self._voice_context, result.get("text", ""), result.get("alternatives")
             )
             result = {**result, "command": resolved["command"], "clarify": resolved["clarify"]}
+            # "highlight <words>" on a scanned page whose text is not read
+            # yet reaches here as a bare "highlight": the recognizer drops
+            # every word outside its vocabulary. That is no command at all,
+            # and would read as "not a command I know" without this.
+            if resolved["command"] is None and command_grammar.is_bare_highlight(result.get("text", "")):
+                result["ocr"] = self._voice_ocr_outcome()
         payload = json.dumps(result)
         try:
             window.evaluate_js(

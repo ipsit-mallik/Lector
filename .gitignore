@@ -21,3 +21,7 @@ assets/vosk_model/*
 # Offline VAD model (~2 MB) - fetched, not committed.
 # Run: python scripts/fetch_vad_model.py
 assets/silero_vad.onnx
+
+# Tesseract English language data (~4 MB) - fetched, not committed.
+# Run: python scripts/fetch_tessdata.py
+assets/tessdata/

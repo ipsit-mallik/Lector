@@ -289,6 +289,16 @@ Five, fixed: yellow (default), green, blue, pink, orange. No free picker (`docs/
 - **Existing highlights** get a transparent target per highlight (a `<button>` with one box per line, `.highlight-target`), so every highlight on screen can be clicked or tabbed to and is named for a screen reader ("Green highlight: “glancing elsewhere”"). Hover rings its lines 1px in `--paper-hover-ring`; keyboard focus 2px in `--paper-focus-ring` — rings, never a fill, since a fill would change the very colour being looked at. While the highlight tool is on the targets let the pointer through so a drag can start on a highlight; a click there (a press that moves less than 3px) opens the editor rather than highlighting a character again.
 - **Editor** (`.highlight-editor`, `role="dialog"`): the same panel look as the flyout, under the highlight's last line (above its first when there is no room), kept inside the page area: the five swatches with the highlight's colour chosen (none, for a colour another app wrote), a divider, then "Remove" (a 32px secondary button with the remove icon). Choosing a colour recolours it; Remove deletes it; both are one Undo step, close the editor, and return focus to the highlight (or the page, after Remove). The highlight being edited keeps its hover ring while the editor is open. Esc or a press outside closes it.
 
+## Scanned pages (OCR)
+
+No new component: a scanned page looks exactly like any other page, and its reading is reported with the two surfaces that already report what highlighting did — the shared toast for the mouse, the mic pill's hint for voice. Implemented in `reading.js` (`OCR_MESSAGES`), behaviour in `docs/ARCHITECTURE.md`.
+
+- **Mouse** (highlight tool on, press on an unread scanned page): toast "Reading text on this page…", held until the page is read, then replaced by "Text read — drag to highlight". The press itself selects nothing; the reader drags again.
+- **Voice** (a highlight said before the page was read): the mic pill's hint reads "Reading text on this page…" — held, not on the usual 2.5 s linger — then "Text read — say it again". Read ahead after a 1 s dwell with voice on, so this is the exception.
+- **When it cannot be read** (the same text in either place): "No text found on this page" (read, nothing legible — a blank or badly photographed page; said again on each later attempt without re-reading), "Couldn't read the text on this page" (the OCR failed; the next attempt retries), "Text recognition isn't installed" (the language data is missing).
+- **Part of a page missed** (mouse only): OCR can miss a stretch of a page that was otherwise read — a large heading, a line lost in a noisy scan. A drag there that selects nothing shows the toast "Couldn't read the text there" instead of doing nothing. Only for a drag: a click in the margin is not an attempt to highlight.
+- Copy is sentence case with no full stop, like the other mic hints; "…" is the ellipsis character, as in "Searching…".
+
 ## Numbered-overlay picker (Milestone 8.6)
 
 Mockup: `docs/mockups/09 Numbered picker overlay.png` (composited directly on the real Screen 01 export for pixel-accurate color/spacing, not a fresh drawing). This postdates the original 9-screen set, but follows a pattern the app already established rather than inventing a new one:
