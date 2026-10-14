@@ -5,6 +5,7 @@ import fitz  # PyMuPDF
 
 from lector.features.annotations import highlighter
 from lector.features.reading import ocr, ocr_cache, search
+from lector.features.reading.outline import OutlineEntry, outline_tree
 
 
 @dataclass
@@ -164,6 +165,23 @@ class PdfDocument:
         page = self._doc[index]
         mat = fitz.Matrix(self._zoom, self._zoom)
         return page.get_pixmap(matrix=mat, alpha=False)
+
+    def render_thumbnail(self, index: int, width_px: int):
+        """Page `index` scaled to `width_px` pixels wide, whatever the zoom —
+        for the outline panel's Pages tab and the progress bar's hover
+        preview. None for a page that isn't there."""
+        if not self._doc or not 0 <= index < len(self._doc):
+            return None
+        page = self._doc[index]
+        scale = max(1, width_px) / page.rect.width if page.rect.width else 1
+        return page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+
+    def outline(self) -> list[OutlineEntry]:
+        """The PDF's bookmarks as a nested tree (see outline.py); [] when it
+        has none."""
+        if not self._doc:
+            return []
+        return outline_tree(self._doc.get_toc(simple=True), len(self._doc))
 
     def page_sizes(self) -> list[tuple[int, int]]:
         """Page dimensions at the current zoom, without rendering pixmaps.
@@ -503,9 +521,15 @@ class PdfDocument:
         return highlighter.highlight_count(self._doc[self._page_index])
 
     def highlight_count_total(self) -> int:
+        return sum(self.highlight_counts().values())
+
+    def highlight_counts(self) -> dict[int, int]:
+        """How many highlights each page has, for the pages that have any —
+        including ones not saved yet, since this reads the open document."""
         if not self._doc:
-            return 0
-        return sum(highlighter.highlight_count(self._doc[i]) for i in range(len(self._doc)))
+            return {}
+        counts = {i: highlighter.highlight_count(self._doc[i]) for i in range(len(self._doc))}
+        return {i: n for i, n in counts.items() if n}
 
     def save_overwrite(self):
         self._doc.saveIncr()

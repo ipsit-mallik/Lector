@@ -126,6 +126,11 @@
    * own target draws on the paper when hovered and when focused: dark, since
    * the paper and every highlight under them are light (the focus ring is
    * 10.2:1 on white and 4.9:1 on orange, the darkest highlight). */
+  /* The reader's progress bar marks every page with a highlight on it in this
+   * one colour, in every theme: a pale highlight yellow, lighter than any
+   * track or fill below, so it stands >= 3:1 off both the read and unread
+   * parts of the bar (tests/test_progress_bar_tokens.py). */
+  --progress-marker: #FFE98F;
   --on-swatch: #161A18;
   --paper-hover-ring: rgba(22, 26, 24, 0.45);
   --paper-focus-ring: #2C463F;
@@ -188,6 +193,11 @@
   --selected-tint: 10%;
   --thumb-filter: none;
   --thumb-paper: var(--paper);
+  /* The progress bar's unread track and read fill. Both well below the
+   * marker yellow, and >= 3:1 apart: the track a mid grey (>= 3:1 on the
+   * window), the fill near-black teal. */
+  --progress-track: #857F76;
+  --progress-fill: #22382F;
 }
 
 [data-theme="dark"] {
@@ -253,6 +263,10 @@
   --selected-tint: 18%;
   --thumb-filter: brightness(0.9);
   --thumb-paper: color-mix(in srgb, var(--paper) 90%, #000000);
+  /* Progress bar: here the unread track is a faint groove and the read fill
+   * the bright part, a teal >= 3:1 from both the groove and the marker. */
+  --progress-track: #3A352E;
+  --progress-fill: #5A8E80;
 }
 
 [data-theme="sepia"] {
@@ -303,6 +317,9 @@
   --selected-tint: 10%;
   --thumb-filter: none;
   --thumb-paper: var(--paper);
+  /* Progress bar: as light, in sepia's browns. */
+  --progress-track: #887B64;
+  --progress-fill: #24322A;
 }
 
 /* Derived tokens — computed from the per-theme values above, so they

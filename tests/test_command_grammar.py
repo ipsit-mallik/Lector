@@ -257,7 +257,10 @@ class IntentContractTests(unittest.TestCase):
         self.assertEqual(cg.SCROLL_DOWN, "SCROLL_DOWN")
 
     def test_every_phrase_intent_is_a_declared_constant(self):
-        declared = {cg.NEXT_PAGE, cg.PREV_PAGE, cg.SCROLL_UP, cg.SCROLL_DOWN, cg.SAVE}
+        declared = {
+            cg.NEXT_PAGE, cg.PREV_PAGE, cg.SCROLL_UP, cg.SCROLL_DOWN, cg.SAVE,
+            cg.SHOW_OUTLINE, cg.SHOW_PAGES, cg.HIDE_OUTLINE, cg.TOGGLE_PROGRESS_BAR,
+        }
         self.assertEqual(set(cg.PHRASES), declared)
 
     def test_results_carry_the_matched_phrase_and_score(self):

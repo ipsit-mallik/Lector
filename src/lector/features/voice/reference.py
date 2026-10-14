@@ -239,6 +239,22 @@ def _reading_sections() -> list[dict]:
                      "↓", _READING),
             _command(_all(p, grammar.SCROLL_UP), "The same, upwards.", "↑", _READING),
         ]),
+        _section("panel", "Outline, pages and progress", scope, [
+            _command(_all(p, grammar.SHOW_OUTLINE),
+                     "Opens the outline beside the page and numbers its entries: say "
+                     "a number to jump there. Shows the pages instead when the PDF has "
+                     "no outline.",
+                     "Click the outline button at the top left, then an entry", _READING),
+            _command(_all(p, grammar.SHOW_PAGES),
+                     "Opens the page thumbnails beside the page, numbered by page: say "
+                     "a number to jump there.",
+                     "Click the outline button, then Pages", _READING),
+            _command(_all(p, grammar.HIDE_OUTLINE), "Closes the outline and pages panel.",
+                     "Click the outline button again", _READING),
+            _command(_all(p, grammar.TOGGLE_PROGRESS_BAR),
+                     "Shows or hides the progress bar on the left edge.",
+                     "Settings, Reading, Progress bar", _READING),
+        ]),
         _section("highlighting", "Highlighting", scope, [
             _command(_then(grammar.HIGHLIGHT_TRIGGERS, WORDS),
                      "Say a few words you can see on screen and they are highlighted. "
@@ -314,8 +330,9 @@ def _prompts() -> dict:
         "Works only while a dialog or a numbered list is showing.",
         [
             _command([NUMBER],
-                     "Picks that numbered item — a card after \"pick a file\", or a row in the "
-                     "Open PDF and Save a copy dialogs.",
+                     "Picks that numbered item — a card after \"pick a file\", an entry in the "
+                     "reader's outline or pages after \"show outline\" or \"show pages\", or a "
+                     "row in the Open PDF and Save a copy dialogs.",
                      "Click the item", (router.PICKER, *dialogs)),
             _command(_all(o, router.CANCEL),
                      "Leaves the dialog or numbered list without doing anything.",
@@ -347,7 +364,7 @@ def _prompts() -> dict:
 # front of it (see `sections`); the rest keep this order.
 _SECTION_ORDER: tuple[str, ...] = (
     "anywhere", "back_home", "recent", "favorites", "theme", "save", "reopen",
-    "moving", "highlighting", "undo_redo", "app", "this_list", "prompts",
+    "moving", "panel", "highlighting", "undo_redo", "app", "this_list", "prompts",
 )
 
 

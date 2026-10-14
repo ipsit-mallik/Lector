@@ -173,3 +173,37 @@
   margin-left: var(--space-4);
   padding: var(--space-1) 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* Reading                                                             */
+/* ------------------------------------------------------------------ */
+
+/* Three small settings in one section, each a label, its choice and (where
+   the choice needs explaining) a note under it. */
+.setting-label {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.section .sub + .setting-label { margin-top: 0; }
+
+/* Two choices side by side, equal width: neither is the recommended one. */
+.option-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.option-pair .option-row { margin: 0; }
+
+.setting-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* The five highlight colours, the same swatches as the reader's flyout
+   (shared/components.css), with room for the chosen one's ring. */
+.settings-swatches { padding: var(--space-1); }

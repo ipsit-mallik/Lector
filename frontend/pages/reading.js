@@ -80,6 +80,10 @@ function updateChrome() {
   undoBtn.disabled = !state.can_undo;
   redoBtn.disabled = !state.can_redo;
   showActiveHighlightColor(state.highlight_color);
+  // The progress bar and the outline panel follow every page and highlight
+  // change from here, strip scrolling included.
+  updateProgressBar(state);
+  updateOutlinePanel(state);
 }
 
 // `animate` is for a page jump the reader asked for (next, previous, go to):
@@ -608,6 +612,7 @@ async function applyHighlight(pageIndex, range) {
   state = await callApi("highlight_chars", pageIndex, range.lo, range.hi);
   updateChrome();
   forgetPageHighlights(pageIndex);
+  forgetPageThumbnails(pageIndex);
   paintHighlightTargets();
   if (layoutMode === "strip") {
     highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
@@ -789,26 +794,58 @@ async function prefetchVisiblePage() {
   }
 }
 // Book layout centres its page, so a resize moves the highlights under the
-// targets laid over them.
-window.addEventListener("resize", paintHighlightTargets);
+// targets laid over them. The page area also changes size when the outline
+// panel opens or closes, with no window resize, so it is the page area that is
+// watched.
+new ResizeObserver(() => {
+  // It also fires once on load, before there is a document to paint over.
+  if (!state.is_open) return;
+  paintHighlightTargets();
+  paintFindMarks();
+  if (selection && selection.range) paintSelection(selection, false);
+}).observe(pageArea);
+
+// The page previews in the progress bar and the Pages tab show highlights, so
+// a page's are redrawn after its highlights change.
+function forgetPageThumbnails(pageIndex) {
+  if (pageIndex == null) return;
+  forgetProgressThumb(pageIndex);
+  forgetPageThumb(pageIndex);
+}
 
 // ------------------------------------------------------------------ //
 // Navigation / zoom                                                    //
 // ------------------------------------------------------------------ //
 
+// Every page change the reader asks for (keyboard, voice, the toolbar, an
+// outline entry) goes through one of these, and widens the progress bar for a
+// moment to show where it landed. Scrolling the strip does not.
 async function goNext() {
+  const before = state.page_index;
   state = await callApi("next_page");
   await refresh({ animate: true });
+  if (state.page_index !== before) flashProgressBar();
 }
 
 async function goPrev() {
+  const before = state.page_index;
   state = await callApi("prev_page");
   await refresh({ animate: true });
+  if (state.page_index !== before) flashProgressBar();
 }
 
 async function goToPage(n) {
+  const before = state.page_index;
   state = await callApi("goto_page", n - 1);
   await refresh({ animate: true });
+  if (state.page_index !== before) flashProgressBar();
+}
+
+// The progress bar's click and drag: lands at once (a drag asks for many pages
+// in a row), and the bar is already open, so there is nothing to flash.
+async function jumpToPageIndex(index) {
+  state = await callApi("goto_page", index);
+  await refresh();
 }
 
 // Re-rendering every page at a new resolution (a full strip rebuild, for
@@ -982,6 +1019,7 @@ async function redo() {
 async function afterAnnotationChange(affectedPage) {
   updateChrome();
   forgetPageHighlights(affectedPage);
+  forgetPageThumbnails(affectedPage);
   paintHighlightTargets();
   if (layoutMode === "strip") {
     highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
@@ -1267,6 +1305,7 @@ document.addEventListener("keydown", (ev) => {
       // nothing to back out of. With no drag on, Esc closes the find bar
       // even once focus has moved to the page.
       if (selection) cancelSelection();
+      else if (isOutlinePickerActive()) endOutlinePicker();
       else if (isHighlightEditorOpen()) closeHighlightEditor({ returnFocus: true });
       else if (isColorFlyoutOpen()) closeColorFlyout({ returnFocus: true });
       else if (isFindBarOpen()) closeFindBar();
@@ -1311,6 +1350,12 @@ configureFindBar({
   scroller: () => activeScrollEl(),
   currentPage: () => state.page_index,
   returnFocus: () => pageArea.focus({ preventScroll: true }),
+});
+
+configureProgressBar({ jumpTo: (index) => jumpToPageIndex(index) });
+configureOutlinePanel({
+  jumpTo: (index) => goToPage(index + 1),
+  say: (text) => setMicHint(text),
 });
 
 // What highlight-colors.js needs to know about this view's layouts.
@@ -1501,6 +1546,12 @@ const VOICE_ACTIONS = {
   SCROLL_UP: () => voiceScroll(-1),
   HIGHLIGHT: (command) => voiceHighlight(command.query, false, command.color),
   HIGHLIGHT_SENTENCE: (command) => voiceHighlight(command.query, true, command.color),
+  // The outline panel (outline-panel.js). "show outline" and "show pages"
+  // number the entries, so the next thing said can be a number.
+  SHOW_OUTLINE: () => startOutlinePicker("outline"),
+  SHOW_PAGES: () => startOutlinePicker("pages"),
+  HIDE_OUTLINE: () => closeOutlinePanel(),
+  TOGGLE_PROGRESS_BAR: () => toggleProgressBar(),
   SET_HIGHLIGHT_COLOR: async (command) => {
     await setActiveHighlightColor(command.color);
     setMicHint(`Highlight color: ${command.color}`);
@@ -1522,6 +1573,19 @@ const VOICE_ACTIONS = {
   OPEN_SETTINGS: () => leaveReadingTo("settings.html"),
   OPEN_PDF: () => leaveReadingTo("../index.html", { openDialog: true }),
 };
+
+// The voice "toggle progress bar"; Settings > Reading is its mouse and
+// keyboard route. The same stored setting either way.
+async function toggleProgressBar() {
+  const on = !isProgressBarVisible();
+  setProgressBarVisible(on);
+  setMicHint(on ? "Progress bar on" : "Progress bar off");
+  try {
+    await callApi("set_progress_bar", on);
+  } catch (err) {
+    console.error("set_progress_bar failed:", err);
+  }
+}
 
 // Leaves for another screen, but only once any unsaved highlights have been
 // dealt with. `openDialog` asks Home to open its Open dialog on arrival (the
@@ -1575,6 +1639,8 @@ window.addEventListener("lector:command", (ev) => {
     SaveDialog.handleCommand(command);
     return;
   }
+  // A spoken number or "cancel" while the outline or pages are numbered.
+  if (handleOutlinePickerCommand(command)) return;
   const action = VOICE_ACTIONS[command.intent];
   if (!action) return;
   // A dialog owns the view while it is open; a page turn behind it would be
@@ -1726,6 +1792,21 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
   // start-at-the-beginning defaults; this view just renders what it is given.
   layoutMode = state.layout_mode === "strip" ? "strip" : "book";
   applyLayoutChrome();
+  // The left edge: the progress bar (unless switched off in Settings) and the
+  // outline panel, open again if it was left open.
+  const [prefs, outline, sizes] = await Promise.all([
+    callApi("get_reading_preferences"),
+    callApi("get_outline"),
+    callApi("get_page_sizes"),
+  ]);
+  initProgressBar({ pageCount: state.page_count, chapters: outline.chapters, visible: prefs.progress_bar });
+  initOutlinePanel({
+    entries: outline.entries,
+    pageCount: state.page_count,
+    pageSizes: sizes,
+    currentPage: state.page_index,
+    open: prefs.outline_open,
+  });
   await initHighlightColors(state.highlight_color);
   await refresh();
 })();

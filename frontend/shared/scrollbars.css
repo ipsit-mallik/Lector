@@ -21,6 +21,7 @@
 
 :root {
   --scrollbar-size: 6px;
+  --scrollbar-hit: 12px;
   --scrollbar-inset: 8px;
   --scrollbar-thumb: var(--text-tertiary);
   --scrollbar-thumb-hover: var(--text-muted);
@@ -64,6 +65,28 @@
 :root ::-webkit-scrollbar-thumb:active,
 :root::-webkit-scrollbar-thumb:active {
   background-color: var(--scrollbar-thumb-hover);
+}
+
+/* The reader's page scroller (.page-scroller, book and strip), whose scrollbar
+ * sits just inside the toolbar on the right edge: a 12px gutter, so the thumb
+ * is an easy target to grab, with the same 6px thumb drawn in its middle (8px
+ * while hovered or dragged). The transparent border is part of the hit area
+ * but not of the painted thumb. Same fade, colours and inset as every other
+ * scrollbar; only the grab area is wider. */
+.page-scroller::-webkit-scrollbar {
+  width: var(--scrollbar-hit);
+  height: var(--scrollbar-hit);
+}
+
+.page-scroller::-webkit-scrollbar-thumb {
+  border: calc((var(--scrollbar-hit) - var(--scrollbar-size)) / 2) solid transparent;
+  border-radius: var(--radius-sm);
+  background-clip: padding-box;
+}
+
+.page-scroller::-webkit-scrollbar-thumb:hover,
+.page-scroller::-webkit-scrollbar-thumb:active {
+  border-width: calc((var(--scrollbar-hit) - var(--scrollbar-size)) / 2 - 1px);
 }
 
 @media (prefers-reduced-motion: reduce) {

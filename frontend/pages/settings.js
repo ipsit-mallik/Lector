@@ -10,6 +10,13 @@ const wakePhraseLabel = document.getElementById("wakePhraseLabel");
 const continueRow = document.getElementById("continueRow");
 const startRow = document.getElementById("startRow");
 const reopenRows = [continueRow, startRow];
+const bookViewRow = document.getElementById("bookViewRow");
+const stripViewRow = document.getElementById("stripViewRow");
+const defaultViewRows = [bookViewRow, stripViewRow];
+const progressOnRow = document.getElementById("progressOnRow");
+const progressOffRow = document.getElementById("progressOffRow");
+const progressRows = [progressOnRow, progressOffRow];
+const highlightColorSwatches = document.getElementById("highlightColorSwatches");
 
 // Shared by the sidebar click and the voice GO_HOME command (Milestone 8.5).
 function goHome() {
@@ -235,6 +242,87 @@ reopenRows.forEach((row) => {
   row.addEventListener("click", () => chooseReopenMode(row.dataset.mode));
 });
 
+// --- Reading ----------------------------------------------------------------- //
+
+function markRow(rows, chosen) {
+  rows.forEach((r) => r.classList.toggle("selected", r === chosen));
+}
+
+// Each choice is shown at once and put back if it could not be stored, so the
+// page never claims a setting the next launch won't have.
+async function chooseSetting(rows, row, apiName, value) {
+  const previous = rows.find((r) => r.classList.contains("selected"));
+  markRow(rows, row);
+  try {
+    await callApi(apiName, value);
+  } catch (err) {
+    console.error(`${apiName} failed:`, err);
+    markRow(rows, previous);
+    showToast("Couldn't change that setting. Try again.");
+  }
+}
+
+defaultViewRows.forEach((row) => {
+  row.addEventListener("click", () => chooseSetting(defaultViewRows, row, "set_default_view", row.dataset.mode));
+});
+
+progressRows.forEach((row) => {
+  row.addEventListener("click", () => chooseSetting(progressRows, row, "set_progress_bar", row === progressOnRow));
+});
+
+function colorLabel(name) {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function markHighlightSwatch(name) {
+  highlightColorSwatches.querySelectorAll(".swatch").forEach((swatch) => {
+    const chosen = swatch.dataset.color === name;
+    swatch.classList.toggle("selected", chosen);
+  });
+}
+
+// The reader's own active colour (api.set_highlight_color), not a separate
+// default: changing it here changes the dot under the reader's highlight
+// tool, and the other way round. Swatches as the reader's flyout builds them
+// (highlight-colors.js): the token colour, a check as well as the ring.
+async function chooseHighlightColor(name) {
+  const previous = highlightColorSwatches.querySelector(".swatch.selected");
+  markHighlightSwatch(name);
+  try {
+    const state = await callApi("set_highlight_color", name);
+    markHighlightSwatch((state && state.highlight_color) || name);
+  } catch (err) {
+    console.error("set_highlight_color failed:", err);
+    markHighlightSwatch(previous ? previous.dataset.color : null);
+    showToast("Couldn't change the highlight color. Try again.");
+  }
+}
+
+function buildHighlightSwatches(palette, active) {
+  highlightColorSwatches.replaceChildren(...palette.map((name) => {
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "swatch";
+    swatch.dataset.color = name;
+    swatch.style.setProperty("--swatch", `var(--highlight-${name})`);
+    swatch.setAttribute("aria-label", colorLabel(name));
+    swatch.title = colorLabel(name);
+    const check = document.createElement("span");
+    check.className = "swatch-check";
+    check.dataset.icon = "check";
+    swatch.append(check);
+    swatch.addEventListener("click", () => chooseHighlightColor(name));
+    return swatch;
+  }));
+  markHighlightSwatch(active);
+  // Arrows move, Enter, Space or a click choose: each choice writes a setting.
+  initRadioCards(highlightColorSwatches, { selectOnArrow: false });
+  return mountIcons(highlightColorSwatches);
+}
+
+initRadioCards(document.getElementById("defaultViewOptions"));
+initRadioCards(document.getElementById("progressBarOptions"));
+
 (async function init() {
   await mountIcons();
   const theme = await callApi("get_theme");
@@ -253,6 +341,11 @@ reopenRows.forEach((row) => {
   // phrase the recognizer is not listening for.
   const reference = await callApi("get_command_reference");
   wakePhraseLabel.textContent = `“${reference.wake_phrase_display}”`;
+
+  const reading = await callApi("get_reading_preferences");
+  markRow(defaultViewRows, reading.default_view === "strip" ? stripViewRow : bookViewRow);
+  markRow(progressRows, reading.progress_bar ? progressOnRow : progressOffRow);
+  await buildHighlightSwatches(reading.highlight_palette, reading.highlight_color);
 
   const reopen = await callApi("get_reopen_behavior");
   const activeReopenRow = reopen === "start" ? startRow : continueRow;

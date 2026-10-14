@@ -21,6 +21,7 @@ from lector.features.home import file_drop
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading import ocr
+from lector.features.reading import outline as reading_outline
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
 from lector.features.voice import command_grammar, reference, router
@@ -32,6 +33,12 @@ from lector.shared import window_chrome
 # Longer than any phrase a reader would look for; a pasted paragraph is cut
 # here rather than handed to MuPDF to scan every page with.
 MAX_FIND_QUERY_CHARS = 200
+
+# Bounds on a requested thumbnail's width in pixels: the Pages tab asks for its
+# column width times the screen's pixel ratio, the progress bar's preview for a
+# little more.
+MIN_THUMBNAIL_PX = 16
+MAX_THUMBNAIL_PX = 480
 
 
 def _pixmap_to_png_b64(pix) -> str:
@@ -231,7 +238,10 @@ class Api:
         self._voice_ocr_pages = []
         self._title = os.path.splitext(os.path.basename(path))[0]
         self._path = path
-        self._layout_mode = settings.BOOK
+        # A PDF never opened before (or opened with "Always start at the
+        # beginning") comes up in the reader's default view (Settings >
+        # Reading); one with a saved position gets its own back below.
+        self._layout_mode = settings.get_default_view()
         self._persisted_position = None
         settings.add_recent_file(path)
         if settings.get_reopen_behavior() == settings.CONTINUE:
@@ -279,6 +289,7 @@ class Api:
     def _state(self) -> dict:
         if not self._doc.is_open:
             return {"is_open": False}
+        highlight_counts = self._doc.highlight_counts()
         return {
             "is_open": True,
             "title": self._title,
@@ -291,8 +302,11 @@ class Api:
             "is_dirty": self._doc.is_dirty,
             "can_undo": self._doc.can_undo,
             "can_redo": self._doc.can_redo,
-            "highlight_count_page": self._doc.highlight_count_on_current_page(),
-            "highlight_count_total": self._doc.highlight_count_total(),
+            "highlight_count_page": highlight_counts.get(self._doc.page_index, 0),
+            "highlight_count_total": sum(highlight_counts.values()),
+            # The progress bar's markers: every page with a highlight on it,
+            # saved or not, so undo and redo move them as they happen.
+            "highlighted_pages": sorted(highlight_counts),
             "highlight_color": settings.get_highlight_color(),
             "layout_mode": self._layout_mode,
         }
@@ -305,6 +319,28 @@ class Api:
 
     def get_page_sizes(self) -> list[dict]:
         return [{"width": w, "height": h} for w, h in self._doc.page_sizes()]
+
+    def get_page_thumbnail(self, index: int, width: int) -> dict:
+        """Page `index` rendered `width` pixels wide (the outline panel's
+        Pages tab, the progress bar's hover preview). The width is clamped:
+        this is a bridge boundary, and a thumbnail is never page-sized."""
+        width = max(MIN_THUMBNAIL_PX, min(int(width), MAX_THUMBNAIL_PX))
+        pix = self._doc.render_thumbnail(int(index), width)
+        if pix is None:
+            return {"image": None, "width": 0, "height": 0}
+        return {"image": _pixmap_to_png_b64(pix), "width": pix.width, "height": pix.height}
+
+    def get_outline(self) -> dict:
+        """The open PDF's bookmarks, for the outline panel, and the progress
+        bar's chapter segments built from its top level (both empty for a PDF
+        without an outline — see `features/reading/outline.py`)."""
+        if not self._doc.is_open:
+            return {"entries": [], "chapters": []}
+        entries = self._doc.outline()
+        return {
+            "entries": entries,
+            "chapters": reading_outline.chapter_segments(entries, self._doc.page_count),
+        }
 
     # ------------------------------------------------------------------ #
     # Navigation / zoom                                                    #
@@ -635,6 +671,33 @@ class Api:
 
     def set_recent_view(self, mode: str) -> None:
         settings.set_recent_view(mode)
+
+    def get_reading_preferences(self) -> dict:
+        """Settings > Reading, plus whether the outline panel was left open:
+        `{"default_view", "progress_bar", "outline_open", "highlight_color",
+        "highlight_palette"}`."""
+        return {
+            "default_view": settings.get_default_view(),
+            "progress_bar": settings.get_progress_bar(),
+            "outline_open": settings.get_outline_open(),
+            "highlight_color": settings.get_highlight_color(),
+            "highlight_palette": list(highlighter.COLOR_NAMES),
+        }
+
+    def set_default_view(self, mode: str) -> dict:
+        """Ignores anything but book or strip (a bridge boundary) and returns
+        the preferences as stored."""
+        if mode in (settings.BOOK, settings.STRIP):
+            settings.set_default_view(mode)
+        return self.get_reading_preferences()
+
+    def set_progress_bar(self, on: bool) -> dict:
+        settings.set_progress_bar(bool(on))
+        return self.get_reading_preferences()
+
+    def set_outline_open(self, is_open: bool) -> dict:
+        settings.set_outline_open(bool(is_open))
+        return self.get_reading_preferences()
 
     # ------------------------------------------------------------------ #
     # Voice activation modes (Milestone 8)                                 #

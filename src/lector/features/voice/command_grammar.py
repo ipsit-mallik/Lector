@@ -47,6 +47,13 @@ SAVE = "SAVE"
 HIGHLIGHT = "HIGHLIGHT"
 HIGHLIGHT_SENTENCE = "HIGHLIGHT_SENTENCE"
 SET_HIGHLIGHT_COLOR = "SET_HIGHLIGHT_COLOR"
+# The reader's side panel and progress bar. "show outline" and "show pages"
+# open the panel on that tab and number its entries (the numbered-overlay
+# picker), so a spoken number jumps to one.
+SHOW_OUTLINE = "SHOW_OUTLINE"
+SHOW_PAGES = "SHOW_PAGES"
+HIDE_OUTLINE = "HIDE_OUTLINE"
+TOGGLE_PROGRESS_BAR = "TOGGLE_PROGRESS_BAR"
 
 # Phrasings per intent, each ordered most-explicit first. Order is load
 # bearing: `fuzzy.best_match` breaks ties by taking the earliest candidate,
@@ -85,6 +92,13 @@ PHRASES: dict[str, tuple[str, ...]] = {
         "save the pdf",
         "save",
     ),
+    # One phrasing each, deliberately. "show"/"open" against "hide"/"close"
+    # outline score 0.67-0.69 to each other, close under the match threshold,
+    # and opposite actions must never be one mishearing apart.
+    SHOW_OUTLINE: ("show outline",),
+    SHOW_PAGES: ("show pages",),
+    HIDE_OUTLINE: ("hide outline",),
+    TOGGLE_PROGRESS_BAR: ("toggle progress bar",),
 }
 
 # Leading trigger phrases for HIGHLIGHT_SENTENCE, tried before HIGHLIGHT's —

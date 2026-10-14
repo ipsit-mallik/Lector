@@ -142,6 +142,56 @@
         </script>
       </div>
 
+      <!-- How the reader opens and looks. Default view only decides a PDF's
+           first opening; one opened before comes back in its own view. The
+           highlight colour is the reader's own active colour (the one under
+           its highlight tool), shown and set here too, not a second default. -->
+      <div class="section">
+        <h3>Reading</h3>
+        <p class="sub">How the reader looks when you open a PDF.</p>
+
+        <h4 class="setting-label" id="defaultViewLabel">Default view</h4>
+        <div class="option-pair" id="defaultViewOptions" aria-labelledby="defaultViewLabel">
+          <button type="button" id="bookViewRow" class="option-row card-lift selected" data-mode="book">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Book</span>
+              <span class="option-subtitle">One page at a time.</span>
+            </span>
+          </button>
+          <button type="button" id="stripViewRow" class="option-row card-lift" data-mode="strip">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Strip</span>
+              <span class="option-subtitle">Every page in one continuous scroll.</span>
+            </span>
+          </button>
+        </div>
+        <p class="setting-note">For PDFs you open for the first time. A PDF you've read before opens in the view and on the page you left it.</p>
+
+        <h4 class="setting-label" id="highlightColorLabel">Highlight color</h4>
+        <div class="swatch-row settings-swatches" id="highlightColorSwatches" aria-labelledby="highlightColorLabel"></div>
+        <p class="setting-note">New highlights are drawn in this color. It's the same choice as the color under the reader's highlight tool.</p>
+
+        <h4 class="setting-label" id="progressBarLabel">Progress bar</h4>
+        <div class="option-pair" id="progressBarOptions" aria-labelledby="progressBarLabel">
+          <button type="button" id="progressOnRow" class="option-row card-lift selected" data-mode="on">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">On</span>
+              <span class="option-subtitle">A thin line on the left edge shows how far you've read and where your highlights are.</span>
+            </span>
+          </button>
+          <button type="button" id="progressOffRow" class="option-row card-lift" data-mode="off">
+            <span class="option-radio"></span>
+            <span class="option-text">
+              <span class="option-title">Off</span>
+              <span class="option-subtitle">Nothing on the left edge but the outline, when you open it.</span>
+            </span>
+          </button>
+        </div>
+      </div>
+
       <!-- docs/PRD.md's dual activation, as two switches rather than a
            three-way choice: the two modes are independent, and "both off" is
            a supported state, not an error. The subtitle says so outright,
@@ -240,7 +290,7 @@
             <span class="option-radio"></span>
             <span class="option-text">
               <span class="option-title">Always start at the beginning</span>
-              <span class="option-subtitle">Every PDF opens on page 1, in book layout.</span>
+              <span class="option-subtitle">Every PDF opens on page 1, in your default view.</span>
             </span>
           </button>
         </div>

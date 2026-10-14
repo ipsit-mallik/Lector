@@ -21,7 +21,8 @@ OVERWRITE = "overwrite"
 
 # How a PDF opens when it is reopened later (the Settings > "When I reopen a
 # PDF" preference). CONTINUE restores the page and layout the reader left the
-# document on; START always opens at page 1 in book layout.
+# document on; START always opens at page 1 in the default view (Settings >
+# Reading).
 CONTINUE = "continue"
 START = "start"
 
@@ -158,6 +159,48 @@ def set_highlight_color(name: str) -> None:
         raise ValueError(f"invalid highlight color: {name!r}")
     data = _load()
     data[_HIGHLIGHT_COLOR_KEY] = name
+    _save(data)
+
+
+# Settings > Reading. The view a PDF opens in the first time it is opened (one
+# with a saved position comes back in its own); whether the reader shows the
+# progress bar on its left edge; and whether the outline panel was left open,
+# so it comes back the way the reader left it.
+_DEFAULT_VIEW_KEY = "default_view"
+_PROGRESS_BAR_KEY = "progress_bar"
+_OUTLINE_OPEN_KEY = "outline_panel_open"
+
+
+def get_default_view() -> str:
+    value = _load().get(_DEFAULT_VIEW_KEY, BOOK)
+    return value if value in (BOOK, STRIP) else BOOK
+
+
+def set_default_view(mode: str) -> None:
+    if mode not in (BOOK, STRIP):
+        raise ValueError(f"invalid default view: {mode!r}")
+    data = _load()
+    data[_DEFAULT_VIEW_KEY] = mode
+    _save(data)
+
+
+def get_progress_bar() -> bool:
+    return _as_bool(_load().get(_PROGRESS_BAR_KEY), True)
+
+
+def set_progress_bar(on: bool) -> None:
+    data = _load()
+    data[_PROGRESS_BAR_KEY] = bool(on)
+    _save(data)
+
+
+def get_outline_open() -> bool:
+    return _as_bool(_load().get(_OUTLINE_OPEN_KEY), False)
+
+
+def set_outline_open(is_open: bool) -> None:
+    data = _load()
+    data[_OUTLINE_OPEN_KEY] = bool(is_open)
     _save(data)
 
 

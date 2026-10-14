@@ -8,6 +8,12 @@
 <body>
   <div class="reading-view">
     <div class="topbar">
+      <!-- Opens and closes the outline and pages panel on the left edge
+           (outline-panel.js). First in the row, so it sits right above the
+           panel it controls; its icon keeps the footer's left edge. -->
+      <button class="icon-btn icon-btn--sm outline-toggle" id="outlineToggleBtn" type="button"
+              data-icon="sidebar" title="Outline and pages" aria-label="Outline and pages"
+              aria-controls="outlinePanel" aria-expanded="false"></button>
       <!-- The way back and what is open, sharing one text baseline. Takes the
            room the page controls leave, so a long title truncates instead of
            pushing them. -->
@@ -39,44 +45,59 @@
     <div class="hline"></div>
 
     <div class="body-row">
-      <div class="rail">
-        <!-- The highlight tool and, attached under it, the color it draws in.
-             The color button opens the five swatches beside the rail
-             (highlight-colors.js); the dot shows the active color. -->
-        <div class="rail-highlight">
-          <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)" aria-label="Highlight tool"></button>
-          <button class="color-btn" id="highlightColorBtn" type="button" title="Highlight color"
-                  aria-label="Highlight color" aria-haspopup="true" aria-expanded="false" aria-controls="highlightColorFlyout">
-            <span class="color-btn-dot"></span>
-            <span class="color-btn-chevron" data-icon="chevron_right"></span>
-          </button>
-          <div class="color-flyout" id="highlightColorFlyout" aria-label="Highlight color" hidden></div>
+      <!-- Left edge. The progress bar (progress-bar.js) is a thin line at the
+           window's edge that widens over the page on hover, so the page never
+           moves; the outline and pages panel (outline-panel.js) opens to its
+           right and does push the page over. -->
+      <div class="progress-edge" id="progressEdge">
+        <div class="reading-progress" id="readingProgress" role="slider" tabindex="0"
+             aria-label="Reading progress" aria-orientation="vertical"
+             aria-valuemin="1" aria-valuemax="1" aria-valuenow="1">
+          <div class="progress-track" id="progressTrack">
+            <div class="progress-segments" id="progressSegments"></div>
+            <div class="progress-fill-clip" id="progressFillClip">
+              <div class="progress-fill-segments" id="progressFillSegments"></div>
+            </div>
+            <div class="progress-ticks" id="progressTicks"></div>
+            <div class="progress-markers" id="progressMarkers"></div>
+          </div>
+          <span class="progress-label" id="progressLabel" aria-hidden="true"></span>
         </div>
-        <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" aria-label="Undo highlight" disabled></button>
-        <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" aria-label="Redo highlight" disabled></button>
-        <button class="icon-btn" id="findBtn" data-icon="search" title="Find in document  (Ctrl+F)"
-                aria-label="Find in document" aria-controls="findBar" aria-expanded="false"></button>
-
-        <div class="rail-sep"></div>
-
-        <button class="icon-btn" id="zoomInBtn" data-icon="zoom_in" title="Zoom in  (=)" aria-label="Zoom in"></button>
-        <button class="icon-btn" id="zoomOutBtn" data-icon="zoom_out" title="Zoom out  (−)" aria-label="Zoom out"></button>
-
-        <div class="rail-sep"></div>
-
-        <button class="icon-btn active" id="layoutBtn" data-icon="book_layout" title="Book layout — one page at a time" aria-label="Book layout"></button>
-        <button class="icon-btn" id="themeBtn" data-icon="theme" title="Cycle theme  (light / dark / sepia)" aria-label="Cycle theme"></button>
+        <!-- What is under the pointer: the page, its chapter, a thumbnail, and
+             whether it has highlights. -->
+        <div class="progress-tip" id="progressTip" aria-hidden="true">
+          <img class="progress-tip-thumb" id="progressTipThumb" alt="" draggable="false">
+          <span class="progress-tip-text">
+            <span class="progress-tip-page" id="progressTipPage"></span>
+            <span class="progress-tip-chapter" id="progressTipChapter"></span>
+            <span class="progress-tip-note" id="progressTipNote">Highlights on this page</span>
+          </span>
+        </div>
       </div>
 
-      <div class="vline"></div>
+      <aside class="outline-panel" id="outlinePanel" aria-label="Outline and pages" hidden>
+        <div class="outline-tabs" role="tablist" aria-label="Outline and pages">
+          <button type="button" class="outline-tab" id="outlineTab" role="tab"
+                  aria-controls="outlineTabPanel" aria-selected="true">Outline</button>
+          <button type="button" class="outline-tab" id="pagesTab" role="tab"
+                  aria-controls="pagesTabPanel" aria-selected="false" tabindex="-1">Pages</button>
+        </div>
+        <div class="outline-tabpanel" id="outlineTabPanel" role="tabpanel" aria-labelledby="outlineTab">
+          <nav class="outline-tree" id="outlineTree" aria-label="Outline"></nav>
+          <p class="outline-empty" id="outlineEmpty" hidden>This PDF has no outline.</p>
+        </div>
+        <div class="outline-tabpanel" id="pagesTabPanel" role="tabpanel" aria-labelledby="pagesTab" hidden>
+          <div class="pages-list" id="pagesList" role="list" aria-label="Pages"></div>
+        </div>
+      </aside>
 
       <div class="page-area" id="pageArea" tabindex="-1">
-        <div class="book-scroll" id="bookScroll">
+        <div class="book-scroll page-scroller" id="bookScroll">
           <div class="page-card" id="pageCard">
             <img class="page-surface" id="pageSurface" draggable="false">
           </div>
         </div>
-        <div class="strip-scroll" id="stripScroll" hidden>
+        <div class="strip-scroll page-scroller" id="stripScroll" hidden>
           <div class="strip-container" id="stripContainer"></div>
         </div>
         <!-- A transparent button over every highlight on screen, so each can be
@@ -124,6 +145,39 @@
           <button class="icon-btn icon-btn--sm" id="findCloseBtn" type="button" data-icon="close"
                   title="Close  (Esc)" aria-label="Close find"></button>
         </div>
+      </div>
+
+      <div class="vline"></div>
+      <!-- Right edge: the toolbar, flush to the window's edge, with the page's
+           scrollbar just inside it (the page area's own, widened to 12px in
+           shared/scrollbars.css) and a clear gap between the two. -->
+      <div class="rail">
+        <!-- The highlight tool and, attached under it, the color it draws in.
+             The color button opens the five swatches beside the rail, over
+             the page (highlight-colors.js); the dot shows the active color. -->
+        <div class="rail-highlight">
+          <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)" aria-label="Highlight tool"></button>
+          <button class="color-btn" id="highlightColorBtn" type="button" title="Highlight color"
+                  aria-label="Highlight color" aria-haspopup="true" aria-expanded="false" aria-controls="highlightColorFlyout">
+            <span class="color-btn-dot"></span>
+            <span class="color-btn-chevron" data-icon="chevron_left"></span>
+          </button>
+          <div class="color-flyout" id="highlightColorFlyout" aria-label="Highlight color" hidden></div>
+        </div>
+        <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" aria-label="Undo highlight" disabled></button>
+        <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" aria-label="Redo highlight" disabled></button>
+        <button class="icon-btn" id="findBtn" data-icon="search" title="Find in document  (Ctrl+F)"
+                aria-label="Find in document" aria-controls="findBar" aria-expanded="false"></button>
+
+        <div class="rail-sep"></div>
+
+        <button class="icon-btn" id="zoomInBtn" data-icon="zoom_in" title="Zoom in  (=)" aria-label="Zoom in"></button>
+        <button class="icon-btn" id="zoomOutBtn" data-icon="zoom_out" title="Zoom out  (−)" aria-label="Zoom out"></button>
+
+        <div class="rail-sep"></div>
+
+        <button class="icon-btn active" id="layoutBtn" data-icon="book_layout" title="Book layout — one page at a time" aria-label="Book layout"></button>
+        <button class="icon-btn" id="themeBtn" data-icon="theme" title="Cycle theme  (light / dark / sepia)" aria-label="Cycle theme"></button>
       </div>
     </div>
 
@@ -249,6 +303,8 @@
   <script src="command-reference.js"></script>
   <script src="find-bar.js"></script>
   <script src="highlight-colors.js"></script>
+  <script src="progress-bar.js"></script>
+  <script src="outline-panel.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>
