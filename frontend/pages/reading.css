@@ -864,16 +864,35 @@ html, body { height: 100%; }
   transition-delay: 0s;
 }
 
+/* The preview's slot: the page's image once it is in, a 72px page-shaped
+   block until then. While the image is being rendered the slot is the shared
+   shimmer (.skeleton), without the paper and edge: the sweep is a translucent
+   tint, invisible over white paper, and white paper would read as a blank
+   page (as for Recent's thumbnails). When there is no image to show it stays
+   plain paper. Never an <img> without a source: that draws the browser's
+   broken-image icon. */
 .progress-tip-thumb {
   flex: none;
+  display: flex;
   width: 56px;
   border-radius: 2px;
   background-color: var(--thumb-paper);
   box-shadow: 0 0 0 1px var(--border);
-  filter: var(--thumb-filter);
+  overflow: hidden;
 }
 
-.progress-tip-thumb:not([src]) { height: 72px; }
+.progress-tip-thumb.is-empty { height: 72px; }
+
+.progress-tip-thumb.skeleton {
+  background-color: var(--state-hover);
+  box-shadow: none;
+}
+
+.progress-tip-thumb img {
+  width: 100%;
+  filter: var(--thumb-filter);
+  animation: fade-in var(--dur-fast) var(--ease-out);
+}
 
 .progress-tip-text {
   display: flex;

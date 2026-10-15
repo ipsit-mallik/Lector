@@ -28,6 +28,7 @@ const progressMarkers = document.getElementById("progressMarkers");
 const progressLabel = document.getElementById("progressLabel");
 const progressTip = document.getElementById("progressTip");
 const progressTipThumb = document.getElementById("progressTipThumb");
+const progressTipImage = document.getElementById("progressTipImage");
 const progressTipPage = document.getElementById("progressTipPage");
 const progressTipChapter = document.getElementById("progressTipChapter");
 
@@ -362,14 +363,27 @@ function hideProgressTip() {
   progressTip.classList.remove("is-showing");
 }
 
+// The preview slot shows the page's image (url), the loading shimmer
+// ("loading"), or plain paper when there is no image ("empty"). The <img> is
+// hidden whenever it has no source, which would draw a broken-image icon;
+// showing it again replays its fade-in (reading.css).
+function setProgressThumb(state) {
+  const loaded = state !== "loading" && state !== "empty";
+  progressTipThumb.classList.toggle("skeleton", state === "loading");
+  progressTipThumb.classList.toggle("is-empty", !loaded);
+  if (loaded) progressTipImage.src = state;
+  else progressTipImage.removeAttribute("src");
+  progressTipImage.hidden = !loaded;
+}
+
 function showProgressThumb(index) {
   clearTimeout(progressThumbTimer);
   const cached = progressThumbs.get(index);
   if (cached) {
-    progressTipThumb.src = cached;
+    setProgressThumb(cached);
     return;
   }
-  progressTipThumb.removeAttribute("src");
+  setProgressThumb("loading");
   progressThumbTimer = setTimeout(async () => {
     const width = Math.round(PROGRESS_THUMB_CSS_PX * (window.devicePixelRatio || 1));
     let thumb;
@@ -377,13 +391,12 @@ function showProgressThumb(index) {
       thumb = await callApi("get_page_thumbnail", index, width);
     } catch (err) {
       console.error("get_page_thumbnail failed:", err);
-      return;
+      thumb = {};
     }
-    if (!thumb.image) return;
-    const url = `data:image/png;base64,${thumb.image}`;
-    progressThumbs.set(index, url);
+    const url = thumb.image ? `data:image/png;base64,${thumb.image}` : null;
+    if (url) progressThumbs.set(index, url);
     // Only if the pointer is still on that page.
-    if (progressTipIndex === index) progressTipThumb.src = url;
+    if (progressTipIndex === index) setProgressThumb(url || "empty");
   }, PROGRESS_THUMB_DELAY_MS);
 }
 

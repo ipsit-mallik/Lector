@@ -66,7 +66,9 @@
         <!-- What is under the pointer: the page, its chapter, a thumbnail, and
              whether it has highlights. -->
         <div class="progress-tip" id="progressTip" aria-hidden="true">
-          <img class="progress-tip-thumb" id="progressTipThumb" alt="" draggable="false">
+          <span class="progress-tip-thumb is-empty" id="progressTipThumb">
+            <img id="progressTipImage" alt="" draggable="false" hidden>
+          </span>
           <span class="progress-tip-text">
             <span class="progress-tip-page" id="progressTipPage"></span>
             <span class="progress-tip-chapter" id="progressTipChapter"></span>
