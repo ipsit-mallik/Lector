@@ -864,8 +864,8 @@ html, body { height: 100%; }
 
 .reading-progress.is-expanded .progress-ticks.has-ticks { display: block; }
 
-/* Pages with a highlight, over everything else: one fixed colour, a run of
-   adjacent pages drawn as one marker, never under 2px. */
+/* Pages with a highlight, over everything else: the theme's marker colour, a
+   run of adjacent pages drawn as one marker, never under 2px. */
 .progress-marker {
   position: absolute;
   left: 0;
@@ -875,18 +875,18 @@ html, body { height: 100%; }
 }
 
 /* The page being read: its number beside the bar, at the end of the read fill,
-   once the bar has widened. */
+   once the bar has widened, on a chip in the read colour. */
 .progress-label {
   position: absolute;
   left: calc(var(--progress-expanded) + var(--space-1));
   transform: translateY(-50%);
   min-width: 20px;
   padding: 0 var(--space-1);
-  border: 1px solid var(--border-elevated);
+  border: 1px solid var(--progress-label);
   border-radius: var(--radius-xs);
-  background-color: var(--surface-2);
+  background-color: var(--progress-label);
   box-shadow: var(--shadow-1);
-  color: var(--text-primary);
+  color: var(--progress-label-text);
   font-size: var(--text-xs);
   font-weight: 600;
   line-height: 18px;
@@ -1254,6 +1254,33 @@ html, body { height: 100%; }
 }
 
 .reading-view.is-focus-mode .focus-chrome { display: none; }
+
+/* Except the topbar, which waits just above the window instead: the pointer
+   at the top edge brings it down over the page (.is-focus-peek, set by
+   focus-mode.js), which does not move, and it goes back up once the pointer
+   has left it. */
+.reading-view.is-focus-mode .topbar {
+  display: flex;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  box-shadow: var(--shadow-2), 0 1px 0 var(--border);
+  visibility: hidden;
+  transform: translateY(-100%);
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out),
+              visibility 0s linear var(--dur-base);
+}
+
+.reading-view.is-focus-mode.is-focus-peek .topbar {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+  transition-delay: 0s;
+}
 
 /* The footer's mic pill, floating at the bottom centre of the window while a
    command is being captured or worked out, and only in Focus mode. */

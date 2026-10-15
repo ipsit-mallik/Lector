@@ -128,11 +128,6 @@
    * own target draws on the paper when hovered and when focused: dark, since
    * the paper and every highlight under them are light (the focus ring is
    * 10.2:1 on white and 4.9:1 on orange, the darkest highlight). */
-  /* The reader's progress bar marks every page with a highlight on it in this
-   * one colour, in every theme: a pale highlight yellow, lighter than any
-   * track or fill below, so it stands >= 3:1 off both the read and unread
-   * parts of the bar (tests/test_progress_bar_tokens.py). */
-  --progress-marker: #FFE98F;
   --on-swatch: #161A18;
   --paper-hover-ring: rgba(22, 26, 24, 0.45);
   --paper-focus-ring: #2C463F;
@@ -195,11 +190,17 @@
   --selected-tint: 10%;
   --thumb-filter: none;
   --thumb-paper: var(--paper);
-  /* The progress bar's unread track and read fill. Both well below the
-   * marker yellow, and >= 3:1 apart: the track a mid grey (>= 3:1 on the
-   * window), the fill near-black teal. */
-  --progress-track: #857F76;
-  --progress-fill: #22382F;
+  /* The reader's progress bar (tests/test_progress_bar_tokens.py). A ladder
+   * from the window: the unread track a mid grey >= 3:1 on --bg and
+   * --surface-1, the read fill a near-black teal >= 3:1 off the track. A page
+   * with a highlight is a dark ochre marker, >= 3:1 on the window and on the
+   * fill; on the track, as dark as itself, it tells by hue (CIEDE2000 >= 18).
+   * The current page's number is a chip in the read colour. */
+  --progress-track: #77716A;
+  --progress-fill: #101C17;
+  --progress-marker: #A26A00;
+  --progress-label: #101C17;
+  --progress-label-text: #F6F3EE;
 }
 
 [data-theme="dark"] {
@@ -265,10 +266,14 @@
   --selected-tint: 18%;
   --thumb-filter: brightness(0.9);
   --thumb-paper: color-mix(in srgb, var(--paper) 90%, #000000);
-  /* Progress bar: here the unread track is a faint groove and the read fill
-   * the bright part, a teal >= 3:1 from both the groove and the marker. */
-  --progress-track: #3A352E;
-  --progress-fill: #5A8E80;
+  /* Progress bar: the same ladder climbing instead, the read fill the bright
+   * part (a pale teal). The marker stays the bright highlight yellow: >= 3:1
+   * on the window and the track, and apart from the fill by hue. */
+  --progress-track: #78726A;
+  --progress-fill: #B8DBD0;
+  --progress-marker: #FFE98F;
+  --progress-label: #B8DBD0;
+  --progress-label-text: #171512;
 }
 
 [data-theme="sepia"] {
@@ -320,8 +325,11 @@
   --thumb-filter: none;
   --thumb-paper: var(--paper);
   /* Progress bar: as light, in sepia's browns. */
-  --progress-track: #887B64;
-  --progress-fill: #24322A;
+  --progress-track: #7C7062;
+  --progress-fill: #14201A;
+  --progress-marker: #9E6400;
+  --progress-label: #14201A;
+  --progress-label-text: #F8F0DE;
 }
 
 /* Derived tokens — computed from the per-theme values above, so they

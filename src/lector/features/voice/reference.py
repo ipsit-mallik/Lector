@@ -260,9 +260,11 @@ def _reading_sections() -> list[dict]:
                      "Hides the header, the toolbar and the status bar so the page has "
                      "the window. While you speak a command, a small listening pill "
                      "still shows at the bottom.",
-                     "F11", _READING),
-            _command(_all(p, grammar.EXIT_FOCUS_MODE), "Brings them back.",
-                     "Esc or F11", _READING),
+                     "F11, or the button at the header's right end", _READING),
+            _command(_all(p, grammar.EXIT_FOCUS_MODE),
+                     "Brings them back. Point at the top edge of the window to see the "
+                     "header for a moment without leaving.",
+                     "Esc or F11, or that button in the header", _READING),
         ]),
         _section("highlighting", "Highlighting", scope, [
             _command(_then(grammar.HIGHLIGHT_TRIGGERS, WORDS),

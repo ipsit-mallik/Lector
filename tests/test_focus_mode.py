@@ -5,7 +5,10 @@
 * `frontend/pages/focus-mode.js` under Node, with a stand-in DOM: the chrome
   fades before it leaves the layout, comes back transparent and then fades
   in, keeps the page still on screen, and the floating listening pill follows
-  the mic state.
+  the mic state. The topbar's button shows the way in or out; entering says
+  how to leave in a 3s toast; the pointer at the top edge brings the topbar
+  back over the page until it has left it (or the zoom slider closes).
+* Esc closes the zoom slider before anything else, Focus mode last.
 * `frontend/pages/page-centering.js` under Node: the page is centred on the
   window when it fits there, and on its own area when it does not.
 * The markup: zoom steps in the topbar around the percentage, undo and redo
@@ -80,22 +83,31 @@ FOCUS_HARNESS = r"""
 const fs = require("fs");
 const vm = require("vm");
 
-function fakeElement(id) {
+function fakeElement(id, parent = null) {
   const classes = new Set();
+  const attrs = {};
   return {
-    id, textContent: "", scrollTop: 100, top: 49,
+    id, parent, textContent: "", title: "", dataset: {}, scrollTop: 100, top: 49,
     classList: {
       add: (c) => classes.add(c),
       remove: (c) => classes.delete(c),
       toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
       contains: (c) => classes.has(c),
     },
+    setAttribute: (k, v) => { attrs[k] = v; },
+    getAttribute: (k) => attrs[k],
+    contains(el) { return el === this || Boolean(el && el.parent === this); },
     get offsetHeight() { return 0; },
     getBoundingClientRect() { return { top: this.top }; },
   };
 }
 
 const view = fakeElement("view");
+const topbar = fakeElement("topbar");
+const zoomLabel = fakeElement("zoomLabel", topbar);
+const pageEl = fakeElement("page");
+const btn = fakeElement("focusModeBtn", topbar);
+btn.dataset.icon = "focus_mode";
 const pill = fakeElement("focusVoicePill");
 const label = fakeElement("focusVoiceLabel");
 const scroller = fakeElement("scroller");
@@ -106,19 +118,33 @@ view.classList.add = (c) => { origAdd(c); if (c === "is-focus-mode") scroller.to
 const origRemove = view.classList.remove;
 view.classList.remove = (c) => { origRemove(c); if (c === "is-focus-mode") scroller.top = 49; };
 
+const listeners = {};
+const mounted = [];
+const toasts = [];
 const document = {
   documentElement: {},
-  querySelector: (sel) => (sel === ".reading-view" ? view : null),
-  getElementById: (id) => ({ focusVoicePill: pill, focusVoiceLabel: label })[id],
+  addEventListener: (type, fn) => { listeners[type] = fn; },
+  querySelector: (sel) => ({ ".reading-view": view, ".topbar": topbar })[sel] || null,
+  getElementById: (id) => ({ focusVoicePill: pill, focusVoiceLabel: label, focusModeBtn: btn })[id],
 };
 const context = vm.createContext({
   document, setTimeout, clearTimeout, console,
   getComputedStyle: () => ({ getPropertyValue: () => "20ms" }),
+  mountIcon: (el, name) => mounted.push(name),
+  showToast: (message, options) => {
+    const toast = { message, ms: options.durationMs, dismissed: false };
+    toasts.push(toast);
+    return () => { toast.dismissed = true; };
+  },
 });
 vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), context);
-vm.runInContext("this.api = { configureFocusMode, setFocusMode, toggleFocusMode, isFocusMode, showFocusVoice };", context);
+vm.runInContext(
+  "this.api = { configureFocusMode, setFocusMode, toggleFocusMode, isFocusMode, showFocusVoice, settleFocusPeek };",
+  context,
+);
 const api = context.api;
-api.configureFocusMode({ scroller: () => scroller });
+let holding = false;
+api.configureFocusMode({ scroller: () => scroller, holdsPeek: () => holding });
 
 const out = {};
 const snap = () => ({
@@ -127,14 +153,62 @@ const snap = () => ({
   hidden: view.classList.contains("is-focus-mode"),
   scrollTop: scroller.scrollTop,
 });
+const button = () => ({
+  active: btn.classList.contains("active"), pressed: btn.getAttribute("aria-pressed"),
+  title: btn.title, icon: btn.dataset.icon,
+});
+const peek = () => view.classList.contains("is-focus-peek");
+const move = (y, target, buttons = 0) => listeners.pointermove({ clientY: y, target, buttons });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   out.start = snap();
+  out.buttonOff = button();
+  move(2, pageEl);
+  out.edgeWhenOff = peek();
   api.setFocusMode(true);
   out.fadingOut = snap();
+  out.buttonOn = button();
   await wait(60);
   out.on = snap();
+
+  // The top edge brings the topbar down; over it, it stays.
+  move(2, pageEl, 1);
+  out.edgeWithButtonHeld = peek();
+  move(2, pageEl);
+  out.edge = peek();
+  move(20, zoomLabel);
+  await wait(400);
+  out.overBar = peek();
+  // Off it, it waits a moment and goes back up.
+  move(400, pageEl);
+  out.justLeft = peek();
+  await wait(400);
+  out.leftAWhile = peek();
+  // Straight from the edge to the page, without passing over the bar.
+  move(1, pageEl);
+  move(500, pageEl);
+  await wait(400);
+  out.jumpedAway = peek();
+  // Held down while the zoom slider is open, and let go when it closes.
+  move(1, pageEl);
+  holding = true;
+  move(500, pageEl);
+  await wait(400);
+  out.held = peek();
+  holding = false;
+  api.settleFocusPeek();
+  await wait(400);
+  out.released = peek();
+  // Leaving Focus mode from the bar takes the peek with it.
+  move(1, pageEl);
+  api.setFocusMode(false);
+  out.peekAfterExit = peek();
+  out.buttonAfterExit = button();
+  out.mounted = mounted.slice();
+  out.toastsAfterExit = JSON.parse(JSON.stringify(toasts));
+  api.setFocusMode(true);
+  await wait(60);
   api.setFocusMode(true);
   out.onAgain = snap();
   api.setFocusMode(false);
@@ -162,7 +236,8 @@ class FocusModeBehaviorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         result = subprocess.run(
-            [NODE, "-e", FOCUS_HARNESS, str(FOCUS_JS)], capture_output=True, text=True, timeout=30
+            [NODE, "-e", FOCUS_HARNESS, str(FOCUS_JS)],
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
         )
         if result.returncode != 0:
             raise AssertionError(result.stderr)
@@ -196,6 +271,46 @@ class FocusModeBehaviorTests(unittest.TestCase):
     def test_the_pill_leaves_with_the_final_words_on_it(self):
         self.assertEqual(self.out["heard"], {"showing": False, "label": '"next page"'})
         self.assertFalse(self.out["idle"])
+
+    def test_the_button_shows_the_way_in_and_the_way_out(self):
+        # Untouched until Focus mode first changes: the markup's own state.
+        self.assertEqual(self.out["buttonOff"], {"active": False, "title": "", "icon": "focus_mode"})
+        self.assertEqual(self.out["buttonOn"], {
+            "active": True, "pressed": "true", "title": "Exit focus mode  (Esc)", "icon": "exit_focus_mode",
+        })
+        self.assertEqual(self.out["buttonAfterExit"], {
+            "active": False, "pressed": "false", "title": "Focus mode  (F11)", "icon": "focus_mode",
+        })
+        self.assertEqual(self.out["mounted"], ["exit_focus_mode", "focus_mode"])
+
+    def test_the_top_edge_brings_the_topbar_back_only_in_focus_mode(self):
+        self.assertFalse(self.out["edgeWhenOff"])
+        self.assertFalse(self.out["edgeWithButtonHeld"])
+        self.assertTrue(self.out["edge"])
+
+    def test_the_topbar_stays_while_the_pointer_is_on_it(self):
+        self.assertTrue(self.out["overBar"])
+
+    def test_it_goes_back_up_a_moment_after_the_pointer_leaves(self):
+        self.assertTrue(self.out["justLeft"])
+        self.assertFalse(self.out["leftAWhile"])
+
+    def test_it_goes_back_up_when_the_pointer_jumps_straight_off_the_edge(self):
+        self.assertFalse(self.out["jumpedAway"])
+
+    def test_the_zoom_slider_holds_it_down_until_it_closes(self):
+        self.assertTrue(self.out["held"])
+        self.assertFalse(self.out["released"])
+
+    def test_leaving_focus_mode_takes_the_peek_with_it(self):
+        self.assertFalse(self.out["peekAfterExit"])
+
+    def test_entering_says_how_to_leave_for_three_seconds_and_leaving_takes_it_back(self):
+        # One toast for the one entry (setting it on twice doesn't repeat it),
+        # retracted when Focus mode ended before it ran out.
+        self.assertEqual(self.out["toastsAfterExit"], [{
+            "message": "Focus mode — press Esc or say “exit focus mode”", "ms": 3000, "dismissed": True,
+        }])
 
 
 CENTERING_HARNESS = r"""
@@ -316,6 +431,26 @@ class ReaderMarkupTests(unittest.TestCase):
         body = self.js[self.js.index("function enterFocusMode()"):self.js.index("let dialogOpenAtKey")]
         self.assertIn("closeColorFlyout();", body)
         self.assertIn("toggleZoomPopover(false);", body)
+
+    def test_the_focus_button_sits_right_of_the_zoom_control_in_the_topbar(self):
+        controls = self.section('<div class="page-controls">', '<div class="hline focus-chrome">')
+        self.assertLess(controls.index('id="zoomInBtn"'), controls.index('id="focusModeBtn"'))
+        tag = re.search(r'<button[^>]*id="focusModeBtn"[^>]*>', self.html).group(0)
+        self.assertIn('data-icon="focus_mode"', tag)
+        self.assertIn('title="Focus mode  (F11)"', tag)
+        self.assertIn('aria-pressed="false"', tag)
+        for icon in ("focus_mode", "exit_focus_mode"):
+            self.assertTrue((ROOT / "frontend" / "shared" / "icons" / f"{icon}.svg").is_file(), icon)
+
+    def test_the_button_toggles_focus_mode(self):
+        body = self.js[self.js.index('focusModeBtn.addEventListener("click"'):self.js.index("let dialogOpenAtKey")]
+        self.assertIn("setFocusMode(false);", body)
+        self.assertIn("enterFocusMode();", body)
+
+    def test_esc_closes_the_zoom_slider_before_anything_else(self):
+        zoom_esc = self.js.index('if (ev.key === "Escape" && !zoomPopover.hidden && !dialogOpenAtKey)')
+        self.assertLess(zoom_esc, self.js.index('if (ev.target.tagName === "INPUT") return;'))
+        self.assertLess(zoom_esc, self.js.index("else if (isFocusMode() && !dialogOpenAtKey) setFocusMode(false);"))
 
     def test_focus_mode_remembers_nothing(self):
         source = FOCUS_JS.read_text(encoding="utf-8")

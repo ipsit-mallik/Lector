@@ -1024,6 +1024,8 @@ async function setZoomPct(pct) {
 
 function toggleZoomPopover(show) {
   zoomPopover.hidden = show === undefined ? !zoomPopover.hidden : !show;
+  // In Focus mode the topbar was held down for the slider; it may go now.
+  if (zoomPopover.hidden) settleFocusPeek();
 }
 
 async function undo() {
@@ -1300,10 +1302,21 @@ referenceFooterBtn.addEventListener("click", openCommandReference);
 // Focus mode's own popovers live in the chrome it hides, so they close first:
 // left open, the next Esc would go on closing something no longer visible.
 function enterFocusMode() {
+  if (isFocusMode()) return;
   closeColorFlyout();
   toggleZoomPopover(false);
   setFocusMode(true);
 }
+
+// The topbar's button. Going in hides it, so the page takes the keyboard.
+focusModeBtn.addEventListener("click", () => {
+  if (isFocusMode()) {
+    setFocusMode(false);
+    return;
+  }
+  enterFocusMode();
+  pageArea.focus({ preventScroll: true });
+});
 
 // Whether a dialog was up when the key went down. Captured before any other
 // listener runs, since a dialog's own Esc hides it before the handler below
@@ -1328,6 +1341,12 @@ document.addEventListener("keydown", (ev) => {
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "=" || ev.key === "+" || ev.key === "-")) {
     ev.preventDefault();
     ev.key === "-" ? zoomOut() : zoomIn();
+    return;
+  }
+  // The zoom slider is an input itself, so its Esc is taken before the guard
+  // below; and it comes ahead of everything else open, Focus mode included.
+  if (ev.key === "Escape" && !zoomPopover.hidden && !dialogOpenAtKey) {
+    toggleZoomPopover(false);
     return;
   }
   if (ev.target.tagName === "INPUT") return;
@@ -1414,7 +1433,10 @@ configureFindBar({
 });
 
 configureProgressBar({ jumpTo: (index) => jumpToPageIndex(index) });
-configureFocusMode({ scroller: () => activeScrollEl() });
+configureFocusMode({
+  scroller: () => activeScrollEl(),
+  holdsPeek: () => !zoomPopover.hidden,
+});
 configureOutlinePanel({
   jumpTo: (index) => goToPage(index + 1),
   say: (text) => setMicHint(text),

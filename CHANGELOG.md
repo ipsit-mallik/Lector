@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A Focus mode button at the right end of the reader's header, next to the zoom controls (expand arrows; "Focus mode (F11)" when you point at it). Turning Focus mode on, by the button, F11 or voice, now shows "Focus mode — press Esc or say “exit focus mode”" for 3 seconds. In Focus mode, moving the pointer to the top edge of the window brings the header back over the page, with the button showing the way out, and it slides away again once the pointer leaves it. "What can I say?" mentions the button and the top edge.
+
 ### Fixed
+- The reader's progress bar is clearly visible in Light and Sepia. The unread part is a darker grey and the read part darker still, and pages with highlights are marked in a dark amber instead of a pale yellow that blended into the window. Every part of the thin line now stands out from the window at least 3:1 in all three themes. Dark keeps its bright yellow markers, with a slightly brighter unread part and a lighter read part. The current page number beside the widened bar is now a chip in the read colour.
+- In the reader, Esc closes the zoom slider first, before the find bar or Focus mode.
 - Zoomed in past the width of the window, the left edge of the page was cut off and couldn't be scrolled to. A page wider than the window now starts at its left edge and scrolls sideways to its right edge.
 - Pointing at the reader's progress bar no longer shows a broken-image icon while the page preview is still being made. The preview's spot shimmers, like a Recent thumbnail that is still loading, and the page fades in when it is ready.
 
