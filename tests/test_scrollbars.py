@@ -1,11 +1,10 @@
-"""Auto-hiding scrollbars live in exactly one place (docs/DESIGN_SYSTEM.md,
+"""Overlay scrollbars live in exactly one place (docs/DESIGN_SYSTEM.md,
 "Scrollbars").
 
-Styling is frontend/shared/scrollbars.css and the activity logic is
-frontend/js/scrollbars.js. These tests are the guard that keeps it that way:
-a second copy of scrollbar CSS anywhere else — or one of the standard
-`scrollbar-color` / `scrollbar-width` properties, which override the
-`::-webkit-scrollbar` rules in Chromium and silently break the fade — fails
+Styling is frontend/shared/scrollbars.css and the overlay and activity logic
+is frontend/js/scrollbars.js. These tests are the guard that keeps it that
+way: a second copy of scrollbar CSS anywhere else — say a `scrollbar-color`
+that brings a native bar back, or a rule restyling the overlay's rail — fails
 here instead of shipping.
 """
 
@@ -26,13 +25,13 @@ SHARED_FILES = {SHARED_CSS, SHARED_JS}
 SURFACES = ("bg", "surface-1", "surface-2")
 NON_TEXT = 3.0
 
-# Anything that styles or toggles a scrollbar. `themed-scroll` is the retired
-# per-element opt-in class: scrollbars are now styled globally, so a leftover
-# use would be dead markup that suggests the old way still applies.
+# Anything that styles or toggles a scrollbar, native or overlay. `themed-scroll`
+# is the retired per-element opt-in class: scrollbars are styled globally, so a
+# leftover use would be dead markup that suggests the old way still applies.
 SCROLLBAR_STYLING = re.compile(
-    r"::-webkit-scrollbar|scrollbar-(?:color|width|gutter)|themed-scroll|scrollbars-active"
+    r"::-webkit-scrollbar|scrollbar-(?:color|width|gutter|rail|thumb|size|hit|inset)"
+    r"|themed-scroll|scrollbars-active"
 )
-STANDARD_SCROLLBAR_PROPERTIES = re.compile(r"scrollbar-(?:color|width)\s*:")
 
 
 def _strip_comments(text: str) -> str:
@@ -88,16 +87,6 @@ class SingleSourceTests(unittest.TestCase):
                 offenders.append(f"{path.relative_to(FRONTEND)}: {hit.group(0)}")
         self.assertEqual(offenders, [], "scrollbar styling must live in shared/scrollbars.css only")
 
-    def test_standard_scrollbar_properties_are_never_used(self):
-        # They take precedence over ::-webkit-scrollbar in modern Chromium, which
-        # would leave a permanently visible thumb that ignores the fade.
-        offenders = [
-            str(path.relative_to(FRONTEND))
-            for path in _frontend_files(".css", ".html", ".js")
-            if STANDARD_SCROLLBAR_PROPERTIES.search(_strip_comments(path.read_text(encoding="utf-8")))
-        ]
-        self.assertEqual(offenders, [])
-
     def test_every_page_loads_the_stylesheet_and_the_script(self):
         pages = sorted(FRONTEND.glob("*.html")) + sorted((FRONTEND / "pages").glob("*.html"))
         self.assertGreaterEqual(len(pages), 4)
@@ -113,65 +102,104 @@ class StylesheetBehaviourTests(unittest.TestCase):
         self.css = _strip_comments(SHARED_CSS.read_text(encoding="utf-8"))
 
     def rule(self, selector: str) -> str:
-        match = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", self.css)
+        # The whole selector of a rule, not the tail of a longer one.
+        match = re.search(r"(?m)^" + re.escape(selector) + r"\s*\{([^}]*)\}", self.css)
         self.assertIsNotNone(match, f"no rule for {selector}")
         return match.group(1)
 
-    def test_gutter_is_reserved_even_when_the_thumb_is_hidden(self):
-        # The scrollbar keeps its size; only the thumb's colour changes, so
-        # layout never shifts when scrollbars appear or fade.
-        body = self.rule("::-webkit-scrollbar")
-        self.assertRegex(body, r"width:\s*var\(--scrollbar-size\)")
-        self.assertRegex(body, r"height:\s*var\(--scrollbar-size\)")
+    def test_sizes_match_the_windows_11_overlay_scrollbar(self):
+        # Thin at rest, thicker when pointed at or dragged, a constant grab
+        # area, held off the edge, short of both ends, never a sliver.
+        for name, value in (
+            ("thin", "3px"),
+            ("thick", "7px"),
+            ("hit", "12px"),
+            ("edge", "3px"),
+            ("inset", "8px"),
+            ("min-thumb", "32px"),
+        ):
+            with self.subTest(token=name):
+                self.assertRegex(self.css, rf"--scrollbar-{name}:\s*{value}\s*;")
+
+    def test_native_scrollbars_are_switched_off(self):
+        # Chromium honours the standard property, WebKit (the Mac build) the
+        # pseudo-element. Neither leaves a gutter, so nothing reflows.
+        self.assertRegex(self.rule("*"), r"scrollbar-width:\s*none")
+        self.assertRegex(self.rule("::-webkit-scrollbar"), r"display:\s*none")
+        self.assertNotRegex(self.css, r"scrollbar-color|scrollbar-gutter")
         self.assertNotRegex(self.css, r"overflow\s*:\s*hidden")
 
-    def test_idle_thumb_is_transparent_and_active_thumb_is_coloured(self):
-        self.assertRegex(self.rule("::-webkit-scrollbar-thumb"), r"background-color:\s*transparent")
+    def test_the_rail_is_an_overlay_that_takes_no_layout_space(self):
+        rail = self.rule(".scrollbar-rail")
+        self.assertRegex(rail, r"position:\s*absolute")
+        self.assertRegex(rail, r"display:\s*none")
+        self.assertRegex(self.rule(".scrollbar-rail.is-scrollable"), r"display:\s*block")
+        self.assertRegex(self.rule(".scrollbar-rail--y"), r"width:\s*var\(--scrollbar-hit\)")
+        self.assertRegex(self.rule(".scrollbar-rail--x"), r"height:\s*var\(--scrollbar-hit\)")
+
+    def test_the_wheel_over_a_scrollbar_is_the_scrollers_native_scroll(self):
+        # The rail lets the wheel fall through to the scroller, and while it is
+        # pointed at the scroller's contents step aside so the scroller itself
+        # takes it. A wheel handed on by script lagged and lost the smoothing.
+        self.assertRegex(self.rule(".scrollbar-rail"), r"pointer-events:\s*none")
+        self.assertRegex(self.rule("[data-scrollbar-hover] *"), r"pointer-events:\s*none")
+        self.assertRegex(self.rule("[data-scrollbar-hover]"), r"cursor:\s*default")
+        script = _strip_comments(SHARED_JS.read_text(encoding="utf-8"))
+        self.assertNotRegex(script, r"""addEventListener\(\s*["']wheel["']""")
+        self.assertNotRegex(self.css, r"\.scrollbar-rail[^{]*:hover")
+
+    def test_the_thumb_rests_thin_and_off_the_edge(self):
         self.assertRegex(
-            self.css,
-            r":root\.scrollbars-active\s+::-webkit-scrollbar-thumb[^{]*\{[^}]*background-color:\s*var\(--scrollbar-thumb\)",
+            self.rule(".scrollbar-rail--y .scrollbar-thumb"),
+            r"right:\s*var\(--scrollbar-edge\).*width:\s*var\(--scrollbar-thin\)",
+        )
+        self.assertRegex(
+            self.rule(".scrollbar-rail--x .scrollbar-thumb"),
+            r"bottom:\s*var\(--scrollbar-edge\).*height:\s*var\(--scrollbar-thin\)",
         )
 
-    def test_viewport_scrollbar_is_covered_too(self):
-        self.assertIn(":root.scrollbars-active::-webkit-scrollbar-thumb", self.css)
-
-    def test_hovered_or_dragged_thumb_stays_visible(self):
-        # Written as `:root ...:hover` so its specificity ties with the
-        # `:root.scrollbars-active` rule and (coming later) wins while hovered.
+    def test_idle_thumb_is_invisible_and_activity_shows_it(self):
+        thumb = self.rule(".scrollbar-thumb")
+        self.assertRegex(thumb, r"opacity:\s*0\s*;")
+        self.assertRegex(thumb, r"background-color:\s*var\(--scrollbar-thumb\)")
         self.assertRegex(
             self.css,
-            r":root\s+::-webkit-scrollbar-thumb:hover[^{]*::-webkit-scrollbar-thumb:active[^{]*\{[^}]*background-color:\s*var\(--scrollbar-thumb-hover\)",
+            r":root\.scrollbars-active \.scrollbar-thumb,\s*"
+            r"\.scrollbar-rail\.is-hovered \.scrollbar-thumb,\s*"
+            r"\.scrollbar-rail\.is-dragging \.scrollbar-thumb\s*\{\s*opacity:\s*1",
         )
 
-    def test_reduced_motion_removes_the_fade(self):
+    def test_pointed_at_or_dragged_it_thickens_and_strengthens(self):
+        self.assertRegex(
+            self.css,
+            r"\.scrollbar-rail\.is-hovered \.scrollbar-thumb,\s*\.scrollbar-rail\.is-dragging \.scrollbar-thumb\s*"
+            r"\{\s*background-color:\s*var\(--scrollbar-thumb-hover\)",
+        )
+        self.assertRegex(
+            self.css,
+            r"\.scrollbar-rail--y\.is-dragging \.scrollbar-thumb\s*\{\s*width:\s*var\(--scrollbar-thick\)",
+        )
+        self.assertRegex(
+            self.css,
+            r"\.scrollbar-rail--x\.is-dragging \.scrollbar-thumb\s*\{\s*height:\s*var\(--scrollbar-thick\)",
+        )
+
+    def test_it_fades_over_dur_base_and_thickens_over_dur_fast(self):
+        transition = self.rule(".scrollbar-thumb")
+        self.assertRegex(transition, r"opacity var\(--dur-base\)")
+        self.assertRegex(transition, r"width var\(--dur-fast\)")
+        self.assertRegex(transition, r"height var\(--dur-fast\)")
+
+    def test_reduced_motion_removes_the_fade_and_the_growth(self):
         block = re.search(r"@media \(prefers-reduced-motion: reduce\)\s*\{(.*?)\n\}", self.css, re.S)
         self.assertIsNotNone(block)
-        self.assertIn("transition: none", block.group(1))
+        self.assertRegex(block.group(1), r"\.scrollbar-thumb[^{]*\{\s*transition:\s*none")
 
     def test_forced_colors_never_hides_the_thumb(self):
         block = re.search(r"@media \(forced-colors: active\)\s*\{(.*?)\n\}", self.css, re.S)
         self.assertIsNotNone(block)
         self.assertRegex(block.group(1), r"background-color:\s*CanvasText")
-
-    def test_a_transition_fades_the_thumb(self):
-        self.assertRegex(self.rule("::-webkit-scrollbar-thumb"), r"transition:\s*background-color")
-
-    def test_the_track_stops_short_of_both_ends_on_both_axes(self):
-        # A margin on the track limits how far the thumb can travel without
-        # touching the scroller's content box or the gutter's width, so nothing
-        # reflows. Vertical insets top and bottom, horizontal left and right.
-        self.assertRegex(self.css, r"--scrollbar-inset:\s*8px")
-        self.assertRegex(
-            self.rule("::-webkit-scrollbar-track:vertical"), r"margin:\s*var\(--scrollbar-inset\)\s+0\s*;?\s*$"
-        )
-        self.assertRegex(
-            self.rule("::-webkit-scrollbar-track:horizontal"), r"margin:\s*0\s+var\(--scrollbar-inset\)\s*;?\s*$"
-        )
-
-    def test_the_inset_adds_no_padding_or_size_to_the_scroller(self):
-        for selector in ("::-webkit-scrollbar-track:vertical", "::-webkit-scrollbar-track:horizontal"):
-            self.assertNotRegex(self.rule(selector), r"padding|width|height")
-
+        self.assertRegex(block.group(1), r"opacity:\s*1")
 
 class ThumbContrastTests(unittest.TestCase):
     def thumb_token(self, variable: str) -> str:

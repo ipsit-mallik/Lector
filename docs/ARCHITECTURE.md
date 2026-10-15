@@ -80,12 +80,14 @@ lector/
 │   │   ├── file-browser.css     # Open/Save-As dialog body (imported by
 │   │   │                        #   components.css)
 │   │   └── scrollbars.css       # The only place scrollbars are styled
-│   │                            #   (auto-hide; imported by components.css)
+│   │                            #   (overlay rail + thumb, auto-hide;
+│   │                            #   imported by components.css)
 │   └── js/
 │       ├── bridge.js            # Wraps calls to the Python api.py bridge
 │       ├── ui.js                # Tooltip + Toast behaviour, loaded on every page
-│       ├── scrollbars.js        # Shows/hides every scrollbar on activity,
-│       │                        #   loaded on every page
+│       ├── scrollbars.js        # Overlay scrollbar on every scroller (found
+│       │                        #   from the stylesheets), shown/hidden on
+│       │                        #   activity; loaded on every page
 │       ├── search-field.js      # Search field clear button and listening
 │       │                        #   state, on every page with a search
 │       └── (per-page JS files, mirroring frontend/pages/)

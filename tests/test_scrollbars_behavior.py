@@ -1,4 +1,5 @@
-"""Behaviour of frontend/js/scrollbars.js, the auto-hide logic.
+"""Behaviour of frontend/js/scrollbars.js: the auto-hide logic and the overlay
+thumb's geometry.
 
 The script is a plain browser script, so it is run here under Node with a fake
 window, a fake <html> element and a fake clock: that checks the timing and the
@@ -22,12 +23,20 @@ const vm = require("vm");
 const source = fs.readFileSync(process.argv[1], "utf8");
 // No window/document in this context, so the script does not auto-start.
 const context = vm.createContext({});
-vm.runInContext(source + "\nthis.initScrollbarAutoHide = initScrollbarAutoHide;", context);
+vm.runInContext(
+  source +
+    "\nthis.initScrollbarAutoHide = initScrollbarAutoHide;" +
+    "\nthis.scrollbarThumb = scrollbarThumb;" +
+    "\nthis.scrollbarDragPosition = scrollbarDragPosition;" +
+    "\nthis.scrollbarHitTest = scrollbarHitTest;",
+  context,
+);
 
 const ACTIVITY = ["mousemove", "wheel", "mousedown", "click", "keydown", "touchstart", "scroll", "focusin"];
 
 function setup({ forcedColors = false } = {}) {
   let time = 0;
+  let shows = 0;
   let timers = [];
   let nextId = 1;
   const listeners = {};
@@ -62,9 +71,11 @@ function setup({ forcedColors = false } = {}) {
     clearTimer: (id) => {
       timers = timers.filter((t) => t.id !== id);
     },
+    onShow: () => shows++,
   });
   return {
     registrations,
+    shows: () => shows,
     visible: () => classes.has("scrollbars-active"),
     fire: (type, detail) => (listeners[type] || []).forEach((fn) => fn({ type, detail })),
     advance(ms) {
@@ -219,6 +230,81 @@ check("forced colors: never hidden after activity", () => {
   return s.visible();
 });
 
+// The overlay is re-measured each time the scrollbars appear, not on every
+// mousemove while they are up.
+check("onShow runs once per appearance", () => {
+  const s = setup();
+  s.fire("mousemove");
+  s.fire("mousemove");
+  s.fire("wheel");
+  const once = s.shows() === 1;
+  s.advance(2000);
+  s.fire("keydown");
+  return once && s.shows() === 2;
+});
+
+// Thumb geometry (the overlay's pure helpers).
+const thumb = (m) => context.scrollbarThumb({ minThumb: 32, ...m });
+const near = (a, b) => Math.abs(a - b) < 1e-9;
+
+check("thumb length is the visible share of the track", () => {
+  const t = thumb({ viewport: 500, content: 1000, position: 0, track: 400 });
+  return near(t.length, 200) && near(t.offset, 0) && near(t.travel, 200) && near(t.range, 500);
+});
+
+check("thumb offset follows the scroll position", () => {
+  const t = thumb({ viewport: 500, content: 1000, position: 250, track: 400 });
+  return near(t.offset, 100);
+});
+
+check("thumb reaches the end of its travel at the bottom", () => {
+  const t = thumb({ viewport: 500, content: 1000, position: 500, track: 400 });
+  return near(t.offset, t.travel);
+});
+
+check("thumb is never shorter than the minimum on a very long document", () => {
+  const t = thumb({ viewport: 716, content: 344804, position: 0, track: 700 });
+  return near(t.length, 32) && near(t.travel, 668);
+});
+
+check("thumb never outgrows a track shorter than the minimum", () => {
+  const t = thumb({ viewport: 100, content: 1000, position: 300, track: 20 });
+  return near(t.length, 20) && near(t.offset, 0);
+});
+
+check("overscroll keeps the thumb inside the track", () => {
+  const above = thumb({ viewport: 500, content: 1000, position: -40, track: 400 });
+  const below = thumb({ viewport: 500, content: 1000, position: 540, track: 400 });
+  return near(above.offset, 0) && near(below.offset, below.travel);
+});
+
+check("nothing to scroll means no thumb", () =>
+  thumb({ viewport: 500, content: 500, position: 0, track: 400 }) === null &&
+  thumb({ viewport: 500, content: 1000, position: 0, track: 0 }) === null);
+
+check("dragging the thumb scrolls in proportion", () =>
+  near(context.scrollbarDragPosition({ startPosition: 100, moved: 50, travel: 200, range: 500 }), 225));
+
+check("dragging past either end stops at the end", () =>
+  context.scrollbarDragPosition({ startPosition: 100, moved: -400, travel: 200, range: 500 }) === 0 &&
+  context.scrollbarDragPosition({ startPosition: 100, moved: 400, travel: 200, range: 500 }) === 500);
+
+check("a thumb with no travel does not scroll when dragged", () =>
+  context.scrollbarDragPosition({ startPosition: 70, moved: 30, travel: 0, range: 500 }) === 70);
+
+// The rails take no pointer events, so the one under the pointer is found by
+// position: the 12px grab area, edges included on the near side only.
+check("a pointer inside a rail's grab area hits it", () => {
+  const area = { left: 1207, top: 57, right: 1219, bottom: 757 };
+  return context.scrollbarHitTest(area, 1207, 57) && context.scrollbarHitTest(area, 1218.5, 400);
+});
+
+check("a pointer beside or past a rail misses it", () => {
+  const area = { left: 1207, top: 57, right: 1219, bottom: 757 };
+  return !context.scrollbarHitTest(area, 1206.5, 400) && !context.scrollbarHitTest(area, 1219, 400) &&
+    !context.scrollbarHitTest(area, 1210, 757) && !context.scrollbarHitTest(null, 1210, 400);
+});
+
 process.stdout.write(JSON.stringify(results));
 """
 
@@ -238,7 +324,7 @@ class ScrollbarAutoHideBehaviourTests(unittest.TestCase):
         cls.results = json.loads(completed.stdout)
 
     def test_every_scenario_passes(self):
-        self.assertGreaterEqual(len(self.results), 25)
+        self.assertGreaterEqual(len(self.results), 38)
         for name, outcome in self.results.items():
             with self.subTest(scenario=name):
                 self.assertIs(outcome, True, outcome)

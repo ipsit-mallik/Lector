@@ -247,9 +247,9 @@ function applyTheme(name) {
 
 // Programmatic scrolling: the one place the app animates a scroll it starts
 // itself (a page jump in the reader, the Open dialog's tree following the active
-// folder, arrow keys and "scroll down" by voice). The wheel, touchpad, scrollbar
-// drag and keyboard-on-a-focused-scroller are never touched: those stay with the
-// browser's own scrolling.
+// folder, arrow keys and "scroll down" by voice, a press on a scrollbar's track
+// in js/scrollbars.js). The wheel, touchpad, scrollbar drag (exact, set straight
+// from the pointer) and keyboard-on-a-focused-scroller are never animated.
 //
 // This is a short tween, not `scrollTo({ behavior: "smooth" })`, because the
 // browser's own duration can't be set and is not short: measured in Chromium it

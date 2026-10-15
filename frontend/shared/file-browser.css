@@ -68,9 +68,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-hair);
-  /* Right inset matches the tree rows', which the tree's scrollbar gutter
-     narrows, so the two columns line up. */
-  margin: 0 calc(var(--space-3) + var(--scrollbar-size)) var(--space-4) var(--space-3);
+  /* Same insets as the tree rows below (its scrollbar is an overlay and takes
+     no width), so the two columns line up. */
+  margin: 0 var(--space-3) var(--space-4) var(--space-3);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border);
 }

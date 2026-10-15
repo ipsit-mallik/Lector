@@ -1,105 +1,133 @@
-/* Auto-hiding scrollbars — the only place scrollbars are styled.
+/* Overlay scrollbars — the only place scrollbars are styled.
  *
  * Applies to every scroller in the app (Reader, Home, the Open/Save dialogs'
- * tree and list, "What can I say?", Settings, onboarding, and the root) with no
- * per-element class. The logic that decides *when* they show is
- * js/scrollbars.js; it toggles `scrollbars-active` on <html>. tests/
- * test_scrollbars.py fails if scrollbar styling appears anywhere else.
+ * tree and list, "What can I say?", Settings, onboarding) with no per-element
+ * class. js/scrollbars.js lays a rail (.scrollbar-rail) over each scroller's
+ * edge and toggles `scrollbars-active` on <html> to show or hide every thumb at
+ * once. tests/test_scrollbars.py fails if scrollbar styling appears anywhere
+ * else.
  *
- * Only ::-webkit-scrollbar is used. `scrollbar-color` and `scrollbar-width`
- * must never appear anywhere in the frontend: in current Chromium they take
- * precedence over these rules and would leave a permanently visible thumb that
- * ignores the fade.
- *
- * Hiding is done by making the thumb transparent, never by removing the
- * scrollbar or toggling overflow, so the gutter stays reserved and layout does
- * not shift when scrollbars appear or fade.
+ * Modelled on Windows 11's overlay scrollbar: a thin rounded thumb at rest that
+ * thickens while pointed at or dragged, a 12px grab area in both states, set
+ * a few pixels in from the edge and short of both ends. It is laid over the
+ * content, so it takes no layout space and nothing shifts when it appears.
  *
  * The visible thumb uses theme tokens that clear 3:1 against --bg, --surface-1
  * and --surface-2 in all three themes (checked by tests/test_scrollbars.py).
  */
 
 :root {
-  --scrollbar-size: 6px;
-  --scrollbar-hit: 12px;
-  --scrollbar-inset: 8px;
+  --scrollbar-thin: 3px;       /* the thumb at rest */
+  --scrollbar-thick: 7px;      /* pointed at or dragged */
+  --scrollbar-hit: 12px;       /* the grab area, in both states */
+  --scrollbar-edge: 3px;       /* between the thumb and the scroller's edge */
+  --scrollbar-inset: 8px;      /* the track stops this short of both ends */
+  --scrollbar-min-thumb: 32px; /* stays grabbable on a 1,000-page PDF */
   --scrollbar-thumb: var(--text-tertiary);
   --scrollbar-thumb-hover: var(--text-muted);
 }
 
-::-webkit-scrollbar {
-  width: var(--scrollbar-size);
-  height: var(--scrollbar-size);
+/* The browser's own scrollbars are never drawn: they take layout space and
+ * can't animate their thickness. The standard property is what Chromium
+ * honours; the pseudo-element covers WebKit (the Mac build). Scrolling itself
+ * (wheel, touchpad, keys) is untouched. */
+* { scrollbar-width: none; }
+::-webkit-scrollbar { display: none; }
+
+/* One per axis per scroller, a sibling laid over the scroller's padding box
+ * by js/scrollbars.js (which sets its position and length). Absent until
+ * there is something to scroll.
+ *
+ * It takes no pointer events: a wheel or touchpad over it falls through to
+ * the scroller and scrolls it natively, the same as anywhere else on it (a
+ * wheel handed on by script was a step behind and missed the smoothing). The
+ * script finds the rail under the pointer by position and sets .is-hovered,
+ * .is-dragging and, on the scroller, [data-scrollbar-hover]. */
+.scrollbar-rail {
+  position: absolute;
+  display: none;
+  pointer-events: none;
 }
 
-::-webkit-scrollbar-track,
-::-webkit-scrollbar-corner {
-  background: transparent;
+/* While its scrollbar is pointed at or dragged, a scroller's contents ignore
+ * the pointer: a row or card under the rail doesn't light up or change the
+ * cursor, and the wheel lands on the scroller itself. */
+[data-scrollbar-hover] { cursor: default; }
+[data-scrollbar-hover] * { pointer-events: none; }
+
+.scrollbar-rail.is-scrollable { display: block; }
+.scrollbar-rail--y { width: var(--scrollbar-hit); }
+.scrollbar-rail--x { height: var(--scrollbar-hit); }
+
+/* The thumb, and (::before) a faint track behind it while pointed at. Both
+ * hold --scrollbar-edge off the scroller's edge and grow inward, away from
+ * it. The script sets the thumb's length and its offset (a transform). */
+.scrollbar-thumb,
+.scrollbar-rail::before {
+  position: absolute;
+  border-radius: var(--radius-pill);
 }
 
-/* The track stops --scrollbar-inset short of both ends, so the thumb never
- * touches the window edge, the title bar or a dialog's rim. A margin on the
- * track only moves where the thumb can travel: it changes neither the
- * scroller's content box nor the gutter's width, so nothing reflows. */
-::-webkit-scrollbar-track:vertical { margin: var(--scrollbar-inset) 0; }
-::-webkit-scrollbar-track:horizontal { margin: 0 var(--scrollbar-inset); }
+.scrollbar-rail--y .scrollbar-thumb { top: 0; right: var(--scrollbar-edge); width: var(--scrollbar-thin); }
+.scrollbar-rail--x .scrollbar-thumb { left: 0; bottom: var(--scrollbar-edge); height: var(--scrollbar-thin); }
 
-/* Idle: invisible. */
-::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  border-radius: var(--radius-xs);
-  transition: background-color var(--dur-base) var(--ease-out);
+.scrollbar-rail::before {
+  content: "";
+  background-color: var(--state-hover);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-/* Any activity anywhere shows every scrollbar. The second selector covers the
- * root element's own (viewport) scrollbar, which a descendant selector cannot
- * reach. */
-:root.scrollbars-active ::-webkit-scrollbar-thumb,
-:root.scrollbars-active::-webkit-scrollbar-thumb {
+.scrollbar-rail--y::before { top: 0; bottom: 0; right: var(--scrollbar-edge); width: var(--scrollbar-thick); }
+.scrollbar-rail--x::before { left: 0; right: 0; bottom: var(--scrollbar-edge); height: var(--scrollbar-thick); }
+
+/* Idle: invisible. Fades over --dur-base; thickens over --dur-fast. */
+.scrollbar-thumb {
   background-color: var(--scrollbar-thumb);
+  opacity: 0;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    width var(--dur-fast) var(--ease-out),
+    height var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
 }
 
-/* Hovered or being dragged: stays visible regardless of the idle timer. */
-:root ::-webkit-scrollbar-thumb:hover,
-:root::-webkit-scrollbar-thumb:hover,
-:root ::-webkit-scrollbar-thumb:active,
-:root::-webkit-scrollbar-thumb:active {
+/* Any activity anywhere shows every thumb; pointing at one or dragging it
+ * keeps it on screen regardless of the idle timer. */
+:root.scrollbars-active .scrollbar-thumb,
+.scrollbar-rail.is-hovered .scrollbar-thumb,
+.scrollbar-rail.is-dragging .scrollbar-thumb {
+  opacity: 1;
+}
+
+/* Pointed at or dragged: thicker, a step stronger, over a faint track. */
+.scrollbar-rail.is-hovered .scrollbar-thumb,
+.scrollbar-rail.is-dragging .scrollbar-thumb {
   background-color: var(--scrollbar-thumb-hover);
 }
 
-/* The reader's page scroller (.page-scroller, book and strip), whose scrollbar
- * sits just inside the toolbar on the right edge: a 12px gutter, so the thumb
- * is an easy target to grab, with the same 6px thumb drawn in its middle (8px
- * while hovered or dragged). The transparent border is part of the hit area
- * but not of the painted thumb. Same fade, colours and inset as every other
- * scrollbar; only the grab area is wider. */
-.page-scroller::-webkit-scrollbar {
-  width: var(--scrollbar-hit);
-  height: var(--scrollbar-hit);
-}
+.scrollbar-rail--y.is-hovered .scrollbar-thumb,
+.scrollbar-rail--y.is-dragging .scrollbar-thumb { width: var(--scrollbar-thick); }
+.scrollbar-rail--x.is-hovered .scrollbar-thumb,
+.scrollbar-rail--x.is-dragging .scrollbar-thumb { height: var(--scrollbar-thick); }
 
-.page-scroller::-webkit-scrollbar-thumb {
-  border: calc((var(--scrollbar-hit) - var(--scrollbar-size)) / 2) solid transparent;
-  border-radius: var(--radius-sm);
-  background-clip: padding-box;
-}
-
-.page-scroller::-webkit-scrollbar-thumb:hover,
-.page-scroller::-webkit-scrollbar-thumb:active {
-  border-width: calc((var(--scrollbar-hit) - var(--scrollbar-size)) / 2 - 1px);
-}
+.scrollbar-rail.is-hovered::before,
+.scrollbar-rail.is-dragging::before { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
-  ::-webkit-scrollbar-thumb {
+  .scrollbar-thumb,
+  .scrollbar-rail::before {
     transition: none;
   }
 }
 
-/* Forced colors (Windows High Contrast): scrollbars never hide. */
+/* Forced colors (Windows High Contrast): scrollbars never hide, and keep a
+ * system colour the theme can't override. */
 @media (forced-colors: active) {
-  :root ::-webkit-scrollbar-thumb,
-  :root::-webkit-scrollbar-thumb {
+  .scrollbar-thumb {
+    forced-color-adjust: none;
     background-color: CanvasText;
+    opacity: 1;
     transition: none;
   }
 }

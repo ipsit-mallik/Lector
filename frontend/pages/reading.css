@@ -219,10 +219,10 @@ html, body { height: 100%; }
 }
 
 /* The toolbar is on the right edge, flush with the window. The page's
-   scrollbar is the page area's own, on its right side, just inside the
-   divider; the rail's 8px padding beside the divider is the clear gap between
-   the two, so a scrollbar drag that strays right lands on the divider or the
-   rail's padding, never on a button. */
+   scrollbar is the page area's own overlay (shared/scrollbars.css), laid
+   along its right side just inside the divider; the rail's 8px padding beside
+   the divider is the clear gap between the two, and a drag that strays right
+   keeps scrolling (the thumb holds the pointer), never presses a button. */
 .rail-sep {
   width: 100%;
   height: 1px;
