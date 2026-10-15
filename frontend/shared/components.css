@@ -170,7 +170,12 @@ button {
   background-color: color-mix(in srgb, var(--surface-2) 72%, transparent);
   box-shadow: inset 0 0 0 3px var(--accent);
 }
-.is-file-dragging .drop-overlay { display: flex; }
+/* Fades in rather than flashing the whole window; leaves at once, since a
+   drop opens the file underneath. */
+.is-file-dragging .drop-overlay {
+  display: flex;
+  animation: fade-in var(--dur-fast) var(--ease-out);
+}
 .drop-overlay-label {
   padding: var(--space-3) var(--space-5);
   border-radius: var(--radius-pill);
@@ -201,6 +206,15 @@ button {
    no button focused, e.g. Settings' overwrite confirmation. It is not a
    control, so it takes no focus ring. */
 .dialog-card:focus { outline: none; }
+
+/* Opt-in entrance for the confirmations (remove from Recent, overwrite, save
+   changes): the dim fades in and the card grows from --pop-scale, both over
+   --dur-base. Not on the Open dialog or the command reference: those are
+   launchers, reached mostly by Ctrl+O and "?", and a launcher opened from the
+   keyboard has to be there at once. Keyframes (pop-in, fade-in) are under
+   "Page entrance". */
+.dialog-scrim--enter { animation: fade-in var(--dur-base) var(--ease-out); }
+.dialog-scrim--enter .dialog-card { animation: pop-in var(--dur-base) var(--ease-out); }
 
 .dialog-body {
   padding: var(--dialog-pad-y) var(--dialog-pad-x) var(--dialog-pad-y);
@@ -556,6 +570,18 @@ button {
 
 @keyframes page-enter {
   from { opacity: 0; transform: translateY(var(--enter-rise)); }
+}
+
+/* A surface appearing over the page grows in from --pop-scale: a popover from
+   its trigger (it sets its own transform-origin), a confirmation dialog in
+   place. Animations, not transitions, so they replay each time [hidden] comes
+   off; closing stays instant. */
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(var(--pop-scale)); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
 }
 
 /* ------------------------------------------------------------------ */

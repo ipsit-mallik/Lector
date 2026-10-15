@@ -21,7 +21,10 @@
   <div class="onboarding-view">
     <main class="onboarding-stage">
       <!-- Step 1: microphone permission -->
-      <section class="onboarding-step" id="micStep">
+      <!-- .page-enter on each step: a step's contents fade and rise in, one
+           after another, on the first frame and again whenever the other step
+           is shown (showing a hidden element replays the animation). -->
+      <section class="onboarding-step page-enter" id="micStep">
         <div class="onboarding-badge" data-icon="logo"></div>
         <h1 class="onboarding-title">Let Lector hear you</h1>
         <p class="onboarding-lede">
@@ -44,7 +47,7 @@
       </section>
 
       <!-- Step 2: activation mode -->
-      <section class="onboarding-step" id="modeStep" hidden>
+      <section class="onboarding-step page-enter" id="modeStep" hidden>
         <h1 class="onboarding-title">How should Lector start listening?</h1>
         <p class="onboarding-aside">
           You can change this any time in Settings, or turn both on.

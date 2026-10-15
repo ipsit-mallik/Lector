@@ -56,11 +56,13 @@
   --stagger: 40ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  /* Distances for the two movements the app allows: a card's hover lift and
-   * a page section's entrance rise. Zeroed under prefers-reduced-motion
-   * below, so reduced motion means no movement at all, not a faster one. */
+  /* Distances for the movements the app allows: a card's hover lift, a page
+   * section's entrance rise, and the scale a popover or confirmation dialog
+   * grows from as it appears. Zeroed under prefers-reduced-motion below, so
+   * reduced motion means no movement at all, not a faster one. */
   --lift: -2px;
   --enter-rise: 6px;
+  --pop-scale: 0.97;
 
   /* The one looping animation: a search field's halo while voice is typing
    * into it (shared/search-field.css). Slow, so it reads as breathing rather
@@ -430,6 +432,7 @@ body {
   :root {
     --lift: 0px;
     --enter-rise: 0px;
+    --pop-scale: 1;
   }
 
   /* applyTheme() does not start a View Transition at all under reduced motion;

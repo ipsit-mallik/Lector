@@ -355,9 +355,12 @@ function positionHighlightEditor() {
   const maxLeft = area.width - width - HIGHLIGHT_EDITOR_GAP_PX;
   const left = Math.max(HIGHLIGHT_EDITOR_GAP_PX, Math.min(last.left - area.left, maxLeft));
   let top = last.bottom - area.top + HIGHLIGHT_EDITOR_GAP_PX;
-  if (top + height > area.height - HIGHLIGHT_EDITOR_GAP_PX) {
+  const above = top + height > area.height - HIGHLIGHT_EDITOR_GAP_PX;
+  if (above) {
     top = Math.max(HIGHLIGHT_EDITOR_GAP_PX, first.top - area.top - height - HIGHLIGHT_EDITOR_GAP_PX);
   }
+  // Its entrance grows from the highlight, so from its bottom edge up here.
+  highlightEditor.classList.toggle("is-above", above);
   highlightEditor.style.left = `${left}px`;
   highlightEditor.style.top = `${top}px`;
 }

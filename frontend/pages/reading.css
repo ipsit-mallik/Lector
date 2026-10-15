@@ -181,6 +181,17 @@ html, body { height: 100%; }
 
 .zoom-popover[hidden] { display: none; }
 
+/* The reader's three popovers grow in from the corner nearest what opened
+   them (pop-in, components.css), as fast as the Recent row menu. The zoom
+   popover hangs from the right end of the zoom label. */
+.zoom-popover,
+.color-flyout,
+.highlight-editor {
+  animation: pop-in var(--dur-fast) var(--ease-out);
+}
+
+.zoom-popover { transform-origin: right top; }
+
 .zoom-slider {
   width: 140px;
   accent-color: var(--accent);
@@ -397,6 +408,7 @@ html, body { height: 100%; }
      1px divider beside it. */
   right: calc(100% + var(--space-2) + var(--space-2));
   z-index: 10;
+  transform-origin: right top;
 }
 
 .color-flyout[hidden],
@@ -448,10 +460,15 @@ html, body { height: 100%; }
   box-shadow: 0 0 0 var(--focus-ring-width) var(--paper-focus-ring);
 }
 
+/* Grows from the highlight it edits: down from under its last line, or up
+   from over its first when highlight-colors.js has to flip it (.is-above). */
 .highlight-editor {
   position: absolute;
   z-index: 6;
+  transform-origin: left top;
 }
+
+.highlight-editor.is-above { transform-origin: left bottom; }
 
 .highlight-editor-sep {
   width: 1px;

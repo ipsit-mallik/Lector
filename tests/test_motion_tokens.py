@@ -68,6 +68,7 @@ class MotionTokenTests(unittest.TestCase):
         block = THEME_CSS[THEME_CSS.index("@media (prefers-reduced-motion: reduce)"):]
         self.assertRegex(block, r"--lift:\s*0px")
         self.assertRegex(block, r"--enter-rise:\s*0px")
+        self.assertRegex(block, r"--pop-scale:\s*1;")
         self.assertIn("transition-duration: 0.01ms !important", block)
         self.assertIn("animation-duration: 0.01ms !important", block)
 
@@ -84,6 +85,59 @@ class MotionTokenTests(unittest.TestCase):
         home_css = (FRONTEND / "pages" / "home.css").read_text(encoding="utf-8")
         for css in (home_css, COMPONENTS_CSS):
             self.assertNotRegex(css, r"translateY\(-?\d+px\)")
+
+
+class EntranceTests(unittest.TestCase):
+    """Surfaces that appear over the page: popovers, confirmations, the drop
+    cue and onboarding's steps. Entrances only; every one leaves at once."""
+
+    READING_CSS = (FRONTEND / "pages" / "reading.css").read_text(encoding="utf-8")
+    HIGHLIGHT_JS = (FRONTEND / "pages" / "highlight-colors.js").read_text(encoding="utf-8")
+
+    @staticmethod
+    def html(name: str) -> str:
+        return (FRONTEND / name).read_text(encoding="utf-8")
+
+    def scrim_tag(self, page: str, scrim_id: str) -> str:
+        return re.search(rf'<div class="[^"]*"[^>]*id="{scrim_id}"', self.html(page)).group(0)
+
+    def test_pop_in_grows_from_the_zeroable_scale(self):
+        self.assertEqual(declared("--pop-scale"), "0.97")
+        self.assertRegex(COMPONENTS_CSS,
+                         r"@keyframes pop-in\s*\{\s*from \{ opacity: 0; transform: scale\(var\(--pop-scale\)\); \}")
+
+    def test_the_confirmations_opt_in_and_the_launchers_do_not(self):
+        for page, scrim_id in (("index.html", "removeConfirmScrim"),
+                               ("pages/settings.html", "overwriteConfirmScrim"),
+                               ("pages/reading.html", "saveDialog")):
+            self.assertIn("dialog-scrim--enter", self.scrim_tag(page, scrim_id), scrim_id)
+        # Ctrl+O and "?" open these from the keyboard; they appear at once.
+        self.assertNotIn("dialog-scrim--enter", self.scrim_tag("index.html", "openDialogScrim"))
+        reference_js = self.html("pages/command-reference.js")
+        self.assertNotIn("dialog-scrim--enter", reference_js)
+        self.assertRegex(COMPONENTS_CSS,
+                         r"\.dialog-scrim--enter \{ animation: fade-in var\(--dur-base\) var\(--ease-out\); \}")
+        self.assertRegex(COMPONENTS_CSS,
+                         r"\.dialog-scrim--enter \.dialog-card \{ animation: pop-in var\(--dur-base\) var\(--ease-out\); \}")
+
+    def test_reader_popovers_grow_from_their_trigger_at_the_fast_duration(self):
+        self.assertRegex(self.READING_CSS,
+                         r"\.zoom-popover,\s*\.color-flyout,\s*\.highlight-editor \{\s*"
+                         r"animation: pop-in var\(--dur-fast\) var\(--ease-out\);")
+        self.assertIn(".zoom-popover { transform-origin: right top; }", self.READING_CSS)
+        self.assertRegex(self.READING_CSS, r"\.color-flyout \{[^}]*transform-origin: right top;")
+        self.assertRegex(self.READING_CSS, r"\.highlight-editor \{[^}]*transform-origin: left top;")
+        self.assertIn(".highlight-editor.is-above { transform-origin: left bottom; }", self.READING_CSS)
+        self.assertIn('highlightEditor.classList.toggle("is-above", above)', self.HIGHLIGHT_JS)
+
+    def test_the_drop_cue_fades_in(self):
+        self.assertRegex(COMPONENTS_CSS,
+                         r"\.is-file-dragging \.drop-overlay \{[^}]*animation: fade-in var\(--dur-fast\) var\(--ease-out\);")
+
+    def test_each_onboarding_step_enters_like_a_page(self):
+        onboarding = self.html("pages/onboarding.html")
+        self.assertIn('class="onboarding-step page-enter" id="micStep"', onboarding)
+        self.assertIn('class="onboarding-step page-enter" id="modeStep"', onboarding)
 
 
 class SharedCardHoverTests(unittest.TestCase):
