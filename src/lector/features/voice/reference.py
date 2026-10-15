@@ -255,6 +255,15 @@ def _reading_sections() -> list[dict]:
                      "Shows or hides the progress bar on the left edge.",
                      "Settings, Reading, Progress bar", _READING),
         ]),
+        _section("focus", "Focus mode", scope, [
+            _command(_all(p, grammar.FOCUS_MODE),
+                     "Hides the header, the toolbar and the status bar so the page has "
+                     "the window. While you speak a command, a small listening pill "
+                     "still shows at the bottom.",
+                     "F11", _READING),
+            _command(_all(p, grammar.EXIT_FOCUS_MODE), "Brings them back.",
+                     "Esc or F11", _READING),
+        ]),
         _section("highlighting", "Highlighting", scope, [
             _command(_then(grammar.HIGHLIGHT_TRIGGERS, WORDS),
                      "Say a few words you can see on screen and they are highlighted. "
@@ -364,7 +373,7 @@ def _prompts() -> dict:
 # front of it (see `sections`); the rest keep this order.
 _SECTION_ORDER: tuple[str, ...] = (
     "anywhere", "back_home", "recent", "favorites", "theme", "save", "reopen",
-    "moving", "panel", "highlighting", "undo_redo", "app", "this_list", "prompts",
+    "moving", "panel", "focus", "highlighting", "undo_redo", "app", "this_list", "prompts",
 )
 
 

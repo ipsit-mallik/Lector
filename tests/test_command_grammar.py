@@ -260,6 +260,7 @@ class IntentContractTests(unittest.TestCase):
         declared = {
             cg.NEXT_PAGE, cg.PREV_PAGE, cg.SCROLL_UP, cg.SCROLL_DOWN, cg.SAVE,
             cg.SHOW_OUTLINE, cg.SHOW_PAGES, cg.HIDE_OUTLINE, cg.TOGGLE_PROGRESS_BAR,
+            cg.FOCUS_MODE, cg.EXIT_FOCUS_MODE,
         }
         self.assertEqual(set(cg.PHRASES), declared)
 

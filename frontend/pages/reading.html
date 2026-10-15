@@ -6,8 +6,10 @@
   <link rel="stylesheet" href="reading.css">
 </head>
 <body>
+  <!-- `.focus-chrome` marks the bars Focus mode hides together (focus-mode.js):
+       the topbar, the toolbar and the footer, each with its divider. -->
   <div class="reading-view">
-    <div class="topbar">
+    <div class="topbar focus-chrome">
       <!-- Opens and closes the outline and pages panel on the left edge
            (outline-panel.js). First in the row, so it sits right above the
            panel it controls; its icon keeps the footer's left edge. -->
@@ -34,15 +36,21 @@
           <span data-icon="chevron_right"></span>
         </button>
         <div class="vline short"></div>
+        <!-- "− 150% +": step zoom either side of the percentage, which opens
+             the slider for anything in between. -->
         <div class="zoom-control">
+          <button class="icon-btn icon-btn--sm zoom-step" id="zoomOutBtn" type="button" data-icon="minus"
+                  title="Zoom out  (Ctrl+−)" aria-label="Zoom out"></button>
           <button class="zoom-label" id="zoomLabel" type="button" title="Zoom" aria-label="Zoom level">150%</button>
+          <button class="icon-btn icon-btn--sm zoom-step" id="zoomInBtn" type="button" data-icon="plus"
+                  title="Zoom in  (Ctrl+=)" aria-label="Zoom in"></button>
           <div class="zoom-popover" id="zoomPopover" hidden>
             <input class="zoom-slider" id="zoomSlider" type="range" min="50" max="400" step="5" value="150" aria-label="Zoom">
           </div>
         </div>
       </div>
     </div>
-    <div class="hline"></div>
+    <div class="hline focus-chrome"></div>
 
     <div class="body-row">
       <!-- Left edge. The progress bar (progress-bar.js) is a thin line at the
@@ -149,11 +157,12 @@
         </div>
       </div>
 
-      <div class="vline"></div>
+      <div class="vline focus-chrome"></div>
       <!-- Right edge: the toolbar, flush to the window's edge, with the page's
            scrollbar just inside it (the page area's own overlay, with a 12px
-           grab area, shared/scrollbars.css) and a clear gap between the two. -->
-      <div class="rail">
+           grab area, shared/scrollbars.css) and a clear gap between the two.
+           Its groups sit in the middle of the rail's height. -->
+      <div class="rail focus-chrome">
         <!-- The highlight tool and, attached under it, the color it draws in.
              The color button opens the five swatches beside the rail, over
              the page (highlight-colors.js); the dot shows the active color. -->
@@ -166,15 +175,13 @@
           </button>
           <div class="color-flyout" id="highlightColorFlyout" aria-label="Highlight color" hidden></div>
         </div>
-        <button class="icon-btn" id="undoBtn" data-icon="undo" title="Undo highlight  (Ctrl+Z)" aria-label="Undo highlight" disabled></button>
-        <button class="icon-btn" id="redoBtn" data-icon="redo" title="Redo highlight  (Ctrl+Y)" aria-label="Redo highlight" disabled></button>
+        <!-- Always shown. With nothing on the undo stack they are dimmed and
+             aria-disabled rather than disabled, so they keep their tooltip
+             saying why (reading.js's updateUndoButtons). -->
+        <button class="icon-btn" id="undoBtn" data-icon="undo" title="Nothing to undo" aria-label="Undo highlight" aria-disabled="true"></button>
+        <button class="icon-btn" id="redoBtn" data-icon="redo" title="Nothing to redo" aria-label="Redo highlight" aria-disabled="true"></button>
         <button class="icon-btn" id="findBtn" data-icon="search" title="Find in document  (Ctrl+F)"
                 aria-label="Find in document" aria-controls="findBar" aria-expanded="false"></button>
-
-        <div class="rail-sep"></div>
-
-        <button class="icon-btn" id="zoomInBtn" data-icon="zoom_in" title="Zoom in  (=)" aria-label="Zoom in"></button>
-        <button class="icon-btn" id="zoomOutBtn" data-icon="zoom_out" title="Zoom out  (−)" aria-label="Zoom out"></button>
 
         <div class="rail-sep"></div>
 
@@ -183,8 +190,8 @@
       </div>
     </div>
 
-    <div class="hline"></div>
-    <div class="footer">
+    <div class="hline focus-chrome"></div>
+    <div class="footer focus-chrome">
       <div class="mic-pill" id="micPill">
         <span data-icon="logo"></span>
         <span id="micLabel">Mic idle</span>
@@ -194,6 +201,14 @@
       <span class="highlight-count" id="highlightCount">0 highlights on this page</span>
       <button class="btn-secondary what-btn" id="referenceFooterBtn"
               title="What can I say?  (?)">What can I say?</button>
+    </div>
+
+    <!-- Focus mode's one piece of chrome: the footer's mic pill, floating at
+         the bottom of the window while a command is being captured, so a
+         spoken command still shows it was heard (focus-mode.js). -->
+    <div class="mic-pill listening focus-voice-pill" id="focusVoicePill" aria-hidden="true">
+      <span data-icon="logo"></span>
+      <span id="focusVoiceLabel">Listening...</span>
     </div>
   </div>
 
@@ -307,6 +322,8 @@
   <script src="highlight-colors.js"></script>
   <script src="progress-bar.js"></script>
   <script src="outline-panel.js"></script>
+  <script src="page-centering.js"></script>
+  <script src="focus-mode.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>

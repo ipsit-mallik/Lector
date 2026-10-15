@@ -142,7 +142,15 @@ html, body { height: 100%; }
 
 .page-controls .vline.short { margin: 0 var(--space-2); }
 
-.zoom-control { position: relative; }
+/* "− 150% +": the step buttons either side of the percentage, touching it so
+   the three read as one control. */
+.zoom-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.zoom-step svg { width: 16px; height: 16px; }
 
 .zoom-label {
   display: flex;
@@ -183,7 +191,7 @@ html, body { height: 100%; }
 
 /* The reader's three popovers grow in from the corner nearest what opened
    them (pop-in, components.css), as fast as the Recent row menu. The zoom
-   popover hangs from the right end of the zoom label. */
+   popover hangs from the right end of the zoom control. */
 .zoom-popover,
 .color-flyout,
 .highlight-editor {
@@ -207,15 +215,60 @@ html, body { height: 100%; }
   min-height: 0;
 }
 
+/* 56px: 40px targets with 8px either side. The groups sit in the middle of
+   the rail's height, not at its top. */
 .rail {
+  box-sizing: border-box;
   flex: none;
-  width: 60px;
+  width: 56px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-2);
   background-color: var(--surface-1);
+}
+
+.rail .icon-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+/* A tool that is on (the highlight tool; the layout button, which always
+   shows the layout in use): an accent icon over a soft tint inset from the
+   target, as light as the search field's focus halo (half its mix), rather
+   than a filled block. */
+.rail .icon-btn.active,
+.rail .icon-btn.active:hover {
+  --tool-tint: color-mix(in srgb, var(--accent) calc(var(--field-halo-mix) / 2), transparent);
+  background-color: transparent;
+  color: var(--accent-strong);
+}
+
+.rail .icon-btn.active::before {
+  content: "";
+  position: absolute;
+  inset: var(--space-1);
+  border-radius: var(--radius-sm);
+  background-color: var(--tool-tint);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.rail .icon-btn.active:hover::before {
+  background-color: color-mix(in srgb, var(--tool-tint), var(--text-primary) 4%);
+}
+
+.rail .icon-btn.active svg { position: relative; }
+
+/* Undo and redo with nothing to take back: still there, dimmed to 40%, with
+   no hover or press, and a tooltip saying so. */
+.rail .icon-btn[aria-disabled="true"] {
+  opacity: 0.4;
+  color: var(--text-secondary);
+  background-color: transparent;
+  cursor: default;
 }
 
 /* The toolbar is on the right edge, flush with the window. The page's
@@ -242,14 +295,23 @@ html, body { height: 100%; }
 .page-area:focus,
 .page-area:focus-visible { outline: none; }
 
+/* The page is centred on the window rather than on the page area, which the
+   toolbar makes narrower on the right: reading.js's centerPageOnWindow() sets
+   --page-offset to how far right (or, negative, left) of the area's centre
+   that is, and padding on one side moves the flex-centred page by it. It is
+   0 whenever the page is too wide for that without nearing the toolbar.
+   `safe`: a page wider than the area starts at its left edge and scrolls,
+   rather than overflowing both sides with its left part out of reach. */
 .book-scroll,
 .strip-scroll {
   position: absolute;
   inset: 0;
   overflow: auto;
   display: flex;
-  justify-content: center;
+  justify-content: safe center;
   padding: var(--space-5) 0;
+  padding-left: max(0px, 2 * var(--page-offset, 0px));
+  padding-right: max(0px, -2 * var(--page-offset, 0px));
 }
 
 /* Author rules always beat the UA stylesheet's [hidden]{display:none}, so
@@ -357,7 +419,7 @@ html, body { height: 100%; }
   align-items: center;
   justify-content: center;
   gap: var(--space-hair);
-  width: 44px;
+  width: 40px;
   height: 24px;
   padding: 0;
   border: none;
@@ -1174,3 +1236,52 @@ html, body { height: 100%; }
    column of their own, clear of the chevrons and the progress bar. */
 .outline-panel.is-picking #outlineTabPanel { padding-left: calc(var(--space-4) + var(--space-5)); }
 .outline-row .outline-badge { left: calc(-1 * var(--space-5)); }
+
+/* ------------------------------------------------------------------ */
+/* Focus mode (focus-mode.js)                                          */
+/* ------------------------------------------------------------------ */
+
+/* The topbar, toolbar and footer, with their dividers, fade out over
+   --dur-fast and then leave the layout, so the page takes their room. The
+   progress bar and the outline panel are not part of it. */
+.focus-chrome {
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.reading-view.is-focus-fading .focus-chrome {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reading-view.is-focus-mode .focus-chrome { display: none; }
+
+/* The footer's mic pill, floating at the bottom centre of the window while a
+   command is being captured or worked out, and only in Focus mode. */
+.focus-voice-pill {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  z-index: 20;
+  justify-content: center;
+  box-shadow: var(--shadow-2);
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translate(-50%, var(--enter-rise));
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out),
+              visibility 0s linear var(--dur-base);
+}
+
+/* Over the page, not over the footer's canvas, so the tint is laid on the
+   pill's own surface rather than letting the paper show through. */
+.focus-voice-pill.listening {
+  background-color: color-mix(in srgb, var(--voice) 16%, var(--surface-2));
+}
+
+.reading-view.is-focus-mode .focus-voice-pill.is-showing {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: 0s;
+}

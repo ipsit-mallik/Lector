@@ -77,13 +77,26 @@ function updateChrome() {
   zoomSlider.value = state.zoom_pct;
   prevBtn.disabled = state.page_index <= 0;
   nextBtn.disabled = state.page_index >= state.page_count - 1;
-  undoBtn.disabled = !state.can_undo;
-  redoBtn.disabled = !state.can_redo;
+  updateUndoButtons();
   showActiveHighlightColor(state.highlight_color);
   // The progress bar and the outline panel follow every page and highlight
   // change from here, strip scrolling included.
   updateProgressBar(state);
   updateOutlinePanel(state);
+}
+
+// Undo and redo are always in the toolbar. What dims one is the undo stack
+// having nothing for it (state.can_undo / can_redo), not unsaved changes:
+// after a save there may still be edits to take back. aria-disabled rather
+// than disabled, so the button keeps its tooltip saying why.
+function updateUndoButtons() {
+  setUndoButton(undoBtn, state.can_undo, "Undo highlight  (Ctrl+Z)", "Nothing to undo");
+  setUndoButton(redoBtn, state.can_redo, "Redo highlight  (Ctrl+Y)", "Nothing to redo");
+}
+
+function setUndoButton(button, enabled, title, emptyTitle) {
+  button.setAttribute("aria-disabled", String(!enabled));
+  button.title = enabled ? title : emptyTitle;
 }
 
 // `animate` is for a page jump the reader asked for (next, previous, go to):
@@ -797,13 +810,25 @@ async function prefetchVisiblePage() {
 // targets laid over them. The page area also changes size when the outline
 // panel opens or closes, with no window resize, so it is the page area that is
 // watched.
-new ResizeObserver(() => {
+// The page area resizing (the window, the outline panel, Focus mode) or the
+// page itself (zoom, a new page, the strip being built) can each move the
+// page: it is centred on the window again (page-centering.js) and everything
+// drawn over it follows.
+const pageResizeObserver = new ResizeObserver(() => {
   // It also fires once on load, before there is a document to paint over.
   if (!state.is_open) return;
+  centerActivePage();
   paintHighlightTargets();
   paintFindMarks();
   if (selection && selection.range) paintSelection(selection, false);
-}).observe(pageArea);
+});
+[pageArea, pageCard, stripContainer].forEach((el) => pageResizeObserver.observe(el));
+
+function centerActivePage() {
+  return layoutMode === "book"
+    ? centerPageOnWindow(bookScroll, pageCard)
+    : centerPageOnWindow(stripScroll, stripContainer);
+}
 
 // The page previews in the progress bar and the Pages tab show highlights, so
 // a page's are redrawn after its highlights change.
@@ -1002,11 +1027,13 @@ function toggleZoomPopover(show) {
 }
 
 async function undo() {
+  if (!state.can_undo) return;
   state = await callApi("undo_highlight");
   await afterAnnotationChange(state.affected_page);
 }
 
 async function redo() {
+  if (!state.can_redo) return;
   state = await callApi("redo_highlight");
   await afterAnnotationChange(state.affected_page);
 }
@@ -1270,7 +1297,39 @@ highlightBtn.addEventListener("click", () => setHighlightMode(!highlightMode));
 configureCommandReference({ ranges: () => ({ page: state && state.page_count }) });
 referenceFooterBtn.addEventListener("click", openCommandReference);
 
+// Focus mode's own popovers live in the chrome it hides, so they close first:
+// left open, the next Esc would go on closing something no longer visible.
+function enterFocusMode() {
+  closeColorFlyout();
+  toggleZoomPopover(false);
+  setFocusMode(true);
+}
+
+// Whether a dialog was up when the key went down. Captured before any other
+// listener runs, since a dialog's own Esc hides it before the handler below
+// gets the key, and one Esc must not both cancel it and leave Focus mode.
+let dialogOpenAtKey = false;
+document.addEventListener("keydown", () => {
+  dialogOpenAtKey = Boolean(document.querySelector(".dialog-scrim:not([hidden])"));
+}, true);
+
 document.addEventListener("keydown", (ev) => {
+  // Focus mode's key works from anywhere in the reader, the find box included,
+  // but not behind a dialog.
+  if (ev.key === "F11") {
+    ev.preventDefault();
+    if (ev.repeat || dialogOpenAtKey) return;
+    if (isFocusMode()) setFocusMode(false);
+    else enterFocusMode();
+    return;
+  }
+  // Ctrl+= and Ctrl+- are the reader's zoom, never the web view's own, from
+  // the page box and the find box too.
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "=" || ev.key === "+" || ev.key === "-")) {
+    ev.preventDefault();
+    ev.key === "-" ? zoomOut() : zoomIn();
+    return;
+  }
   if (ev.target.tagName === "INPUT") return;
   switch (ev.key) {
     case "ArrowRight":
@@ -1290,6 +1349,7 @@ document.addEventListener("keydown", (ev) => {
       else goPrev();
       break;
     case "=":
+    case "+":
       zoomIn();
       break;
     case "-":
@@ -1309,6 +1369,7 @@ document.addEventListener("keydown", (ev) => {
       else if (isHighlightEditorOpen()) closeHighlightEditor({ returnFocus: true });
       else if (isColorFlyoutOpen()) closeColorFlyout({ returnFocus: true });
       else if (isFindBarOpen()) closeFindBar();
+      else if (isFocusMode() && !dialogOpenAtKey) setFocusMode(false);
       break;
     case "z":
       if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); ev.shiftKey ? redo() : undo(); }
@@ -1353,6 +1414,7 @@ configureFindBar({
 });
 
 configureProgressBar({ jumpTo: (index) => jumpToPageIndex(index) });
+configureFocusMode({ scroller: () => activeScrollEl() });
 configureOutlinePanel({
   jumpTo: (index) => goToPage(index + 1),
   say: (text) => setMicHint(text),
@@ -1552,6 +1614,8 @@ const VOICE_ACTIONS = {
   SHOW_PAGES: () => startOutlinePicker("pages"),
   HIDE_OUTLINE: () => closeOutlinePanel(),
   TOGGLE_PROGRESS_BAR: () => toggleProgressBar(),
+  FOCUS_MODE: () => enterFocusMode(),
+  EXIT_FOCUS_MODE: () => setFocusMode(false),
   SET_HIGHLIGHT_COLOR: async (command) => {
     await setActiveHighlightColor(command.color);
     setMicHint(`Highlight color: ${command.color}`);
@@ -1707,6 +1771,7 @@ function renderMicState({ state: micState, text, error, command, clarify, ocr, w
   // of a hold; every other state (heard, unavailable, idle) means the hold
   // is over, so this is the single place that takes it back down again.
   if (micState !== "listening") clearVoiceFocus();
+  showFocusVoice(micState, text);
 
   switch (micState) {
     case "unavailable":

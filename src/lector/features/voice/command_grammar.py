@@ -54,6 +54,9 @@ SHOW_OUTLINE = "SHOW_OUTLINE"
 SHOW_PAGES = "SHOW_PAGES"
 HIDE_OUTLINE = "HIDE_OUTLINE"
 TOGGLE_PROGRESS_BAR = "TOGGLE_PROGRESS_BAR"
+# Focus mode: the reader's topbar, toolbar and footer hidden, and back.
+FOCUS_MODE = "FOCUS_MODE"
+EXIT_FOCUS_MODE = "EXIT_FOCUS_MODE"
 
 # Phrasings per intent, each ordered most-explicit first. Order is load
 # bearing: `fuzzy.best_match` breaks ties by taking the earliest candidate,
@@ -99,6 +102,12 @@ PHRASES: dict[str, tuple[str, ...]] = {
     SHOW_PAGES: ("show pages",),
     HIDE_OUTLINE: ("hide outline",),
     TOGGLE_PROGRESS_BAR: ("toggle progress bar",),
+    # One phrasing each, for the outline's reason: "enter focus mode" scores
+    # 0.75 against "exit focus mode", over the match threshold. "focus mode"
+    # against it is 0.67, and turning it on when it is already on does
+    # nothing.
+    FOCUS_MODE: ("focus mode",),
+    EXIT_FOCUS_MODE: ("exit focus mode",),
 }
 
 # Leading trigger phrases for HIGHLIGHT_SENTENCE, tried before HIGHLIGHT's —
