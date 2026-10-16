@@ -1,19 +1,21 @@
 """The reader's progress bar colours (docs/DESIGN_SYSTEM.md, "Reader progress
-bar"), all per theme: the unread track, the read fill, the highlight marker
-and the current-page label.
+bar"), all per theme: the unread track, the read fill, the highlight marker and
+its edge, and the current-page label.
 
-The collapsed line is 4px at the window's edge, so every part of it has to be
-seen against the window on its own (WCAG 1.4.11, 3:1): against --bg, the page
-area beside it, and --surface-1, the outline panel beside it when that is open.
+The bar's place is told by where the read fill ends, so the fill has to clear
+3:1 against the window (WCAG 1.4.11) -- against --bg, the page area beside it,
+and --surface-1, the column it sits in -- and against the unread track. In
+light and sepia the track is deliberately pale, close to the window, so the bar
+stops reading as the window's frame; it is not held to 3:1 on the window.
 
-Track and fill are a ladder from the window, 3:1 a step, so read and unread
-are told apart too. A third 3:1 step would need 27:1, more than black on white,
-so the marker is 3:1 off the window and one part of the bar, and apart from
-the other by hue. In light and sepia that one part is the fill (a dark ochre
-marker on a near-black fill); dark keeps its bright yellow marker, which
-stands off the track.
+A highlight marker is light amber in a 1px dark edge (bright yellow in a
+near-black edge in dark): the amber or the edge clears 3:1 on the track and on
+the window, and the amber is apart from the fill by hue.
+
+These ratios are for the active bar. Idle, the whole bar is at 55% opacity and
+under 3:1 on purpose; the header's page number is the primary position
+indicator.
 """
-import colorsys
 import sys
 import unittest
 from pathlib import Path
@@ -30,33 +32,49 @@ TEXT = 4.5
 # Far enough apart in hue to read as different colours at a glance.
 HUE_APART = 18
 WINDOW = ("bg", "surface-1")
-PARTS = ("progress-track", "progress-fill", "progress-marker")
+PARTS = (
+    "progress-track", "progress-fill", "progress-marker", "progress-marker-edge",
+    "progress-label", "progress-label-text",
+)
+
+# docs/DESIGN_SYSTEM.md token table. Sepia's fill is light's green one step
+# darker: light's is 2.95:1 on sepia's track.
+EXPECTED = {
+    "light": {"track": "#CFCAC1", "fill": "#2E7D64", "marker": "#F2C14E", "marker-edge": "#8A5A00"},
+    "sepia": {"track": "#D6C6A6", "fill": "#2C775F", "marker": "#F2C14E", "marker-edge": "#8A5A00"},
+    "dark": {"track": "#78726A", "fill": "#B8DBD0", "marker": "#FFE98F", "marker-edge": "#1A1816"},
+}
 
 
 def tok(name, part):
     return theme.token(name, part)
 
 
-def _hsv(hex_value):
-    r, g, b = (c / 255 for c in _hex(hex_value))
-    return colorsys.rgb_to_hsv(r, g, b)
+def best(name, part, against):
+    """The better of the marker's amber and its edge against `against`."""
+    return max(contrast(tok(name, part), against), contrast(tok(name, part + "-edge"), against))
 
 
 class ProgressBarTokenTests(unittest.TestCase):
     def test_every_part_is_a_theme_token(self):
-        for part in (*PARTS, "progress-label", "progress-label-text"):
+        for part in PARTS:
             with self.subTest(part=part):
                 with self.assertRaises(KeyError):
                     theme.shared_token(part)
                 for name in theme.THEME_ORDER:
                     self.assertTrue(tok(name, part))
 
-    def test_every_part_shows_on_the_window(self):
+    def test_the_values_are_the_specified_ones(self):
+        for name, parts in EXPECTED.items():
+            for part, value in parts.items():
+                with self.subTest(theme=name, part=part):
+                    self.assertEqual(tok(name, f"progress-{part}"), value)
+
+    def test_the_fill_shows_on_the_window(self):
         for name in theme.THEME_ORDER:
-            for part in PARTS:
-                for surface in WINDOW:
-                    with self.subTest(theme=name, part=part, against=surface):
-                        self.assertGreaterEqual(contrast(tok(name, part), tok(name, surface)), NON_TEXT)
+            for surface in WINDOW:
+                with self.subTest(theme=name, against=surface):
+                    self.assertGreaterEqual(contrast(tok(name, "progress-fill"), tok(name, surface)), NON_TEXT)
 
     def test_read_and_unread_are_told_apart(self):
         for name in theme.THEME_ORDER:
@@ -65,34 +83,39 @@ class ProgressBarTokenTests(unittest.TestCase):
                     contrast(tok(name, "progress-fill"), tok(name, "progress-track")), NON_TEXT
                 )
 
-    def test_the_marker_stands_off_one_part_of_the_bar_and_differs_from_both_in_hue(self):
-        for name in theme.THEME_ORDER:
-            marker = tok(name, "progress-marker")
-            ratios = [contrast(marker, tok(name, part)) for part in ("progress-track", "progress-fill")]
-            with self.subTest(theme=name):
-                self.assertGreaterEqual(max(ratios), NON_TEXT)
-                for part in ("progress-track", "progress-fill"):
-                    self.assertGreaterEqual(_delta_e2000(_hex(marker), _hex(tok(name, part))), HUE_APART)
-
-    def test_light_and_sepia_mark_in_a_dark_ochre_clear_of_the_fill(self):
+    def test_light_and_sepia_tracks_recede_into_the_window(self):
+        # The point of the change: the unread track is pale, not frame-dark.
         for name in ("light", "sepia"):
-            marker = tok(name, "progress-marker")
-            hue, saturation, value = _hsv(marker)
             with self.subTest(theme=name):
-                self.assertGreaterEqual(contrast(marker, tok(name, "progress-fill")), NON_TEXT)
-                self.assertTrue(30 <= hue * 360 <= 45, hue * 360)
-                self.assertGreater(saturation, 0.9)
-                # Darker than the old pale yellow, and than dark's marker.
-                self.assertLess(value, _hsv(tok("dark", "progress-marker"))[2])
-                self.assertLess(value, 0.7)
+                self.assertLess(contrast(tok(name, "progress-track"), tok(name, "bg")), 1.5)
 
-    def test_dark_keeps_its_bright_marker(self):
-        self.assertEqual(tok("dark", "progress-marker"), "#FFE98F")
+    def test_a_marker_shows_on_the_track_and_on_the_window(self):
+        # A marker's edge is flush with the bar's sides, beside the column it sits in.
+        for name in theme.THEME_ORDER:
+            for against in ("progress-track", *WINDOW):
+                with self.subTest(theme=name, against=against):
+                    self.assertGreaterEqual(best(name, "progress-marker", tok(name, against)), NON_TEXT)
 
-    def test_the_page_label_is_readable_and_shows_on_the_window(self):
+    def test_a_marker_differs_from_the_fill_by_hue(self):
+        for name in theme.THEME_ORDER:
+            with self.subTest(theme=name):
+                self.assertGreaterEqual(
+                    _delta_e2000(_hex(tok(name, "progress-marker")), _hex(tok(name, "progress-fill"))),
+                    HUE_APART,
+                )
+
+    def test_the_marker_edge_is_darker_than_the_marker(self):
+        for name in theme.THEME_ORDER:
+            with self.subTest(theme=name):
+                self.assertGreaterEqual(
+                    contrast(tok(name, "progress-marker"), tok(name, "progress-marker-edge")), NON_TEXT
+                )
+
+    def test_the_page_label_is_a_chip_in_the_read_colour(self):
         for name in theme.THEME_ORDER:
             chip = tok(name, "progress-label")
             with self.subTest(theme=name):
+                self.assertEqual(chip, tok(name, "progress-fill"))
                 self.assertGreaterEqual(contrast(tok(name, "progress-label-text"), chip), TEXT)
                 self.assertGreaterEqual(contrast(chip, tok(name, "bg")), NON_TEXT)
 

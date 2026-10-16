@@ -319,17 +319,17 @@ const vm = require("vm");
 const context = vm.createContext({ document: {} });
 vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), context);
 const offset = vm.runInContext("pageOffsetForWindow", context);
-// A 1280px window: the progress bar's 4px on the left, the toolbar's 57px on
-// the right, so the area is 4..1223 and its centre 26.5px left of the window's.
-const area = { windowWidth: 1280, areaLeft: 4, areaWidth: 1219 };
+// A 1280px window: the progress bar's 12px on the left, the toolbar's 57px on
+// the right, so the area is 12..1223 and its centre 22.5px left of the window's.
+const area = { windowWidth: 1280, areaLeft: 12, areaWidth: 1211 };
 console.log(JSON.stringify({
   narrow: offset({ ...area, pageWidth: 800 }),
   justFits: offset({ ...area, pageWidth: 1134 }),
   tooWide: offset({ ...area, pageWidth: 1150 }),
   wider: offset({ ...area, pageWidth: 2000 }),
-  panelOpen: offset({ windowWidth: 1280, areaLeft: 269, areaWidth: 954, pageWidth: 600 }),
-  panelOpenWide: offset({ windowWidth: 1280, areaLeft: 269, areaWidth: 954, pageWidth: 800 }),
-  focus: offset({ windowWidth: 1280, areaLeft: 4, areaWidth: 1276, pageWidth: 800 }),
+  panelOpen: offset({ windowWidth: 1280, areaLeft: 277, areaWidth: 946, pageWidth: 600 }),
+  panelOpenWide: offset({ windowWidth: 1280, areaLeft: 277, areaWidth: 946, pageWidth: 800 }),
+  focus: offset({ windowWidth: 1280, areaLeft: 12, areaWidth: 1268, pageWidth: 800 }),
   noPage: offset({ ...area, pageWidth: 0 }),
 }));
 """
@@ -347,24 +347,24 @@ class PageCenteringTests(unittest.TestCase):
         cls.out = json.loads(result.stdout)
 
     def test_a_page_that_fits_is_centred_on_the_window(self):
-        # 640 - (4 + 609.5) = 26.5, rounded.
-        self.assertEqual(self.out["narrow"], 27)
+        # 640 - (12 + 605.5) = 22.5, rounded.
+        self.assertEqual(self.out["narrow"], 23)
 
     def test_up_to_the_width_that_still_clears_the_toolbar(self):
         # Right edge at 640 + 567 = 1207 = 1223 - 16.
-        self.assertEqual(self.out["justFits"], 27)
+        self.assertEqual(self.out["justFits"], 23)
 
     def test_a_page_too_wide_for_that_is_centred_in_its_area(self):
         self.assertEqual(self.out["tooWide"], 0)
         self.assertEqual(self.out["wider"], 0)
 
     def test_with_the_outline_open_the_page_still_aims_for_the_window_centre(self):
-        self.assertEqual(self.out["panelOpen"], -106)
+        self.assertEqual(self.out["panelOpen"], -110)
         # Its left edge would land under the panel: back to the area's centre.
         self.assertEqual(self.out["panelOpenWide"], 0)
 
     def test_in_focus_mode_only_the_progress_line_is_left_to_correct(self):
-        self.assertEqual(self.out["focus"], -2)
+        self.assertEqual(self.out["focus"], -6)
 
     def test_no_page_yet_means_no_offset(self):
         self.assertEqual(self.out["noPage"], 0)

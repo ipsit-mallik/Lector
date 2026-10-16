@@ -675,6 +675,9 @@ bookScroll.addEventListener("scroll", paintHighlightTargets);
 stripScroll.addEventListener("scroll", paintHighlightTargets);
 bookScroll.addEventListener("scroll", scheduleOcrPrefetch);
 stripScroll.addEventListener("scroll", scheduleOcrPrefetch);
+// Scrolling brings the progress bar back to full strength for a while.
+bookScroll.addEventListener("scroll", wakeProgressBar, { passive: true });
+stripScroll.addEventListener("scroll", wakeProgressBar, { passive: true });
 
 // --- Scanned pages (OCR) --------------------------------------------------- //
 // A scanned page is a picture with no text layer, so it has nothing to select

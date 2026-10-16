@@ -765,22 +765,31 @@ html, body { height: 100%; }
 /* Progress bar (progress-bar.js)                                      */
 /* ------------------------------------------------------------------ */
 
-/* The left edge of the body row. Only the collapsed line takes room in the
-   layout; the 12px hover zone and the expanded bar lie over whatever is to
-   its right (the outline panel or the page), so expanding moves nothing. */
+/* The left edge of the body row. Only the collapsed bar's column takes room in
+   the layout: the 6px bar, 2px in from the window's edge so it never touches
+   the frame (4px from the header and footer), and 4px clear of the page on
+   its inner side. The 16px hover zone and the expanded bar lie over whatever
+   is to its right (the outline panel or the page), so expanding moves
+   nothing. --progress-bar is the bar's width as drawn. */
 .progress-edge {
-  --progress-collapsed: 4px;
+  --progress-inset: 2px;
+  --progress-end-inset: 4px;
+  --progress-gap: 4px;
+  --progress-collapsed: 6px;
   --progress-expanded: 28px;
-  --progress-hit: 12px;
+  --progress-hit: 16px;
+  --progress-bar: var(--progress-collapsed);
   position: relative;
   flex: none;
-  width: var(--progress-collapsed);
+  width: calc(var(--progress-inset) + var(--progress-collapsed) + var(--progress-gap));
   z-index: 8;
   background-color: var(--surface-1);
 }
 
 .progress-edge[hidden] { display: none; }
 
+/* Active at full opacity; idle (.is-idle, progress-bar.js) the whole bar
+   fades to 55%, over --dur-base. */
 .reading-progress {
   position: absolute;
   top: 0;
@@ -789,9 +798,15 @@ html, body { height: 100%; }
   width: var(--progress-hit);
   cursor: pointer;
   touch-action: none;
+  transition: opacity var(--dur-base) var(--ease-out);
 }
 
-.reading-progress.is-expanded { width: calc(var(--progress-expanded) + var(--progress-hit)); }
+.reading-progress.is-idle { opacity: 0.55; }
+
+.reading-progress.is-expanded {
+  --progress-bar: var(--progress-expanded);
+  width: calc(var(--progress-inset) + var(--progress-expanded) + var(--progress-hit));
+}
 
 .reading-progress:focus-visible { outline: none; }
 .reading-progress:focus-visible .progress-track {
@@ -799,26 +814,30 @@ html, body { height: 100%; }
   outline-offset: 1px;
 }
 
-/* The bar itself, top = page 1, bottom = the last page. Widened as an
-   overlay, over --dur-base; instant under reduced motion. */
-.progress-track {
+/* The bar itself, top = page 1, bottom = the last page, with rounded ends.
+   Widened as an overlay, over --dur-base; instant under reduced motion. */
+.progress-track,
+.progress-overlay {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: var(--progress-collapsed);
-  overflow: hidden;
+  top: var(--progress-end-inset);
+  bottom: var(--progress-end-inset);
+  left: var(--progress-inset);
   transition: width var(--dur-base) var(--ease-out);
 }
 
-.reading-progress.is-expanded .progress-track {
-  width: var(--progress-expanded);
-  box-shadow: var(--shadow-2);
+.progress-track {
+  width: var(--progress-bar);
+  border-radius: calc(var(--progress-collapsed) / 2);
+  overflow: hidden;
 }
+
+.reading-progress.is-expanded .progress-track { box-shadow: var(--shadow-2); }
 
 /* One block per chapter (or one for the whole document) in the unread
    colour; the read part is the same blocks again in the fill colour, clipped
-   to the reading position. A 2px gap between chapters expanded, 1px collapsed. */
+   to the reading position. A 2px gap between chapters expanded, 1px collapsed.
+   The fill has no transition: it moves when the page changes, not while the
+   reader scrolls within one. */
 .progress-segments,
 .progress-fill-clip,
 .progress-ticks,
@@ -864,21 +883,32 @@ html, body { height: 100%; }
 
 .reading-progress.is-expanded .progress-ticks.has-ticks { display: block; }
 
-/* Pages with a highlight, over everything else: the theme's marker colour, a
-   run of adjacent pages drawn as one marker, never under 2px. */
+/* The highlight markers, over the track but outside its clip, so a marker's
+   edge is not cut by the rounded ends. As wide as the bar, and follows it. */
+.progress-overlay {
+  width: var(--progress-bar);
+  pointer-events: none;
+}
+
+/* Pages with a highlight, over the bar: 3px of light amber in a 1px dark
+   amber edge, the edge flush with the bar's sides (never past them), so a
+   marker shows on the read fill and on the pale unread track alike. Centred
+   on its page; a run of adjacent pages is one marker from the first page's
+   middle to the last's (progress-bar.js). */
 .progress-marker {
   position: absolute;
-  left: 0;
-  right: 0;
-  min-height: 2px;
+  left: 1px;
+  right: 1px;
+  border-radius: 1px;
   background-color: var(--progress-marker);
+  box-shadow: 0 0 0 1px var(--progress-marker-edge);
 }
 
 /* The page being read: its number beside the bar, at the end of the read fill,
    once the bar has widened, on a chip in the read colour. */
 .progress-label {
   position: absolute;
-  left: calc(var(--progress-expanded) + var(--space-1));
+  left: calc(var(--progress-inset) + var(--progress-expanded) + var(--space-1));
   transform: translateY(-50%);
   min-width: 20px;
   padding: 0 var(--space-1);
@@ -904,7 +934,7 @@ html, body { height: 100%; }
    inside the window by progress-bar.js). */
 .progress-tip {
   position: absolute;
-  left: calc(var(--progress-expanded) + var(--space-6));
+  left: calc(var(--progress-inset) + var(--progress-expanded) + var(--space-6));
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -998,13 +1028,15 @@ html, body { height: 100%; }
   height: 8px;
   border-radius: 50%;
   background-color: var(--progress-marker);
-  box-shadow: inset 0 0 0 1px var(--swatch-edge);
+  box-shadow: inset 0 0 0 1px var(--progress-marker-edge);
 }
 
 .progress-tip.has-highlights .progress-tip-note { display: inline-flex; }
 
 @media (prefers-reduced-motion: reduce) {
+  .reading-progress,
   .progress-track,
+  .progress-overlay,
   .progress-label,
   .progress-tip { transition: none; }
 }
@@ -1205,7 +1237,7 @@ html, body { height: 100%; }
   height: 6px;
   border-radius: 50%;
   background-color: var(--progress-marker);
-  box-shadow: inset 0 0 0 1px var(--swatch-edge);
+  box-shadow: inset 0 0 0 1px var(--progress-marker-edge);
 }
 
 /* Numbered-overlay picker badges ("show outline", "show pages"): the voice

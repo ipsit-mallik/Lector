@@ -190,17 +190,19 @@
   --selected-tint: 10%;
   --thumb-filter: none;
   --thumb-paper: var(--paper);
-  /* The reader's progress bar (tests/test_progress_bar_tokens.py). A ladder
-   * from the window: the unread track a mid grey >= 3:1 on --bg and
-   * --surface-1, the read fill a near-black teal >= 3:1 off the track. A page
-   * with a highlight is a dark ochre marker, >= 3:1 on the window and on the
-   * fill; on the track, as dark as itself, it tells by hue (CIEDE2000 >= 18).
-   * The current page's number is a chip in the read colour. */
-  --progress-track: #77716A;
-  --progress-fill: #101C17;
-  --progress-marker: #A26A00;
-  --progress-label: #101C17;
-  --progress-label-text: #F6F3EE;
+  /* The reader's progress bar (tests/test_progress_bar_tokens.py). The unread
+   * track is a pale stone, close to the window on purpose, so the bar no longer
+   * reads as part of the window's frame; the read fill is a green >= 3:1 on
+   * the window and off the track. A page with a highlight is a light amber
+   * marker with a 1px dark amber edge: the edge is what clears 3:1 on the pale
+   * track, the amber what shows on the fill. The current page's number is a
+   * chip in the read colour. */
+  --progress-track: #CFCAC1;
+  --progress-fill: #2E7D64;
+  --progress-marker: #F2C14E;
+  --progress-marker-edge: #8A5A00;
+  --progress-label: #2E7D64;
+  --progress-label-text: #FFFFFF;
 }
 
 [data-theme="dark"] {
@@ -266,12 +268,14 @@
   --selected-tint: 18%;
   --thumb-filter: brightness(0.9);
   --thumb-paper: color-mix(in srgb, var(--paper) 90%, #000000);
-  /* Progress bar: the same ladder climbing instead, the read fill the bright
-   * part (a pale teal). The marker stays the bright highlight yellow: >= 3:1
-   * on the window and the track, and apart from the fill by hue. */
+  /* Progress bar: a ladder climbing from the window, the read fill the bright
+   * part (a pale teal), >= 3:1 off a mid grey track. The marker stays the
+   * bright highlight yellow, >= 3:1 on the window and the track; its edge is
+   * near-black, so it crisps the marker where it crosses the pale fill. */
   --progress-track: #78726A;
   --progress-fill: #B8DBD0;
   --progress-marker: #FFE98F;
+  --progress-marker-edge: #1A1816;
   --progress-label: #B8DBD0;
   --progress-label-text: #171512;
 }
@@ -324,12 +328,14 @@
   --selected-tint: 10%;
   --thumb-filter: none;
   --thumb-paper: var(--paper);
-  /* Progress bar: as light, in sepia's browns. */
-  --progress-track: #7C7062;
-  --progress-fill: #14201A;
-  --progress-marker: #9E6400;
-  --progress-label: #14201A;
-  --progress-label-text: #F8F0DE;
+  /* Progress bar: as light, on a pale tan track. Light's green is 2.95:1 on
+   * this track, so sepia's fill is one step darker (3.19:1). */
+  --progress-track: #D6C6A6;
+  --progress-fill: #2C775F;
+  --progress-marker: #F2C14E;
+  --progress-marker-edge: #8A5A00;
+  --progress-label: #2C775F;
+  --progress-label-text: #FFFFFF;
 }
 
 /* Derived tokens — computed from the per-theme values above, so they

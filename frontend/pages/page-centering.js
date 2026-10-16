@@ -1,5 +1,5 @@
 // Centres the page on the window rather than on the page area. The toolbar
-// takes 57px off the area's right and the progress bar 4px off its left, so a
+// takes 57px off the area's right and the progress bar 12px off its left, so a
 // page centred in the area sits visibly left of the window's middle. The page
 // is moved by --page-offset (reading.css turns it into padding on one side of
 // the scroller), and only when it fits: a page too wide to sit on the window's

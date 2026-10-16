@@ -1,9 +1,13 @@
 // The reader's progress bar, on the window's left edge.
 //
-// Collapsed, it is a 4px line: how far through the document the reader is
-// (read fill over the unread track) and a marker on every page with a
-// highlight. Pointing at it for PROGRESS_EXPAND_DELAY_MS widens it, over the
-// page, into a bar with the current page's number, one segment per chapter
+// Collapsed, it is a 6px bar just inside the edge: how far through the
+// document the reader is (read fill over the unread track) and a marker on
+// every page with a highlight; where the fill ends is the reader's place. It
+// is at full strength on any scroll, page change, pointer near the edge or
+// hover, and fades to idle PROGRESS_IDLE_MS after the last of those.
+//
+// Pointing at it for PROGRESS_EXPAND_DELAY_MS widens it, over the page, into a
+// bar with the current page's number, one segment per chapter
 // (the PDF's top-level outline) or page ticks, and a preview of the page under
 // the pointer; it narrows again PROGRESS_COLLAPSE_DELAY_MS after the pointer
 // leaves, never mid-drag. A click or a drag goes to the page under the
@@ -50,6 +54,13 @@ const PROGRESS_THUMB_DELAY_MS = 80;
 const PROGRESS_TIP_MARGIN_PX = 8;
 // Page Up / Page Down on the focused bar move this many pages.
 const PROGRESS_KEY_PAGE_STEP = 10;
+// How long after the last scroll, page change or nearby pointer the bar
+// fades to idle (reading.css .is-idle).
+const PROGRESS_IDLE_MS = 3000;
+// A pointer this close to the window's left edge wakes the bar.
+const PROGRESS_WAKE_ZONE_PX = 40;
+// A highlight marker's height, centred on its page (reading.css).
+const PROGRESS_MARKER_PX = 3;
 
 let progressHooks = null;
 let progressPageCount = 0;
@@ -63,6 +74,7 @@ let progressExpandTimer = null;
 let progressCollapseTimer = null;
 let progressFlashTimer = null;
 let progressThumbTimer = null;
+let progressIdleTimer = null;
 let progressTipIndex = null;
 // Page index -> data URL of its preview.
 const progressThumbs = new Map();
@@ -89,8 +101,13 @@ function initProgressBar({ pageCount, chapters, visible }) {
 
 function setProgressBarVisible(on) {
   progressEdge.hidden = !on;
-  if (on) measureProgressTrack();
-  else collapseProgress();
+  if (on) {
+    measureProgressTrack();
+    wakeProgressBar();
+  } else {
+    collapseProgress();
+    clearTimeout(progressIdleTimer);
+  }
 }
 
 function isProgressBarVisible() {
@@ -133,7 +150,7 @@ function measureProgressTrack() {
 new ResizeObserver(measureProgressTrack).observe(progressTrack);
 
 // Consecutive highlighted pages as [start, end] runs, so neighbours read as one
-// marker rather than a stack of slivers with hairline gaps between them.
+// marker rather than a row of ticks with hairline gaps between them.
 function highlightRuns(pages) {
   const runs = [];
   for (const page of [...pages].sort((a, b) => a - b)) {
@@ -147,9 +164,12 @@ function highlightRuns(pages) {
 function renderProgressMarkers() {
   progressMarkers.replaceChildren(...highlightRuns(progressHighlighted).map(([start, end]) => {
     const el = document.createElement("div");
+    // From the middle of the run's first page to the middle of its last,
+    // PROGRESS_MARKER_PX tall: one page is a 3px tick on its page.
+    const first = pagePercent(start + 0.5);
     el.className = "progress-marker";
-    el.style.top = `${pagePercent(start)}%`;
-    el.style.height = `${pagePercent(end + 1) - pagePercent(start)}%`;
+    el.style.top = `calc(${first}% - ${PROGRESS_MARKER_PX / 2}px)`;
+    el.style.height = `calc(${pagePercent(end + 0.5) - first}% + ${PROGRESS_MARKER_PX}px)`;
     return el;
   }));
 }
@@ -182,6 +202,7 @@ function updateProgressBar(state) {
     renderProgressSegments();
     measureProgressTrack();
   }
+  if (state.page_index !== progressPage) wakeProgressBar();
   progressPage = state.page_index;
   const pages = state.highlighted_pages || [];
   const changed = pages.length !== progressHighlighted.size || pages.some((p) => !progressHighlighted.has(p));
@@ -226,6 +247,32 @@ function flashProgressBar() {
   }, PROGRESS_FLASH_MS);
 }
 
+// --- Active and idle ---------------------------------------------------------- //
+// Active, the bar is at full strength; idle, it fades back (reading.css
+// .is-idle) and the header's page number is the place to look. reading.js
+// calls wakeProgressBar on every scroll.
+
+function wakeProgressBar() {
+  if (!isProgressBarVisible()) return;
+  readingProgress.classList.remove("is-idle");
+  clearTimeout(progressIdleTimer);
+  progressIdleTimer = setTimeout(idleProgressBar, PROGRESS_IDLE_MS);
+}
+
+// Not while the bar is open or in use: look again once it has been left alone.
+function idleProgressBar() {
+  if (isProgressHeldOpen() || readingProgress.classList.contains("is-expanded")) {
+    wakeProgressBar();
+    return;
+  }
+  readingProgress.classList.add("is-idle");
+}
+
+document.addEventListener("pointermove", (ev) => {
+  if (!isProgressBarVisible()) return;
+  if (ev.clientX - progressEdge.getBoundingClientRect().left <= PROGRESS_WAKE_ZONE_PX) wakeProgressBar();
+}, { passive: true });
+
 // --- Pointer ----------------------------------------------------------------- //
 
 function pageAtY(clientY) {
@@ -255,6 +302,7 @@ async function jumpProgressTo(index) {
 
 readingProgress.addEventListener("pointerenter", () => {
   progressHovering = true;
+  wakeProgressBar();
   clearTimeout(progressCollapseTimer);
   clearTimeout(progressFlashTimer);
   if (!readingProgress.classList.contains("is-expanded")) {
@@ -311,6 +359,7 @@ readingProgress.addEventListener("pointercancel", endProgressDrag);
 // does not turn a second page.
 
 readingProgress.addEventListener("focus", () => {
+  wakeProgressBar();
   if (readingProgress.matches(":focus-visible")) expandProgress();
 });
 

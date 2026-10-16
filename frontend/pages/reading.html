@@ -58,8 +58,8 @@
     <div class="hline focus-chrome"></div>
 
     <div class="body-row">
-      <!-- Left edge. The progress bar (progress-bar.js) is a thin line at the
-           window's edge that widens over the page on hover, so the page never
+      <!-- Left edge. The progress bar (progress-bar.js) is a slim bar just inside
+           the window's edge that widens over the page on hover, so the page never
            moves; the outline and pages panel (outline-panel.js) opens to its
            right and does push the page over. -->
       <div class="progress-edge" id="progressEdge">
@@ -72,6 +72,10 @@
               <div class="progress-fill-segments" id="progressFillSegments"></div>
             </div>
             <div class="progress-ticks" id="progressTicks"></div>
+          </div>
+          <!-- Over the track but outside its clip, so the rounded ends don't
+               cut a marker's edge. -->
+          <div class="progress-overlay">
             <div class="progress-markers" id="progressMarkers"></div>
           </div>
           <span class="progress-label" id="progressLabel" aria-hidden="true"></span>
