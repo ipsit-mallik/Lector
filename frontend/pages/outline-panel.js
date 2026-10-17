@@ -12,9 +12,19 @@
 //   thumbnails by their page number, and saying a number jumps there. "cancel"
 //   takes the numbers away. Clicking works the same with or without them.
 //
-// Whether the panel is open is remembered (api.set_outline_open). reading.js
-// owns navigation: it hands this file jumpTo(index) and tells it what changed
-// through updateOutlinePanel(state).
+// * Width: dragged at the panel's right edge (or that edge focused and the
+//   arrow keys), 168-400px, 200 by default. Thumbnails are at most 128px wide
+//   (the panel never makes them smaller: 168 less its padding is 136), one
+//   column, or two once the panel has room for two and the gap between them.
+// * The progress bar, while the panel is open, does not widen or show its
+//   tip; pointing at it marks that page here instead (previewOutlinePage):
+//   its thumbnail on Pages, the entry holding it on Outline.
+//
+// Whether the panel is open, and its width, are remembered
+// (api.set_outline_open, api.set_outline_width). reading.js owns navigation:
+// it hands this file jumpTo(index) and tells it what changed through
+// updateOutlinePanel(state). The page re-centres, and a fit zoom refits, from
+// reading.js's watch on the page area, which the panel's width changes.
 
 const outlineToggleBtn = document.getElementById("outlineToggleBtn");
 const outlinePanel = document.getElementById("outlinePanel");
@@ -24,12 +34,20 @@ const outlineTabPanel = document.getElementById("outlineTabPanel");
 const pagesTabPanel = document.getElementById("pagesTabPanel");
 const outlineTree = document.getElementById("outlineTree");
 const outlineEmpty = document.getElementById("outlineEmpty");
+const outlineBrowsePagesBtn = document.getElementById("outlineBrowsePagesBtn");
 const pagesList = document.getElementById("pagesList");
+const outlineResizer = document.getElementById("outlineResizer");
 
 const OUTLINE_TAB = "outline";
 const PAGES_TAB = "pages";
-// Thumbnails in the Pages tab, in CSS pixels (reading.css .page-thumb-image).
-const PAGE_THUMB_CSS_PX = 120;
+// A thumbnail's widest (reading.css .pages-list's columns): it is drawn at
+// this times the screen's pixel ratio, never at the page's own size.
+const PAGE_THUMB_MAX_CSS_PX = 128;
+// What an arrow key moves the panel's edge by.
+const OUTLINE_RESIZE_STEP_PX = 16;
+// Room left above or below a thumbnail or entry scrolled into view for the
+// progress bar.
+const OUTLINE_REVEAL_MARGIN_PX = 8;
 // A page whose size is unknown is drawn this tall for its width (A4-ish).
 const PAGE_THUMB_FALLBACK_RATIO = 1.3;
 // How far outside the panel's view a thumbnail starts rendering, so scrolling
@@ -54,17 +72,26 @@ const pageThumbQueue = [];
 let pageThumbsRendering = 0;
 let outlinePickerTab = null;
 let outlinePickerTargets = [];
+let outlineWidth = 200;
+let outlineWidthLimits = { min: 168, max: 400 };
+// What the progress bar is pointing at (previewOutlinePage), if anything.
+let outlinePreviewed = null;
 const outlinePickerScope = createVoiceScope("picker");
 
 // hooks: {
 //   jumpTo(index)  goes to a page (a jump: animated, flashes the progress bar),
 //   say(text)      reports a voice outcome in the mic pill,
+//   onToggle(open) after the panel opens or closes,
 // }
 function configureOutlinePanel(hooks) {
   outlineHooks = hooks;
 }
 
-function initOutlinePanel({ entries, pageCount, pageSizes, currentPage, open }) {
+function initOutlinePanel({ entries, pageCount, pageSizes, currentPage, open, width, minWidth, maxWidth }) {
+  if (minWidth && maxWidth) outlineWidthLimits = { min: minWidth, max: maxWidth };
+  outlineResizer.setAttribute("aria-valuemin", String(outlineWidthLimits.min));
+  outlineResizer.setAttribute("aria-valuemax", String(outlineWidthLimits.max));
+  if (width) setOutlineWidth(width);
   outlineEntries = entries || [];
   outlinePageCount = pageCount;
   outlinePageSizes = pageSizes || [];
@@ -94,6 +121,7 @@ function openOutlinePanel(tab = outlineActiveTab, { remember = true } = {}) {
   outlineToggleBtn.classList.add("active");
   selectOutlineTab(tab);
   if (remember) rememberOutlineOpen(true);
+  if (outlineHooks && outlineHooks.onToggle) outlineHooks.onToggle(true);
 }
 
 function closeOutlinePanel() {
@@ -102,7 +130,9 @@ function closeOutlinePanel() {
   outlinePanel.hidden = true;
   outlineToggleBtn.setAttribute("aria-expanded", "false");
   outlineToggleBtn.classList.remove("active");
+  previewOutlinePage(null);
   rememberOutlineOpen(false);
+  if (outlineHooks && outlineHooks.onToggle) outlineHooks.onToggle(false);
 }
 
 function toggleOutlinePanel() {
@@ -112,6 +142,7 @@ function toggleOutlinePanel() {
 
 function selectOutlineTab(tab) {
   if (tab !== outlinePickerTab) endOutlinePicker();
+  previewOutlinePage(null);
   outlineActiveTab = tab;
   const pages = tab === PAGES_TAB;
   outlineTab.setAttribute("aria-selected", String(!pages));
@@ -131,6 +162,10 @@ function selectOutlineTab(tab) {
 outlineToggleBtn.addEventListener("click", toggleOutlinePanel);
 outlineTab.addEventListener("click", () => selectOutlineTab(OUTLINE_TAB));
 pagesTab.addEventListener("click", () => selectOutlineTab(PAGES_TAB));
+outlineBrowsePagesBtn.addEventListener("click", () => {
+  selectOutlineTab(PAGES_TAB);
+  pagesTab.focus();
+});
 
 // Tabs: one Tab stop, the arrow keys move between them. Stopped here so the
 // reader's own arrow keys do not turn a page as well.
@@ -240,14 +275,22 @@ function setOutlineExpanded(li, expanded) {
   if (outlinePickerTab === OUTLINE_TAB) numberOutlinePicker();
 }
 
-// The section being read: the last entry, in document order, that starts on
-// or before the current page.
-function currentOutlineItem() {
+// The section holding a page: the last entry, in document order, that starts
+// on or before it. With no page given, the page being read.
+function currentOutlineItem(page = outlineCurrentPage) {
   let current = null;
   for (const item of outlineFlat) {
-    if (item.entry.page_index !== null && item.entry.page_index <= outlineCurrentPage) current = item;
+    if (item.entry.page_index !== null && item.entry.page_index <= page) current = item;
   }
   return current;
+}
+
+// An item as it shows: itself, or, inside a collapsed section, the outermost
+// collapsed section holding it.
+function shownOutlineItem(item) {
+  if (!item) return null;
+  const collapsed = item.parents.find((li) => !isOutlineExpanded(li));
+  return collapsed ? outlineFlat.find((f) => f.li === collapsed) || item : item;
 }
 
 function isOutlineItemShown(item) {
@@ -257,11 +300,7 @@ function isOutlineItemShown(item) {
 // Marks the current section, or, when it is inside a collapsed one, the
 // outermost collapsed section holding it, so the mark is always on screen.
 function markCurrentEntry() {
-  let item = currentOutlineItem();
-  if (item) {
-    const collapsed = item.parents.find((li) => !isOutlineExpanded(li));
-    if (collapsed) item = outlineFlat.find((f) => f.li === collapsed) || item;
-  }
+  const item = shownOutlineItem(currentOutlineItem());
   for (const f of outlineFlat) {
     if (f === item) f.button.setAttribute("aria-current", "location");
     else f.button.removeAttribute("aria-current");
@@ -297,8 +336,7 @@ function buildPagesList() {
     // The page's own shape before its image exists, so the list never jumps
     // as thumbnails arrive.
     const size = outlinePageSizes[i];
-    const ratio = size && size.width ? size.height / size.width : PAGE_THUMB_FALLBACK_RATIO;
-    img.style.height = `${Math.round(PAGE_THUMB_CSS_PX * ratio)}px`;
+    img.style.aspectRatio = size && size.width ? `${size.width} / ${size.height}` : `1 / ${PAGE_THUMB_FALLBACK_RATIO}`;
     const label = document.createElement("span");
     label.className = "page-thumb-label";
     label.textContent = String(i + 1);
@@ -333,15 +371,20 @@ function pumpPageThumbs() {
   }
 }
 
+// A thumbnail's bitmap width: its display size at the screen's pixel ratio.
+function pageThumbPixelWidth() {
+  return Math.round(PAGE_THUMB_MAX_CSS_PX * (window.devicePixelRatio || 1));
+}
+
 async function renderPageThumb(el) {
   const index = Number(el.dataset.pageIndex);
-  const width = Math.round(PAGE_THUMB_CSS_PX * (window.devicePixelRatio || 1));
+  const width = pageThumbPixelWidth();
   try {
     const thumb = await callApi("get_page_thumbnail", index, width);
     if (!thumb.image) return;
     const img = el.querySelector(".page-thumb-image");
     img.src = `data:image/png;base64,${thumb.image}`;
-    img.style.height = "";
+    el.dataset.renderedWidth = String(width);
   } catch (err) {
     // Left as its blank placeholder; scrolling it out and back retries.
     console.error("get_page_thumbnail failed:", err);
@@ -369,6 +412,96 @@ function markPageThumbs() {
 function revealCurrentThumb() {
   const el = pageThumbEls[outlineCurrentPage];
   if (el && isOutlinePanelOpen() && outlineActiveTab === PAGES_TAB) el.scrollIntoView({ block: "nearest" });
+}
+
+// --- Width --------------------------------------------------------------------------- //
+
+function setOutlineWidth(width) {
+  outlineWidth = Math.round(Math.min(outlineWidthLimits.max, Math.max(outlineWidthLimits.min, width)));
+  outlinePanel.style.setProperty("--outline-width", `${outlineWidth}px`);
+  outlineResizer.setAttribute("aria-valuenow", String(outlineWidth));
+}
+
+// After a resize: remembered. Thumbnails keep their size, so nothing is
+// rendered again.
+function finishOutlineResize() {
+  callApi("set_outline_width", outlineWidth).catch((err) => console.error("set_outline_width failed:", err));
+}
+
+// Thumbnails drawn for another pixel ratio (the window moved to another
+// screen) are drawn again as they next come into view.
+function redrawPageThumbsForPixelRatio() {
+  if (!pageThumbObserver) return;
+  const width = String(pageThumbPixelWidth());
+  for (const el of pageThumbEls) {
+    if (el.dataset.renderedWidth && el.dataset.renderedWidth !== width) forgetPageThumb(Number(el.dataset.pageIndex));
+  }
+}
+
+outlineResizer.addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0) return;
+  ev.preventDefault();
+  outlineResizer.setPointerCapture(ev.pointerId);
+  outlinePanel.classList.add("is-resizing");
+  const startX = ev.clientX;
+  const startWidth = outlineWidth;
+  const move = (e) => setOutlineWidth(startWidth + e.clientX - startX);
+  const end = () => {
+    outlineResizer.removeEventListener("pointermove", move);
+    outlineResizer.removeEventListener("pointerup", end);
+    outlineResizer.removeEventListener("pointercancel", end);
+    outlinePanel.classList.remove("is-resizing");
+    finishOutlineResize();
+  };
+  outlineResizer.addEventListener("pointermove", move);
+  outlineResizer.addEventListener("pointerup", end);
+  outlineResizer.addEventListener("pointercancel", end);
+});
+
+// The keyboard's way to the same: arrow keys by a step, Home / End to the
+// limits. Stopped here so the reader's own arrow keys do not turn a page too.
+outlineResizer.addEventListener("keydown", (ev) => {
+  const targets = {
+    ArrowLeft: outlineWidth - OUTLINE_RESIZE_STEP_PX,
+    ArrowRight: outlineWidth + OUTLINE_RESIZE_STEP_PX,
+    Home: outlineWidthLimits.min,
+    End: outlineWidthLimits.max,
+  };
+  if (!(ev.key in targets)) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  setOutlineWidth(targets[ev.key]);
+  finishOutlineResize();
+});
+
+// --- The progress bar pointing here --------------------------------------------- //
+
+// Marks page `index` as the progress bar's pointer is over it (null: nothing):
+// its thumbnail takes the hover treatment on Pages, the entry holding it the
+// row tint on Outline, and is brought into view if it is out of it.
+function previewOutlinePage(index) {
+  if (outlinePreviewed) outlinePreviewed.classList.remove("is-previewed");
+  outlinePreviewed = null;
+  if (index === null || index === undefined || !isOutlinePanelOpen()) return;
+  const pages = outlineActiveTab === PAGES_TAB;
+  const el = pages ? pageThumbEls[index] : (shownOutlineItem(currentOutlineItem(index)) || {}).row;
+  if (!el) return;
+  el.classList.add("is-previewed");
+  outlinePreviewed = el;
+  revealInPanel(el, pages ? pagesTabPanel : outlineTabPanel);
+}
+
+// Scrolls `el` just into `scroller`'s view, smoothly (scrollElementTo, which
+// skips the animation under reduced motion), and only when it is not already
+// wholly in view.
+function revealInPanel(el, scroller) {
+  const view = scroller.getBoundingClientRect();
+  const box = el.getBoundingClientRect();
+  if (box.top >= view.top && box.bottom <= view.bottom) return;
+  const above = box.top < view.top;
+  const delta = above ? box.top - view.top - OUTLINE_REVEAL_MARGIN_PX
+                      : box.bottom - view.bottom + OUTLINE_REVEAL_MARGIN_PX;
+  scrollElementTo(scroller, scroller.scrollTop + delta);
 }
 
 // --- Keeping up with the reader --------------------------------------------------- //

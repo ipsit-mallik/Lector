@@ -152,13 +152,23 @@ html, body { height: 100%; }
 
 .zoom-step svg { width: 16px; height: 16px; }
 
+/* The value and the popover hung from it. One fixed width, wide enough for
+   "Fit width", so the controls either side never shift as it changes and the
+   popover's caret always points at its middle. */
+.zoom-value {
+  --zoom-label-width: 76px;
+  position: relative;
+  display: flex;
+}
+
 .zoom-label {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 32px;
-  min-width: 56px;
-  padding: 0 var(--space-2);
+  width: var(--zoom-label-width);
+  padding: 0 var(--space-1);
+  white-space: nowrap;
   color: var(--text-muted);
   font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
@@ -173,36 +183,199 @@ html, body { height: 100%; }
 .zoom-label:hover { background-color: var(--state-hover); color: var(--text-primary); }
 .zoom-label:active { background-color: var(--state-pressed); }
 
+/* Under the value, right edges aligned, over the page rather than pushing it:
+   the slider (with its ticks) and a row of three chips, 10px apart. No title
+   and no readout of its own: the value above it is the readout. */
 .zoom-popover {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   right: 0;
+  box-sizing: border-box;
+  width: 250px;
   display: flex;
-  align-items: center;
-  padding: var(--space-3) var(--space-3);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-2);
-  box-shadow: var(--shadow-2);
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background-color: var(--popover-surface);
+  box-shadow: var(--popover-shadow);
   border: 1px solid var(--border);
   z-index: 10;
+  animation: popover-drop var(--dur-quick) var(--ease-out);
 }
 
 .zoom-popover[hidden] { display: none; }
 
-/* The reader's three popovers grow in from the corner nearest what opened
-   them (pop-in, components.css), as fast as the Recent row menu. The zoom
-   popover hangs from the right end of the zoom control. */
-.zoom-popover,
+/* A fade and a 4px drop from the value; reduced motion zeroes the distance
+   and the duration (theme.css). Closing is instant, as for every popover. */
+@keyframes popover-drop {
+  from { opacity: 0; transform: translateY(var(--drop-distance)); }
+}
+
+/* The 10px caret: a square turned 45°, its top half showing above the
+   popover, with the popover's border on its two outer sides, pointing at the
+   middle of the value. */
+.zoom-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: calc(var(--zoom-label-width) / 2 - 6px);
+  width: 10px;
+  height: 10px;
+  background-color: var(--popover-surface);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+/* --- The slider ---------------------------------------------------------- */
+/* A 4px rounded track, filled in the accent up to the thumb's centre
+   (--zoom-fill, 0 to 1, set by zoom-control.js), and a 12px thumb in the
+   popover's own colour with an accent ring, so the thumb never merges into
+   the filled track. The thumb's centre runs from 6px in at either end, so the
+   fill and the ticks are placed along that same span. The input is 20px tall,
+   the thumb's hit area, and stacked over the ticks: its thumb is opaque and
+   nothing under it shows through. */
+.zoom-slider-wrap {
+  --zoom-thumb: 12px;
+  --zoom-span-start: calc(var(--zoom-thumb) / 2);
+  --zoom-halo: 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent);
+  --zoom-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  position: relative;
+  isolation: isolate;
+  height: 26px;
+}
+
+.zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The thumb's halo shows keyboard focus instead of the ring. */
+.zoom-slider:focus-visible { outline: none; }
+
+.zoom-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  --zoom-fill-at: calc(var(--zoom-span-start) + var(--zoom-fill, 0.5) * (100% - var(--zoom-thumb)));
+  background: linear-gradient(to right,
+    var(--accent) 0 var(--zoom-fill-at),
+    var(--border-strong) var(--zoom-fill-at) 100%);
+}
+
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: var(--zoom-thumb);
+  height: var(--zoom-thumb);
+  margin-top: calc((4px - var(--zoom-thumb)) / 2);
+  border-radius: 50%;
+  background-color: var(--popover-surface);
+  border: 2px solid var(--accent);
+  box-shadow: var(--zoom-thumb-shadow);
+  transition: transform var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.zoom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+.zoom-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--zoom-thumb-shadow), var(--zoom-halo);
+}
+
+.zoom-slider.is-dragging::-webkit-slider-thumb {
+  transform: scale(1.25);
+  box-shadow: var(--zoom-thumb-shadow), var(--zoom-halo);
+}
+
+/* Ticks at 50%, 100% and 200%, just under the track: a 2px line in a 14×12px
+   button. 100% is longer and in ink, the other two short and muted. Under the
+   slider in the stack, so the thumb covers a tick it sits on. */
+.zoom-ticks {
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  top: 12px;
+  height: 12px;
+}
+
+.zoom-tick {
+  position: absolute;
+  top: 0;
+  left: calc(var(--zoom-span-start) + var(--at, 0.5) * (100% - var(--zoom-thumb)));
+  width: 14px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.zoom-tick::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 6px;
+  width: 2px;
+  height: 5px;
+  border-radius: 1px;
+  background-color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.zoom-tick--major::before {
+  height: 8px;
+  background-color: var(--text-primary);
+  opacity: 0.7;
+}
+
+/* --- The chips ----------------------------------------------------------- */
+.zoom-chips {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* The shared chip, made a button: equal thirds of the row, 8px corners, a
+   hover and press state, and the selected one in the accent tint with
+   accent, semibold text. */
+.zoom-chip {
+  flex: 1;
+  justify-content: center;
+  height: 28px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+
+.zoom-chip:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.zoom-chip:active { background-color: var(--state-pressed); }
+
+.zoom-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background-color: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+/* The reader's other two popovers grow in from the corner nearest what
+   opened them (pop-in, components.css), as fast as the Recent row menu. */
 .color-flyout,
 .highlight-editor {
   animation: pop-in var(--dur-fast) var(--ease-out);
-}
-
-.zoom-popover { transform-origin: right top; }
-
-.zoom-slider {
-  width: 140px;
-  accent-color: var(--accent);
 }
 
 /* ------------------------------------------------------------------ */
@@ -301,17 +474,22 @@ html, body { height: 100%; }
    that is, and padding on one side moves the flex-centred page by it. It is
    0 whenever the page is too wide for that without nearing the toolbar.
    `safe`: a page wider than the area starts at its left edge and scrolls,
-   rather than overflowing both sides with its left part out of reach. */
+   rather than overflowing both sides with its left part out of reach.
+   --page-gutter (24px) is kept on all four sides inside the scroll range, so a
+   page wider or taller than the area, scrolled to any end, still has room
+   round it. It is padding on the scroller itself, which Chromium counts in a
+   flex container's scrollable size; a margin on the page would be dropped. */
 .book-scroll,
 .strip-scroll {
+  --page-gutter: var(--space-5);
   position: absolute;
   inset: 0;
   overflow: auto;
   display: flex;
   justify-content: safe center;
-  padding: var(--space-5) 0;
-  padding-left: max(0px, 2 * var(--page-offset, 0px));
-  padding-right: max(0px, -2 * var(--page-offset, 0px));
+  padding: var(--page-gutter) 0;
+  padding-left: calc(var(--page-gutter) + max(0px, 2 * var(--page-offset, 0px)));
+  padding-right: calc(var(--page-gutter) + max(0px, -2 * var(--page-offset, 0px)));
 }
 
 /* Author rules always beat the UA stylesheet's [hidden]{display:none}, so
@@ -344,8 +522,12 @@ html, body { height: 100%; }
 
 .page-surface.selecting { cursor: text; }
 
+/* `fit-content`, as .page-card: stretched to the scroller's height (the flex
+   default), the pages would overflow the column itself, and the scroller's
+   bottom gutter would follow the column's box, not the last page. */
 .strip-container {
   flex: none;
+  height: fit-content;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -815,7 +997,9 @@ html, body { height: 100%; }
 }
 
 /* The bar itself, top = page 1, bottom = the last page, with rounded ends.
-   Widened as an overlay, over --dur-base; instant under reduced motion. */
+   Widened as an overlay, over --dur-base; instant under reduced motion. Its
+   ground is the chrome colour, which is what shows between page pills (also
+   when it is widened over the page). */
 .progress-track,
 .progress-overlay {
   position: absolute;
@@ -828,19 +1012,20 @@ html, body { height: 100%; }
 .progress-track {
   width: var(--progress-bar);
   border-radius: calc(var(--progress-collapsed) / 2);
+  background-color: var(--surface-1);
   overflow: hidden;
 }
 
 .reading-progress.is-expanded .progress-track { box-shadow: var(--shadow-2); }
 
-/* One block per chapter (or one for the whole document) in the unread
-   colour; the read part is the same blocks again in the fill colour, clipped
-   to the reading position. A 2px gap between chapters expanded, 1px collapsed.
-   The fill has no transition: it moves when the page changes, not while the
-   reader scrolls within one. */
+/* By page, never by chapter (progress-bar.js, progress-layout.js). In pill
+   mode (.is-paged) one rounded pill per page in the unread colour, with a gap
+   between pages; otherwise one block for the whole document. The read part is
+   the same shapes again in the fill colour, clipped to the reading position,
+   which in pill mode is part-way down the current page's pill. The fill has
+   no transition: it follows the page and the scroll directly. */
 .progress-segments,
 .progress-fill-clip,
-.progress-ticks,
 .progress-markers {
   position: absolute;
   inset: 0;
@@ -860,28 +1045,10 @@ html, body { height: 100%; }
   left: 0;
   right: 0;
   background-color: var(--progress-track);
-  border-bottom: 1px solid var(--surface-1);
 }
 
 .progress-fill-segments .progress-segment { background-color: var(--progress-fill); }
-.progress-segment:last-child { border-bottom: none; }
-.reading-progress.is-expanded .progress-segment { border-bottom-width: 2px; }
-
-/* A hairline per page, in the chrome colour, across a document with no
-   outline; only expanded, and only when pages are at least 3px apart
-   (progress-bar.js sets --tick-step and .has-ticks). */
-.progress-ticks {
-  display: none;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent calc(var(--tick-step) - 1px),
-    var(--surface-1) calc(var(--tick-step) - 1px),
-    var(--surface-1) var(--tick-step)
-  );
-}
-
-.reading-progress.is-expanded .progress-ticks.has-ticks { display: block; }
+.reading-progress.is-paged .progress-segment { border-radius: calc(var(--progress-collapsed) / 2); }
 
 /* The highlight markers, over the track but outside its clip, so a marker's
    edge is not cut by the rounded ends. As wide as the bar, and follows it. */
@@ -890,11 +1057,13 @@ html, body { height: 100%; }
   pointer-events: none;
 }
 
-/* Pages with a highlight, over the bar: 3px of light amber in a 1px dark
-   amber edge, the edge flush with the bar's sides (never past them), so a
-   marker shows on the read fill and on the pale unread track alike. Centred
-   on its page; a run of adjacent pages is one marker from the first page's
-   middle to the last's (progress-bar.js). */
+/* Pages with a highlight, over the bar: light amber in a 1px dark amber edge,
+   the edge flush with the bar's sides (never past them), so a marker shows on
+   the read fill and on the pale unread track alike. In pill mode one per page,
+   centred in its pill at 40% of its height (at least 2px; the amber never
+   taller than the pill, though on the smallest pills its edge reaches into
+   the gap); on the continuous bar a 3px tick on its page, ticks whose edges
+   would touch drawn as one (progress-layout.js). */
 .progress-marker {
   position: absolute;
   left: 1px;
@@ -1046,10 +1215,13 @@ html, body { height: 100%; }
 /* ------------------------------------------------------------------ */
 
 /* Opens to the right of the progress bar and takes its room from the page
-   (the page re-centres), like a sidebar; the bar stays at the window edge. */
+   (the page re-centres), like a sidebar; the bar stays at the window edge.
+   200px unless dragged (--outline-width, outline-panel.js), 168-400px. */
 .outline-panel {
+  position: relative;
   flex: none;
-  width: 264px;
+  box-sizing: border-box;
+  width: var(--outline-width, 200px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1059,11 +1231,42 @@ html, body { height: 100%; }
 
 .outline-panel[hidden] { display: none; }
 
+/* The right edge's handle: 8px to grab, straddling the border, a resize
+   cursor, and a line that shows on hover and while dragged (accent on
+   keyboard focus). */
+.outline-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  z-index: 3;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.outline-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.outline-resizer:hover::after,
+.outline-panel.is-resizing .outline-resizer::after { background-color: var(--border-strong); }
+.outline-resizer:focus-visible { outline: none; }
+.outline-resizer:focus-visible::after { background-color: var(--accent); }
+
+/* Tabs, thumbnails and outline rows all start 16px in: one left edge. */
 .outline-tabs {
   flex: none;
   display: flex;
   gap: var(--space-1);
-  padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4) var(--space-2);
 }
 
 .outline-tab {
@@ -1084,19 +1287,101 @@ html, body { height: 100%; }
 .outline-tab:active { background-color: var(--state-pressed); }
 .outline-tab[aria-selected="true"] { background-color: var(--accent-soft); color: var(--accent-strong); }
 
+/* 16px each side, the right side counted to the panel's outer edge, its 1px
+   border included: two 128px thumbnails and their gap fit at exactly 304px,
+   and a column of them sits centred in the panel. */
 .outline-tabpanel {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 var(--space-2) var(--space-4) var(--space-4);
+  padding: 0 calc(var(--space-4) - 1px) var(--space-4) var(--space-4);
 }
 
 .outline-tabpanel[hidden] { display: none; }
 
+/* A PDF without bookmarks, in the Recent empty state's language: the icon in
+   a soft accent circle, a title, one muted line, the way to the pages and
+   the phrase that opens them. Centred in the panel's height. */
 .outline-empty {
-  margin: var(--space-3) var(--space-2);
+  box-sizing: border-box;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5) 0;
+  text-align: center;
+}
+
+.outline-empty[hidden] { display: none; }
+
+.outline-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: var(--space-3);
+  border-radius: 50%;
+  background-color: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.outline-empty-icon svg { width: 20px; height: 20px; }
+
+.outline-empty-title {
+  margin: 0 0 var(--space-1);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.outline-empty-body {
+  margin: 0 0 var(--space-4);
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+.outline-empty-voice {
+  align-self: stretch;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+/* The Recent empty state's "TRY SAYING" label and chip (home.css
+   .empty-state-voice-label, .empty-state-chips li), for the panel. */
+.outline-empty-voice-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--voice) 70%, var(--text-primary));
+}
+.outline-empty-voice-label [data-icon] { display: flex; width: 14px; height: 14px; color: var(--voice); }
+.outline-empty-voice-label [data-icon] svg { width: 100%; height: 100%; }
+
+.outline-empty-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outline-empty-chips li {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background-color: var(--voice-soft);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: default;
 }
 
 /* The outline: nested lists, one row per bookmark, a chevron before any row
@@ -1110,13 +1395,20 @@ html, body { height: 100%; }
 .outline-list .outline-list { padding-left: var(--space-4); }
 .outline-list[hidden] { display: none; }
 
+/* A row tints as a whole on hover, chevron and entry together. */
 .outline-row {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-hair);
   margin-top: var(--space-hair);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
+
+/* The progress bar pointing at a page in this row's section marks it the
+   same way (outline-panel.js previewOutlinePage). */
+.outline-row:is(:hover, .is-previewed) { background-color: var(--state-hover); }
 
 .outline-twisty {
   flex: none;
@@ -1132,17 +1424,18 @@ html, body { height: 100%; }
   color: var(--text-muted);
 }
 
-.outline-twisty:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.outline-twisty:hover { color: var(--text-primary); }
 .outline-twisty span { display: inline-flex; }
 .outline-twisty svg { width: 12px; height: 12px; transition: transform var(--dur-base) var(--ease-out); }
 .outline-twisty[aria-expanded="true"] svg { transform: rotate(90deg); }
 .outline-twisty-spacer { flex: none; width: 20px; }
 
 .outline-entry {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: var(--space-2);
   min-height: 28px;
   padding: var(--space-1) var(--space-2);
@@ -1152,46 +1445,67 @@ html, body { height: 100%; }
   color: var(--text-secondary);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
+  line-height: 1.45;
   text-align: left;
-  transition: background-color var(--dur-fast) var(--ease-out),
-              color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
-.outline-entry:hover:not(:disabled) { background-color: var(--state-hover); color: var(--text-primary); }
+.outline-entry:hover:not(:disabled) { color: var(--text-primary); }
 .outline-entry:active:not(:disabled) { background-color: var(--state-pressed); }
 .outline-entry:disabled { color: var(--text-tertiary); cursor: default; }
 
+/* A long title wraps to two lines, then an ellipsis; the whole title is the
+   entry's tooltip. */
 .outline-entry-title {
   flex: 1;
   min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .outline-entry-page {
   flex: none;
   color: var(--text-muted);
   font-size: var(--text-xs);
+  line-height: calc(var(--text-sm) * 1.45);
   font-variant-numeric: tabular-nums;
 }
 
-/* The section being read: the active treatment every current item gets. */
+/* The section being read: accent text and a small accent bar at its left. */
 .outline-entry[aria-current="location"] {
-  background-color: var(--accent-soft);
   color: var(--accent-strong);
   font-weight: 600;
 }
 
+.outline-entry[aria-current="location"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 2px;
+  background-color: var(--accent);
+}
+
 .outline-entry[aria-current="location"] .outline-entry-page { color: var(--accent-strong); }
 
-/* Pages: one thumbnail per page in a single column with its number under it,
-   each rendered only as it scrolls into view. */
+/* Pages: thumbnails 128px wide at their page's shape, centred in 128px
+   columns 16px apart: one column, two once the panel has room for both and the
+   gap (2 x 128 + 16 + its 32px of padding = 304px). Never wider. Each is
+   rendered only as it scrolls into view, at 128px times the pixel ratio. No box
+   behind a thumbnail: the page itself responds. */
 .pages-list {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
+  --page-thumb-width: 128px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--page-thumb-width));
+  justify-content: center;
+  column-gap: var(--space-4);
+  row-gap: var(--space-3);
   padding-top: var(--space-1);
 }
 
@@ -1199,38 +1513,56 @@ html, body { height: 100%; }
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  width: 100%;
-  padding: var(--space-2);
+  align-items: stretch;
+  gap: 6px;
+  width: var(--page-thumb-width);
+  padding: 0;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: 2px;
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-  transition: background-color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
-.page-thumb:hover { background-color: var(--state-hover); color: var(--text-primary); }
+.page-thumb:hover { color: var(--text-primary); }
+.page-thumb:focus-visible { outline-offset: 4px; }
 
+/* The edge is a 1px ring (box-shadow), so the hover's edge colour can change
+   without the page moving by a border's width. */
 .page-thumb-image {
   display: block;
-  width: 120px;
+  width: 100%;
+  height: auto;
   border-radius: 2px;
   background-color: var(--thumb-paper);
   box-shadow: 0 0 0 1px var(--border);
   filter: var(--thumb-filter);
+  transition: transform var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out);
+}
+
+/* Hover, keyboard focus and the progress bar pointing at it: the Recent grid
+   card's hover exactly (components.css .card-lift): its edge to
+   --card-hover-border, --card-highlight and --shadow-2, a --lift rise, over
+   --dur-base. Reduced motion zeroes --lift, leaving the edge and shadow. */
+.page-thumb:is(:hover, :focus-visible, .is-previewed) .page-thumb-image {
+  transform: translateY(var(--lift));
+  box-shadow: 0 0 0 1px var(--card-hover-border), var(--card-highlight), var(--shadow-2);
 }
 
 /* The page being read: an accent ring round the thumbnail and its number in
-   the active colour. */
+   the active colour; hovered too, the ring with the lift and shadow on top. */
 .page-thumb[aria-current="page"] { color: var(--accent-strong); font-weight: 600; }
 .page-thumb[aria-current="page"] .page-thumb-image { box-shadow: 0 0 0 2px var(--accent); }
+.page-thumb[aria-current="page"]:is(:hover, :focus-visible, .is-previewed) .page-thumb-image {
+  box-shadow: 0 0 0 2px var(--accent), var(--card-highlight), var(--shadow-2);
+}
 
 /* A page with highlights: a marker-coloured dot beside its number. */
-.page-thumb-label { display: inline-flex; align-items: center; gap: var(--space-1); }
+.page-thumb-label { align-self: center; display: inline-flex; align-items: center; gap: var(--space-1); }
 .page-thumb.has-highlights .page-thumb-label::after {
   content: "";
   width: 6px;
@@ -1262,7 +1594,7 @@ html, body { height: 100%; }
   pointer-events: none;
 }
 
-.page-thumb .outline-badge { top: var(--space-2); left: var(--space-3); transform: none; }
+.page-thumb .outline-badge { top: var(--space-2); left: var(--space-2); transform: none; }
 
 /* While the outline is numbered, its rows move over to give the badges a
    column of their own, clear of the chevrons and the progress bar. */

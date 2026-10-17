@@ -2,7 +2,8 @@
 (docs/DESIGN_SYSTEM.md, "Reader progress bar").
 
 Collapsed it is a 6px bar with rounded ends, 2px in from the window's edge,
-with a hover zone of at least 12px. Highlight markers stay within the bar's
+with a hover zone of at least 12px (its pill and continuous modes are in
+tests/test_progress_bar_layout.py). Highlight markers stay within the bar's
 width; they are drawn outside the track's clip only so its rounded ends don't
 cut their edge. There is no position notch: the end of the fill is the place.
 Active (any scroll, page change, pointer near the edge, hover) the bar is at
@@ -19,6 +20,7 @@ READING_HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 READING_CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
 READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
 PROGRESS_JS = (PAGES / "progress-bar.js").read_text(encoding="utf-8")
+LAYOUT_JS = (PAGES / "progress-layout.js").read_text(encoding="utf-8")
 
 
 def rule(selector: str) -> str:
@@ -38,8 +40,8 @@ def function_body(name: str) -> str:
     return body[:body.index("\n}\n")]
 
 
-def constant(name: str) -> int:
-    return int(re.search(r"const %s = (\d+);" % name, PROGRESS_JS).group(1))
+def constant(name: str, source: str = PROGRESS_JS) -> int:
+    return int(re.search(r"const %s = (\d+);" % name, source).group(1))
 
 
 class ProgressBarShapeTests(unittest.TestCase):
@@ -68,7 +70,7 @@ class ProgressBarShapeTests(unittest.TestCase):
         overlay = re.search(r'<div class="progress-overlay">(.*?)</div>\s*</div>', READING_HTML, re.S).group(1)
         self.assertIn('id="progressMarkers"', overlay)
 
-    def test_markers_are_3px_with_an_edge_and_stay_within_the_bar(self):
+    def test_markers_have_an_edge_and_stay_within_the_bar(self):
         self.assertIn("width: var(--progress-bar);", rule(".progress-overlay"))
         marker = rule(".progress-marker")
         # The 1px edge is drawn outside the box, so 1px in on each side puts it
@@ -76,10 +78,13 @@ class ProgressBarShapeTests(unittest.TestCase):
         self.assertIn("left: 1px", marker)
         self.assertIn("right: 1px", marker)
         self.assertIn("box-shadow: 0 0 0 1px var(--progress-marker-edge)", marker)
-        self.assertEqual(constant("PROGRESS_MARKER_PX"), 3)
+        # The continuous bar's ticks; their sizes and merging, and the pill
+        # markers', are in tests/test_progress_bar_layout.py.
+        self.assertEqual(constant("PROGRESS_TICK_PX", LAYOUT_JS), 3)
+        self.assertEqual(constant("PROGRESS_MARKER_EDGE_PX", LAYOUT_JS), 1)
 
-    def test_adjacent_highlighted_pages_are_one_marker(self):
-        self.assertIn("highlightRuns(progressHighlighted)", function_body("renderProgressMarkers"))
+    def test_markers_are_laid_out_by_page_in_pixels(self):
+        self.assertIn("progressMarkerBoxes(progressGeometry, progressHighlighted)", function_body("renderProgressMarkers"))
 
     def test_there_is_no_position_notch(self):
         for source in (READING_HTML, READING_CSS, PROGRESS_JS):

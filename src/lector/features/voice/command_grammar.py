@@ -57,6 +57,10 @@ TOGGLE_PROGRESS_BAR = "TOGGLE_PROGRESS_BAR"
 # Focus mode: the reader's topbar, toolbar and footer hidden, and back.
 FOCUS_MODE = "FOCUS_MODE"
 EXIT_FOCUS_MODE = "EXIT_FOCUS_MODE"
+# Zoom: the two fit modes, which keep fitting as the window changes, and 100%.
+FIT_WIDTH = "FIT_WIDTH"
+FIT_PAGE = "FIT_PAGE"
+ACTUAL_SIZE = "ACTUAL_SIZE"
 
 # Phrasings per intent, each ordered most-explicit first. Order is load
 # bearing: `fuzzy.best_match` breaks ties by taking the earliest candidate,
@@ -108,6 +112,11 @@ PHRASES: dict[str, tuple[str, ...]] = {
     # nothing.
     FOCUS_MODE: ("focus mode",),
     EXIT_FOCUS_MODE: ("exit focus mode",),
+    # "fit to width" and "fit to page" score 0.58 to each other, and "fit
+    # page" 0.67 to "next page": both under the match threshold.
+    FIT_WIDTH: ("fit width", "fit to width"),
+    FIT_PAGE: ("fit page", "fit to page"),
+    ACTUAL_SIZE: ("actual size",),
 }
 
 # Leading trigger phrases for HIGHLIGHT_SENTENCE, tried before HIGHLIGHT's —

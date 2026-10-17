@@ -204,6 +204,35 @@ def set_outline_open(is_open: bool) -> None:
     _save(data)
 
 
+# The outline panel's width, dragged at its right edge, in CSS pixels.
+_OUTLINE_WIDTH_KEY = "outline_panel_width"
+OUTLINE_WIDTH_DEFAULT = 200
+OUTLINE_WIDTH_MIN = 168
+OUTLINE_WIDTH_MAX = 400
+
+
+def _clamp_outline_width(value) -> int:
+    return min(OUTLINE_WIDTH_MAX, max(OUTLINE_WIDTH_MIN, round(value)))
+
+
+def get_outline_width() -> int:
+    """The stored width, kept within the panel's limits; the default when
+    none is stored or the stored value isn't a number."""
+    value = _load().get(_OUTLINE_WIDTH_KEY)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return OUTLINE_WIDTH_DEFAULT
+    return _clamp_outline_width(value)
+
+
+def set_outline_width(width: float) -> int:
+    """Stores `width` within the panel's limits and returns what was stored."""
+    stored = _clamp_outline_width(width)
+    data = _load()
+    data[_OUTLINE_WIDTH_KEY] = stored
+    _save(data)
+    return stored
+
+
 def get_voice_activation() -> dict:
     """Which activation modes are enabled, as `{"push_to_talk", "wake_phrase"}`.
 

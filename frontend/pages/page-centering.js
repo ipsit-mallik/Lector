@@ -8,9 +8,10 @@
 // Book and Strip alike; reading.js calls centerPageOnWindow() whenever the
 // page's width or the area's size may have changed.
 
-// Room kept between the page and the area's edge: the overlay scrollbar's
-// grab area (12px) and its inset, so a centred page never runs under it.
-const PAGE_CENTER_CLEARANCE_PX = 16;
+// Room kept between the page and the area's edge: the scrollers' 24px gutter
+// (reading.css --page-gutter), which also keeps a centred page clear of the
+// overlay scrollbar's 12px grab area.
+const PAGE_CENTER_CLEARANCE_PX = 24;
 
 // How far right (positive) or left of the area's centre the window's centre
 // is, for a page of `pageWidth` in an area spanning `areaLeft` to

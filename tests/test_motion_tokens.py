@@ -122,9 +122,11 @@ class EntranceTests(unittest.TestCase):
 
     def test_reader_popovers_grow_from_their_trigger_at_the_fast_duration(self):
         self.assertRegex(self.READING_CSS,
-                         r"\.zoom-popover,\s*\.color-flyout,\s*\.highlight-editor \{\s*"
+                         r"\.color-flyout,\s*\.highlight-editor \{\s*"
                          r"animation: pop-in var\(--dur-fast\) var\(--ease-out\);")
-        self.assertIn(".zoom-popover { transform-origin: right top; }", self.READING_CSS)
+        # The zoom popover fades and drops 4px instead, over its own 140ms
+        # (tests/test_zoom_control.py), zeroed under reduced motion.
+        self.assertRegex(self.READING_CSS, r"\.zoom-popover \{[^}]*animation: popover-drop var\(--dur-quick\)")
         self.assertRegex(self.READING_CSS, r"\.color-flyout \{[^}]*transform-origin: right top;")
         self.assertRegex(self.READING_CSS, r"\.highlight-editor \{[^}]*transform-origin: left top;")
         self.assertIn(".highlight-editor.is-above { transform-origin: left bottom; }", self.READING_CSS)

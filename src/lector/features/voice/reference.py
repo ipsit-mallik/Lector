@@ -266,6 +266,18 @@ def _reading_sections() -> list[dict]:
                      "header for a moment without leaving.",
                      "Esc or F11, or that button in the header", _READING),
         ]),
+        _section("zoom", "Zoom", scope, [
+            _command(_all(p, grammar.FIT_WIDTH),
+                     "Makes the page as wide as the space beside the toolbar, and keeps "
+                     "it that way as the window or the outline panel changes size.",
+                     "Ctrl+2, or click the zoom percentage, then Fit width", _READING),
+            _command(_all(p, grammar.FIT_PAGE),
+                     "Fits the whole page in view, and keeps it fitted the same way.",
+                     "Ctrl+0, or click the zoom percentage, then Fit page", _READING),
+            _command(_all(p, grammar.ACTUAL_SIZE),
+                     "Shows the page at 100%.",
+                     "Ctrl+1, or click the zoom percentage, then 100%", _READING),
+        ]),
         _section("highlighting", "Highlighting", scope, [
             _command(_then(grammar.HIGHLIGHT_TRIGGERS, WORDS),
                      "Say a few words you can see on screen and they are highlighted. "
@@ -375,7 +387,7 @@ def _prompts() -> dict:
 # front of it (see `sections`); the rest keep this order.
 _SECTION_ORDER: tuple[str, ...] = (
     "anywhere", "back_home", "recent", "favorites", "theme", "save", "reopen",
-    "moving", "panel", "focus", "highlighting", "undo_redo", "app", "this_list", "prompts",
+    "moving", "panel", "focus", "zoom", "highlighting", "undo_redo", "app", "this_list", "prompts",
 )
 
 

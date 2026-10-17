@@ -36,17 +36,43 @@
           <span data-icon="chevron_right"></span>
         </button>
         <div class="vline short"></div>
-        <!-- "− 150% +": step zoom either side of the percentage, which opens
-             the slider for anything in between. -->
+        <!-- "− 150% +": step zoom either side of the value, which opens a
+             popover under it with a slider and the fit chips (zoom-control.js).
+             In a fit mode the value reads "Fit width" or "Fit page". -->
         <div class="zoom-control">
           <button class="icon-btn icon-btn--sm zoom-step" id="zoomOutBtn" type="button" data-icon="minus"
                   title="Zoom out  (Ctrl+−)" aria-label="Zoom out"></button>
-          <button class="zoom-label" id="zoomLabel" type="button" title="Zoom" aria-label="Zoom level">150%</button>
+          <div class="zoom-value">
+            <button class="zoom-label" id="zoomLabel" type="button" title="Zoom" aria-label="Zoom: 100%"
+                    aria-haspopup="dialog" aria-expanded="false" aria-controls="zoomPopover">100%</button>
+            <div class="zoom-popover" id="zoomPopover" role="dialog" aria-label="Zoom" hidden>
+              <!-- The ticks mark 50%, 100% and 200% under the track and jump
+                   there when clicked; out of the Tab order, which goes from the
+                   slider to the chips (Home and End reach the ends). -->
+              <div class="zoom-slider-wrap">
+                <input class="zoom-slider" id="zoomSlider" type="range" min="0" max="100" step="1" value="50"
+                       aria-label="Zoom" aria-valuetext="100%">
+                <div class="zoom-ticks" id="zoomTicks">
+                  <button class="zoom-tick" type="button" tabindex="-1" data-zoom="50"
+                          data-tooltip="50%" aria-label="Zoom to 50%"></button>
+                  <button class="zoom-tick zoom-tick--major" type="button" tabindex="-1" data-zoom="100"
+                          data-tooltip="Reset to 100%" aria-label="Reset to 100%"></button>
+                  <button class="zoom-tick" type="button" tabindex="-1" data-zoom="200"
+                          data-tooltip="200%" aria-label="Zoom to 200%"></button>
+                </div>
+              </div>
+              <div class="zoom-chips" role="group" aria-label="Zoom presets">
+                <button class="chip zoom-chip" id="zoomFitWidthBtn" type="button" aria-pressed="false"
+                        title="Fit width  (Ctrl+2)">Fit width</button>
+                <button class="chip zoom-chip" id="zoomFitPageBtn" type="button" aria-pressed="false"
+                        title="Fit page  (Ctrl+0)">Fit page</button>
+                <button class="chip zoom-chip" id="zoomActualBtn" type="button" aria-pressed="false"
+                        title="Actual size  (Ctrl+1)">100%</button>
+              </div>
+            </div>
+          </div>
           <button class="icon-btn icon-btn--sm zoom-step" id="zoomInBtn" type="button" data-icon="plus"
                   title="Zoom in  (Ctrl+=)" aria-label="Zoom in"></button>
-          <div class="zoom-popover" id="zoomPopover" hidden>
-            <input class="zoom-slider" id="zoomSlider" type="range" min="50" max="400" step="5" value="150" aria-label="Zoom">
-          </div>
         </div>
         <div class="vline short"></div>
         <!-- Focus mode (focus-mode.js). In Focus mode this bar comes back when
@@ -71,7 +97,6 @@
             <div class="progress-fill-clip" id="progressFillClip">
               <div class="progress-fill-segments" id="progressFillSegments"></div>
             </div>
-            <div class="progress-ticks" id="progressTicks"></div>
           </div>
           <!-- Over the track but outside its clip, so the rounded ends don't
                cut a marker's edge. -->
@@ -103,11 +128,29 @@
         </div>
         <div class="outline-tabpanel" id="outlineTabPanel" role="tabpanel" aria-labelledby="outlineTab">
           <nav class="outline-tree" id="outlineTree" aria-label="Outline"></nav>
-          <p class="outline-empty" id="outlineEmpty" hidden>This PDF has no outline.</p>
+          <!-- A PDF without bookmarks: the same language as the Recent empty
+               state, with the way to its pages and the phrase that opens them. -->
+          <div class="outline-empty" id="outlineEmpty" hidden>
+            <div class="outline-empty-icon" data-icon="list_view" aria-hidden="true"></div>
+            <p class="outline-empty-title">No outline in this PDF</p>
+            <p class="outline-empty-body">This document doesn't include chapters or bookmarks.</p>
+            <button class="btn btn-secondary outline-empty-action" id="outlineBrowsePagesBtn" type="button">Browse pages</button>
+            <div class="outline-empty-voice">
+              <p class="outline-empty-voice-label"><span data-icon="mic" aria-hidden="true"></span>Try saying</p>
+              <ul class="outline-empty-chips">
+                <li>“show pages”</li>
+              </ul>
+            </div>
+          </div>
         </div>
         <div class="outline-tabpanel" id="pagesTabPanel" role="tabpanel" aria-labelledby="pagesTab" hidden>
           <div class="pages-list" id="pagesList" role="list" aria-label="Pages"></div>
         </div>
+        <!-- The panel's right edge: drag (or focus it and press ← / →) to
+             resize, 168-400px, remembered (outline-panel.js). -->
+        <div class="outline-resizer" id="outlineResizer" role="separator" tabindex="0"
+             aria-orientation="vertical" aria-label="Resize outline panel"
+             aria-controls="outlinePanel" aria-valuemin="168" aria-valuemax="400" aria-valuenow="200"></div>
       </aside>
 
       <div class="page-area" id="pageArea" tabindex="-1">
@@ -329,10 +372,13 @@
   <script src="command-reference.js"></script>
   <script src="find-bar.js"></script>
   <script src="highlight-colors.js"></script>
+  <script src="progress-layout.js"></script>
   <script src="progress-bar.js"></script>
   <script src="outline-panel.js"></script>
   <script src="page-centering.js"></script>
   <script src="focus-mode.js"></script>
+  <script src="zoom-fit.js"></script>
+  <script src="zoom-control.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>

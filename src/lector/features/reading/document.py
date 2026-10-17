@@ -1,3 +1,4 @@
+import math
 import threading
 from dataclasses import dataclass
 
@@ -53,8 +54,21 @@ _RESTORED_INFO_KEYS = ("content", "title", "subject")
 class PdfDocument:
     DEFAULT_ZOOM = 1.0
     ZOOM_STEP = 0.25
-    MIN_ZOOM = 0.5
+    # 25% to 400%: a factor of 4 either side of 100%, which is where the zoom
+    # popover's logarithmic slider puts its centre (frontend/pages/zoom-fit.js).
+    MIN_ZOOM = 0.25
     MAX_ZOOM = 4.0
+    # Kept to 0.01%, finer than the whole percent the reader sees, so Fit
+    # width and Fit page can land within a pixel of their margins.
+    ZOOM_DECIMALS = 4
+    # 100% is the paper's real size: a PDF point is 1/72 inch and a CSS pixel
+    # 1/96, so an A4 page (595pt) is 794 CSS px wide at 100%.
+    CSS_PX_PER_POINT = 96 / 72
+    # The most pixels one page bitmap may have. A page is drawn at the
+    # screen's device pixel ratio so it is sharp; past this (400% on a high
+    # DPI screen would be over 30 million) it is drawn at fewer and the web
+    # view scales it up, rather than taking seconds to render and encode.
+    MAX_RENDER_PIXELS = 16_000_000
 
     def __init__(self):
         self._doc = None
@@ -154,17 +168,42 @@ class PdfDocument:
         self._zoom = max(self.MIN_ZOOM, round(self._zoom - self.ZOOM_STEP, 2))
 
     def set_zoom(self, value: float):
-        self._zoom = min(self.MAX_ZOOM, max(self.MIN_ZOOM, round(value, 2)))
+        self._zoom = min(self.MAX_ZOOM, max(self.MIN_ZOOM, round(value, self.ZOOM_DECIMALS)))
 
     def render_current_page(self):
         return self.render_page(self._page_index)
 
-    def render_page(self, index: int):
+    def css_scale(self) -> float:
+        """CSS pixels per PDF point at the current zoom."""
+        return self._zoom * self.CSS_PX_PER_POINT
+
+    @staticmethod
+    def _css_px(length: float) -> int:
+        """Whole CSS pixels for a length, rounded up as PyMuPDF sizes a
+        pixmap, so at a device pixel ratio of 1 the bitmap is drawn 1:1 rather
+        than squeezed by a pixel. The epsilon keeps float noise (794.0000001)
+        from adding one."""
+        return math.ceil(length - 1e-6)
+
+    def page_css_size(self, index: int) -> tuple[int, int]:
+        """Page `index`'s size on screen in CSS pixels at the current zoom."""
+        rect = self._doc[index].rect
+        scale = self.css_scale()
+        return (self._css_px(rect.width * scale), self._css_px(rect.height * scale))
+
+    def render_page(self, index: int, device_scale: float = 1.0):
+        """Page `index` as a bitmap for a screen with `device_scale` device
+        pixels per CSS pixel (the web view's devicePixelRatio), so it is
+        drawn 1:1 with the screen's pixels at its CSS size
+        (`page_css_size`), down to MAX_RENDER_PIXELS."""
         if not self._doc:
             return None
         page = self._doc[index]
-        mat = fitz.Matrix(self._zoom, self._zoom)
-        return page.get_pixmap(matrix=mat, alpha=False)
+        scale = self.css_scale() * min(max(float(device_scale), 1.0), 4.0)
+        area = page.rect.width * page.rect.height * scale * scale
+        if area > self.MAX_RENDER_PIXELS:
+            scale *= (self.MAX_RENDER_PIXELS / area) ** 0.5
+        return page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
 
     def render_thumbnail(self, index: int, width_px: int):
         """Page `index` scaled to `width_px` pixels wide, whatever the zoom —
@@ -184,7 +223,8 @@ class PdfDocument:
         return outline_tree(self._doc.get_toc(simple=True), len(self._doc))
 
     def page_sizes(self) -> list[tuple[int, int]]:
-        """Page dimensions at the current zoom, without rendering pixmaps.
+        """Page dimensions in CSS pixels at the current zoom, without
+        rendering pixmaps.
 
         Lets the strip layout lay out correctly-sized placeholders for every
         page up front (cheap: only reads each page's bounding box) before
@@ -192,8 +232,9 @@ class PdfDocument:
         """
         if not self._doc:
             return []
+        scale = self.css_scale()
         return [
-            (round(page.rect.width * self._zoom), round(page.rect.height * self._zoom))
+            (self._css_px(page.rect.width * scale), self._css_px(page.rect.height * scale))
             for page in self._doc
         ]
 

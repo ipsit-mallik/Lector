@@ -6,20 +6,22 @@
 // is at full strength on any scroll, page change, pointer near the edge or
 // hover, and fades to idle PROGRESS_IDLE_MS after the last of those.
 //
+// It is drawn by page, never by chapter. When there is room, each page is a
+// pill of its own, read pages in the fill colour, and the current page's pill
+// fills as the reader scrolls through it; when there is not, it is one
+// continuous fill (progress-layout.js decides, from the track's height, on
+// open and on every resize).
+//
 // Pointing at it for PROGRESS_EXPAND_DELAY_MS widens it, over the page, into a
-// bar with the current page's number, one segment per chapter
-// (the PDF's top-level outline) or page ticks, and a preview of the page under
-// the pointer; it narrows again PROGRESS_COLLAPSE_DELAY_MS after the pointer
+// bar with the current page's number and a preview of the page under the
+// pointer; it narrows again PROGRESS_COLLAPSE_DELAY_MS after the pointer
 // leaves, never mid-drag. A click or a drag goes to the page under the
 // pointer. A page change the reader asked for elsewhere (keyboard, voice, a
 // jump) widens it for PROGRESS_FLASH_MS so the new place is seen.
 //
-// Positions are fractions of the document: page i of n spans i/n to (i+1)/n
-// of the bar's height, so the bar needs no layout of its own beyond the track's
-// height (for the tick spacing and the read fill). reading.js owns the
-// document and tells this file what changed (updateProgressBar) and how to go
-// to a page (configureProgressBar's jumpTo); this file never calls the
-// navigation API itself.
+// reading.js owns the document and tells this file what changed
+// (updateProgressBar, and updateProgressScroll for where the read fill ends) and how to go to a page (configureProgressBar's jumpTo);
+// this file never calls the navigation API itself.
 
 const readingProgress = document.getElementById("readingProgress");
 const progressEdge = document.getElementById("progressEdge");
@@ -27,7 +29,6 @@ const progressTrack = document.getElementById("progressTrack");
 const progressSegments = document.getElementById("progressSegments");
 const progressFillClip = document.getElementById("progressFillClip");
 const progressFillSegments = document.getElementById("progressFillSegments");
-const progressTicks = document.getElementById("progressTicks");
 const progressMarkers = document.getElementById("progressMarkers");
 const progressLabel = document.getElementById("progressLabel");
 const progressTip = document.getElementById("progressTip");
@@ -42,9 +43,6 @@ const PROGRESS_EXPAND_DELAY_MS = 150;
 const PROGRESS_COLLAPSE_DELAY_MS = 400;
 // How long the bar stays open to show where a page change landed.
 const PROGRESS_FLASH_MS = 1500;
-// Pages closer together than this on the bar get no tick: a solid comb of
-// hairlines says nothing about where a page is.
-const PROGRESS_MIN_TICK_PX = 3;
 // The hover preview's width in CSS pixels (reading.css .progress-tip-thumb).
 const PROGRESS_THUMB_CSS_PX = 56;
 // A preview is fetched only once the pointer has rested on a page this long,
@@ -59,14 +57,18 @@ const PROGRESS_KEY_PAGE_STEP = 10;
 const PROGRESS_IDLE_MS = 3000;
 // A pointer this close to the window's left edge wakes the bar.
 const PROGRESS_WAKE_ZONE_PX = 40;
-// A highlight marker's height, centred on its page (reading.css).
-const PROGRESS_MARKER_PX = 3;
 
 let progressHooks = null;
 let progressPageCount = 0;
 let progressChapters = [];
 let progressHasOutline = false;
 let progressPage = 0;
+// Where the read fill ends (reading.js): a page, and how far through it, 0 to
+// 1. Usually the page being read; scrolled to the end of the strip, the last.
+let progressFillPage = 0;
+let progressPageFraction = 0;
+// progress-layout.js's layout for the track as last measured, or null.
+let progressGeometry = null;
 let progressHighlighted = new Set();
 let progressHovering = false;
 let progressDragging = false;
@@ -84,17 +86,22 @@ let progressJumpInFlight = false;
 let progressJumpWanted = null;
 
 // hooks: { jumpTo(index) goes to a page without animating }
+// hooks: {
+//   jumpTo(index)     goes to a page,
+//   panelOpen()       whether the outline panel is open: then the bar stays a
+//                     thin line, with no tip, and pointing at it calls
+//   preview(index)    to mark that page in the panel (null: nothing).
+// }
 function configureProgressBar(hooks) {
   progressHooks = hooks;
 }
 
 function initProgressBar({ pageCount, chapters, visible }) {
   progressPageCount = Math.max(0, pageCount || 0);
+  // Only for the chapter's name in the tip and the slider's spoken value.
   progressHasOutline = Boolean(chapters && chapters.length);
-  progressChapters = progressHasOutline
-    ? chapters
-    : [{ title: null, start: 0, end: Math.max(0, progressPageCount - 1) }];
-  renderProgressSegments();
+  progressChapters = progressHasOutline ? chapters : [];
+  progressGeometry = null;
   readingProgress.setAttribute("aria-valuemax", String(Math.max(1, progressPageCount)));
   setProgressBarVisible(visible);
 }
@@ -116,18 +123,26 @@ function isProgressBarVisible() {
 
 // --- Drawing ----------------------------------------------------------------- //
 
-function pagePercent(index) {
-  return progressPageCount ? (index / progressPageCount) * 100 : 0;
+function makeProgressBox(className, { top, height }) {
+  const el = document.createElement("div");
+  el.className = className;
+  el.style.top = `${top}px`;
+  el.style.height = `${height}px`;
+  return el;
 }
 
+// The unread colour and, clipped to the reading position, the same shapes
+// again in the read colour: a pill per page, or one block for the whole bar.
 function buildSegments(container) {
-  container.replaceChildren(...progressChapters.map((chapter) => {
-    const el = document.createElement("div");
-    el.className = "progress-segment";
-    el.style.top = `${pagePercent(chapter.start)}%`;
-    el.style.height = `${pagePercent(chapter.end + 1) - pagePercent(chapter.start)}%`;
-    return el;
-  }));
+  const layout = progressGeometry;
+  if (!layout) {
+    container.replaceChildren();
+    return;
+  }
+  const boxes = layout.pills
+    ? Array.from({ length: progressPageCount }, (_, i) => pillBox(layout, i))
+    : [{ top: 0, height: layout.height }];
+  container.replaceChildren(...boxes.map((box) => makeProgressBox("progress-segment", box)));
 }
 
 function renderProgressSegments() {
@@ -135,43 +150,36 @@ function renderProgressSegments() {
   buildSegments(progressFillSegments);
 }
 
-// The read fill's copy of the segments is laid out against the whole track,
-// not against the clip that cuts it at the reading position; the ticks need
-// the real distance between pages.
-function measureProgressTrack() {
+// Lays the bar out again for the track's height: pill or continuous mode, and
+// everything placed in pixels from that. Only when the height, the page count
+// or the screen's pixel density changed (widening the bar changes none of
+// them), unless forced.
+function measureProgressTrack(force = false) {
   const height = progressTrack.clientHeight;
   if (!height || !progressPageCount) return;
+  const dpr = window.devicePixelRatio || 1;
+  const last = progressGeometry;
+  if (!force && last && last.height === height && last.count === progressPageCount && last.dpr === dpr) return;
+  progressGeometry = {
+    ...progressLayout(height, progressPageCount, dpr),
+    height,
+    count: progressPageCount,
+  };
+  readingProgress.classList.toggle("is-paged", progressGeometry.pills);
+  // The fill's copy is laid out against the whole track, not against the clip
+  // that cuts it at the reading position.
   progressFillSegments.style.height = `${height}px`;
-  const step = height / progressPageCount;
-  progressTicks.style.setProperty("--tick-step", `${step}px`);
-  progressTicks.classList.toggle("has-ticks", !progressHasOutline && step >= PROGRESS_MIN_TICK_PX);
+  renderProgressSegments();
+  renderProgressMarkers();
+  renderProgressPosition();
 }
 
-new ResizeObserver(measureProgressTrack).observe(progressTrack);
-
-// Consecutive highlighted pages as [start, end] runs, so neighbours read as one
-// marker rather than a row of ticks with hairline gaps between them.
-function highlightRuns(pages) {
-  const runs = [];
-  for (const page of [...pages].sort((a, b) => a - b)) {
-    const last = runs[runs.length - 1];
-    if (last && page === last[1] + 1) last[1] = page;
-    else runs.push([page, page]);
-  }
-  return runs;
-}
+new ResizeObserver(() => measureProgressTrack()).observe(progressTrack);
 
 function renderProgressMarkers() {
-  progressMarkers.replaceChildren(...highlightRuns(progressHighlighted).map(([start, end]) => {
-    const el = document.createElement("div");
-    // From the middle of the run's first page to the middle of its last,
-    // PROGRESS_MARKER_PX tall: one page is a 3px tick on its page.
-    const first = pagePercent(start + 0.5);
-    el.className = "progress-marker";
-    el.style.top = `calc(${first}% - ${PROGRESS_MARKER_PX / 2}px)`;
-    el.style.height = `calc(${pagePercent(end + 0.5) - first}% + ${PROGRESS_MARKER_PX}px)`;
-    return el;
-  }));
+  if (!progressGeometry) return;
+  progressMarkers.replaceChildren(...progressMarkerBoxes(progressGeometry, progressHighlighted)
+    .map((box) => makeProgressBox("progress-marker", box)));
 }
 
 function chapterAt(index) {
@@ -179,10 +187,18 @@ function chapterAt(index) {
   return progressChapters.find((c) => index >= c.start && index <= c.end) || null;
 }
 
+// The read fill's end, which in pill mode also moves as the reader scrolls.
+function renderProgressFill() {
+  if (!progressGeometry) return;
+  progressFillClip.style.height = `${progressFillEnd(progressGeometry, progressFillPage, progressPageFraction)}px`;
+}
+
 function renderProgressPosition() {
-  const middle = pagePercent(progressPage + 0.5);
-  progressFillClip.style.height = `${pagePercent(progressPage + 1)}%`;
-  progressLabel.style.top = `${middle}%`;
+  renderProgressFill();
+  if (progressGeometry) {
+    const middle = (progressPage + 0.5) * progressGeometry.pitch;
+    progressLabel.style.top = `${progressTrack.offsetTop + middle}px`;
+  }
   progressLabel.textContent = String(progressPage + 1);
   const chapter = chapterAt(progressPage);
   readingProgress.setAttribute("aria-valuenow", String(progressPage + 1));
@@ -199,8 +215,7 @@ function updateProgressBar(state) {
   if (state.page_count !== progressPageCount) {
     progressPageCount = state.page_count;
     readingProgress.setAttribute("aria-valuemax", String(progressPageCount));
-    renderProgressSegments();
-    measureProgressTrack();
+    measureProgressTrack(true);
   }
   if (state.page_index !== progressPage) wakeProgressBar();
   progressPage = state.page_index;
@@ -216,12 +231,47 @@ function updateProgressBar(state) {
   renderProgressPosition();
 }
 
+// Whether the fill follows the scroll: while the bar is shown at all. Pill
+// mode fills the page's pill part way; the continuous bar fills to the end of
+// the fill page, which at the end of the strip is the last.
+function progressFollowsScroll() {
+  return isProgressBarVisible() && Boolean(progressGeometry);
+}
+
+// Where the read fill ends, { page, fraction }; reading.js calls this from
+// updateChrome, on a resize or zoom (the scroll range changes) and as either
+// view scrolls.
+function updateProgressScroll({ page, fraction }) {
+  if (page === progressFillPage && fraction === progressPageFraction) return;
+  progressFillPage = page;
+  progressPageFraction = fraction;
+  renderProgressFill();
+}
+
 // --- Expanding and collapsing ------------------------------------------------ //
+
+// While the outline panel is open the bar never widens: widened, it and its
+// page number would lie over the panel's thumbnails.
+function progressPanelOpen() {
+  return Boolean(progressHooks && progressHooks.panelOpen && progressHooks.panelOpen());
+}
+
+function previewProgressPage(index) {
+  if (progressHooks && progressHooks.preview) progressHooks.preview(index);
+}
 
 function expandProgress() {
   clearTimeout(progressExpandTimer);
   clearTimeout(progressCollapseTimer);
+  if (progressPanelOpen()) return;
   readingProgress.classList.add("is-expanded");
+}
+
+// The outline panel opened or closed (reading.js). Opening takes a widened bar
+// back to its line; closing ends a preview, and hovering widens it again.
+function progressPanelToggled(open) {
+  if (open) collapseProgress();
+  else previewProgressPage(null);
 }
 
 function collapseProgress() {
@@ -314,12 +364,19 @@ readingProgress.addEventListener("pointerleave", () => {
   progressHovering = false;
   clearTimeout(progressExpandTimer);
   if (progressDragging) return;
+  previewProgressPage(null);
   hideProgressTip();
   if (document.activeElement === readingProgress) return;
   progressCollapseTimer = setTimeout(collapseProgress, PROGRESS_COLLAPSE_DELAY_MS);
 });
 
 readingProgress.addEventListener("pointermove", (ev) => {
+  if (progressPanelOpen()) {
+    const index = pageAtY(ev.clientY);
+    previewProgressPage(index);
+    if (progressDragging) jumpProgressTo(index);
+    return;
+  }
   if (!readingProgress.classList.contains("is-expanded") && !progressDragging) return;
   const index = pageAtY(ev.clientY);
   showProgressTip(index, ev.clientY);
@@ -333,7 +390,8 @@ readingProgress.addEventListener("pointerdown", (ev) => {
   readingProgress.setPointerCapture(ev.pointerId);
   expandProgress();
   const index = pageAtY(ev.clientY);
-  showProgressTip(index, ev.clientY);
+  if (progressPanelOpen()) previewProgressPage(index);
+  else showProgressTip(index, ev.clientY);
   jumpProgressTo(index);
 });
 
@@ -344,6 +402,7 @@ function endProgressDrag(ev) {
   // Released off the bar: it closes as it would have when the pointer left.
   if (!progressHovering) {
     hideProgressTip();
+    previewProgressPage(null);
     if (document.activeElement !== readingProgress) {
       progressCollapseTimer = setTimeout(collapseProgress, PROGRESS_COLLAPSE_DELAY_MS);
     }

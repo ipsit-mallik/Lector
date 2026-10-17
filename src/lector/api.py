@@ -311,14 +311,31 @@ class Api:
             "layout_mode": self._layout_mode,
         }
 
-    def get_page_image(self, index: int) -> dict:
-        pix = self._doc.render_page(index)
+    def get_page_image(self, index: int, device_scale: float = 1.0) -> dict:
+        """Page `index` at the current zoom. `width` and `height` are the
+        size to show it at in CSS pixels (100% is the paper's real size); the
+        bitmap itself is drawn for `device_scale` (the web view's
+        devicePixelRatio, clamped to 1-4) so it is sharp on a high DPI screen."""
+        pix = self._doc.render_page(index, device_scale)
         if pix is None:
             return {"image": None, "width": 0, "height": 0}
-        return {"image": _pixmap_to_png_b64(pix), "width": pix.width, "height": pix.height}
+        width, height = self._doc.page_css_size(index)
+        return {"image": _pixmap_to_png_b64(pix), "width": width, "height": height}
 
     def get_page_sizes(self) -> list[dict]:
         return [{"width": w, "height": h} for w, h in self._doc.page_sizes()]
+
+    def get_page_size_points(self, index: int) -> dict:
+        """Page `index`'s size in PDF points, whatever the zoom: what Fit width
+        and Fit page divide the page area by (`frontend/pages/zoom-fit.js`).
+        The rendered sizes above are rounded to whole pixels at the current
+        zoom, too coarse to work back from at 25%. A page past either end of
+        the document is the nearest real one, as `goto_page` treats it."""
+        if not self._doc.is_open:
+            return {"width": 0.0, "height": 0.0}
+        index = min(max(int(index), 0), self._doc.page_count - 1)
+        width, height = self._doc.page_size_points(index)
+        return {"width": width, "height": height}
 
     def get_page_thumbnail(self, index: int, width: int) -> dict:
         """Page `index` rendered `width` pixels wide (the outline panel's
@@ -673,13 +690,17 @@ class Api:
         settings.set_recent_view(mode)
 
     def get_reading_preferences(self) -> dict:
-        """Settings > Reading, plus whether the outline panel was left open:
-        `{"default_view", "progress_bar", "outline_open", "highlight_color",
-        "highlight_palette"}`."""
+        """Settings > Reading, plus whether the outline panel was left open
+        and how wide: `{"default_view", "progress_bar", "outline_open",
+        "outline_width", "outline_width_min", "outline_width_max",
+        "highlight_color", "highlight_palette"}`."""
         return {
             "default_view": settings.get_default_view(),
             "progress_bar": settings.get_progress_bar(),
             "outline_open": settings.get_outline_open(),
+            "outline_width": settings.get_outline_width(),
+            "outline_width_min": settings.OUTLINE_WIDTH_MIN,
+            "outline_width_max": settings.OUTLINE_WIDTH_MAX,
             "highlight_color": settings.get_highlight_color(),
             "highlight_palette": list(highlighter.COLOR_NAMES),
         }
@@ -697,6 +718,14 @@ class Api:
 
     def set_outline_open(self, is_open: bool) -> dict:
         settings.set_outline_open(bool(is_open))
+        return self.get_reading_preferences()
+
+    def set_outline_width(self, width: float) -> dict:
+        """The outline panel's width after a drag. Anything that isn't a
+        number is ignored (a bridge boundary); a number is kept within the
+        panel's limits."""
+        if isinstance(width, (int, float)) and not isinstance(width, bool) and width == width:
+            settings.set_outline_width(width)
         return self.get_reading_preferences()
 
     # ------------------------------------------------------------------ #

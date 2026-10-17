@@ -218,7 +218,7 @@ class ListShapeTests(unittest.TestCase):
 class SameListOnEveryScreenTests(unittest.TestCase):
     ORDER = (
         "anywhere", "back_home", "recent", "favorites", "theme", "save", "reopen",
-        "moving", "panel", "focus", "highlighting", "undo_redo", "app", "this_list", "prompts",
+        "moving", "panel", "focus", "zoom", "highlighting", "undo_redo", "app", "this_list", "prompts",
     )
 
     def test_every_screen_gets_every_section_and_every_command(self):

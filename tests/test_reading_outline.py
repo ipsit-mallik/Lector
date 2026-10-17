@@ -215,6 +215,25 @@ class ReadingPreferenceTests(_ApiCase):
         self.assertTrue(store.get_progress_bar())
         self.assertFalse(store.get_outline_open())
 
+    def test_the_outline_panel_is_200px_by_default_within_168_and_400(self):
+        prefs = self.api.get_reading_preferences()
+        self.assertEqual((prefs["outline_width"], prefs["outline_width_min"], prefs["outline_width_max"]), (200, 168, 400))
+
+    def test_its_width_is_remembered_within_the_limits(self):
+        self.assertEqual(self.api.set_outline_width(312.6)["outline_width"], 313)
+        self.assertEqual(store.get_outline_width(), 313)
+        self.assertEqual(self.api.set_outline_width(90)["outline_width"], 168)
+        self.assertEqual(self.api.set_outline_width(5000)["outline_width"], 400)
+
+    def test_a_width_that_is_not_a_number_is_ignored(self):
+        self.api.set_outline_width(300)
+        for bad in ("wide", None, True, float("nan")):
+            self.assertEqual(self.api.set_outline_width(bad)["outline_width"], 300)
+        data = store._load()
+        data["outline_panel_width"] = "huge"
+        store._save(data)
+        self.assertEqual(store.get_outline_width(), 200)
+
     def test_the_highlight_color_is_the_one_the_reader_uses(self):
         self.api.set_highlight_color("pink")
         self.assertEqual(self.api.get_reading_preferences()["highlight_color"], "pink")

@@ -11,15 +11,12 @@ const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const pageInput = document.getElementById("pageInput");
 const pageSuffix = document.getElementById("pageSuffix");
-const zoomLabel = document.getElementById("zoomLabel");
 
 const highlightBtn = document.getElementById("highlightBtn");
 const undoBtn = document.getElementById("undoBtn");
 const redoBtn = document.getElementById("redoBtn");
 const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomOutBtn = document.getElementById("zoomOutBtn");
-const zoomPopover = document.getElementById("zoomPopover");
-const zoomSlider = document.getElementById("zoomSlider");
 const layoutBtn = document.getElementById("layoutBtn");
 const themeBtn = document.getElementById("themeBtn");
 const referenceFooterBtn = document.getElementById("referenceFooterBtn");
@@ -71,10 +68,7 @@ function updateChrome() {
   // on every page boundary, and would otherwise overwrite a half-typed number.
   if (document.activeElement !== pageInput) pageInput.value = state.page_index + 1;
   pageSuffix.textContent = `of ${state.page_count}`;
-  zoomLabel.textContent = `${state.zoom_pct}%`;
-  zoomSlider.min = state.zoom_min_pct;
-  zoomSlider.max = state.zoom_max_pct;
-  zoomSlider.value = state.zoom_pct;
+  updateZoomControl(state);
   prevBtn.disabled = state.page_index <= 0;
   nextBtn.disabled = state.page_index >= state.page_count - 1;
   updateUndoButtons();
@@ -82,6 +76,7 @@ function updateChrome() {
   // The progress bar and the outline panel follow every page and highlight
   // change from here, strip scrolling included.
   updateProgressBar(state);
+  updateProgressScroll(currentPageReadFraction());
   updateOutlinePanel(state);
 }
 
@@ -120,10 +115,25 @@ async function refresh({ animate = false } = {}) {
   paintHighlightTargets();
 }
 
+// Pages are drawn for the screen's pixel density (the backend renders the
+// bitmap at devicePixelRatio and the <img> is given the page's CSS size), so
+// moving the window to a screen with another density redraws them.
+function watchPixelRatio() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", () => {
+    if (state.is_open) {
+      markStripDirty();
+      refresh();
+      redrawPageThumbsForPixelRatio();
+    }
+    watchPixelRatio();
+  }, { once: true });
+}
+watchPixelRatio();
+
 async function refreshBook() {
   bookScroll.hidden = false;
   stripScroll.hidden = true;
-  const { image, width, height } = await callApi("get_page_image", state.page_index);
+  const { image, width, height } = await callApi("get_page_image", state.page_index, devicePixelRatio);
   if (image) {
     pageSurface.width = width;
     pageSurface.height = height;
@@ -190,7 +200,7 @@ function observeStripPages(imgs) {
 
 async function renderStripPage(img) {
   const index = Number(img.dataset.pageIndex);
-  const { image } = await callApi("get_page_image", index);
+  const { image } = await callApi("get_page_image", index, devicePixelRatio);
   if (image) await showImage(img, image);
 }
 
@@ -233,7 +243,7 @@ async function updateStripPageImage(index) {
   const img = stripContainer.querySelector(`[data-page-index="${index}"]`);
   if (!img) return;
   if (stripObserver) stripObserver.unobserve(img);
-  const { image, width, height } = await callApi("get_page_image", index);
+  const { image, width, height } = await callApi("get_page_image", index, devicePixelRatio);
   if (!image) return;
   img.width = width;
   img.height = height;
@@ -678,6 +688,8 @@ stripScroll.addEventListener("scroll", scheduleOcrPrefetch);
 // Scrolling brings the progress bar back to full strength for a while.
 bookScroll.addEventListener("scroll", wakeProgressBar, { passive: true });
 stripScroll.addEventListener("scroll", wakeProgressBar, { passive: true });
+bookScroll.addEventListener("scroll", scheduleProgressScroll, { passive: true });
+stripScroll.addEventListener("scroll", scheduleProgressScroll, { passive: true });
 
 // --- Scanned pages (OCR) --------------------------------------------------- //
 // A scanned page is a picture with no text layer, so it has nothing to select
@@ -824,6 +836,7 @@ const pageResizeObserver = new ResizeObserver(() => {
   paintHighlightTargets();
   paintFindMarks();
   if (selection && selection.range) paintSelection(selection, false);
+  updateProgressScroll(currentPageReadFraction());
 });
 [pageArea, pageCard, stripContainer].forEach((el) => pageResizeObserver.observe(el));
 
@@ -999,6 +1012,7 @@ function scheduleZoomRefresh() {
 // page once the debounced rebuild ran. The locally-tracked page_index is
 // always at least as fresh, so it's preserved across the zoom call instead.
 async function zoomIn() {
+  leaveZoomFit();
   const pageIndex = state.page_index;
   state = await callApi("zoom_in");
   state.page_index = pageIndex;
@@ -1008,6 +1022,7 @@ async function zoomIn() {
 }
 
 async function zoomOut() {
+  leaveZoomFit();
   const pageIndex = state.page_index;
   state = await callApi("zoom_out");
   state.page_index = pageIndex;
@@ -1016,19 +1031,74 @@ async function zoomOut() {
   scheduleZoomRefresh();
 }
 
+// The percentage asked for and not yet sent or answered; Ctrl+scroll goes on
+// from it rather than from a state.zoom_pct one reply behind.
+let requestedZoomPct = null;
+let zoomCallInFlight = false;
+
+// One set_zoom on the bridge at a time, and only ever the latest percentage.
+// A slider drag, or a fit following a window being dragged, asks for one a
+// frame; the bridge answers each on its own thread, and replies overtaking
+// each other could leave the backend at an older size than the top bar shows.
 async function setZoomPct(pct) {
-  const pageIndex = state.page_index;
-  state = await callApi("set_zoom", pct / 100);
-  state.page_index = pageIndex;
-  updateChrome();
-  applyZoomPreview();
-  scheduleZoomRefresh();
+  requestedZoomPct = pct;
+  if (zoomCallInFlight) return;
+  zoomCallInFlight = true;
+  try {
+    while (requestedZoomPct !== null) {
+      const wanted = requestedZoomPct;
+      const reply = await callApi("set_zoom", wanted / 100);
+      reply.page_index = state.page_index;
+      state = reply;
+      // A newer one is already waiting: drawing this would flick the top-bar
+      // value back to an older percentage on its way forward.
+      if (requestedZoomPct !== wanted) continue;
+      requestedZoomPct = null;
+      updateChrome();
+      applyZoomPreview();
+      scheduleZoomRefresh();
+    }
+  } finally {
+    zoomCallInFlight = false;
+  }
 }
 
-function toggleZoomPopover(show) {
-  zoomPopover.hidden = show === undefined ? !zoomPopover.hidden : !show;
-  // In Focus mode the topbar was held down for the slider; it may go now.
-  if (zoomPopover.hidden) settleFocusPeek();
+// The page area and the current page in PDF points: what Fit width and Fit
+// page fit the page to (zoom-control.js). The page area is the room between
+// the progress bar and the toolbar, less the outline panel when it is open.
+const pagePointSizes = new Map();
+async function zoomFitGeometry() {
+  if (!state.is_open) return null;
+  const index = state.page_index;
+  if (!pagePointSizes.has(index)) pagePointSizes.set(index, await callApi("get_page_size_points", index));
+  const { width, height } = pagePointSizes.get(index);
+  return {
+    areaWidth: pageArea.clientWidth,
+    areaHeight: pageArea.clientHeight,
+    pageWidth: width,
+    pageHeight: height,
+  };
+}
+
+// Ctrl+scroll, and a touchpad pinch, which arrives as one. Gathered over a
+// frame and turned into a factor, so a mouse notch (100px of delta) is about
+// one − / + step and a pinch zooms smoothly; a movement too small to change
+// the whole percentage is kept until it does.
+const WHEEL_ZOOM_DOUBLING_PX = 300;
+let wheelZoomDelta = 0;
+let wheelZoomFrame = 0;
+
+function applyWheelZoom() {
+  wheelZoomFrame = 0;
+  if (!state.is_open) return;
+  const from = requestedZoomPct ?? state.zoom_pct;
+  const wanted = Math.round(from * Math.pow(2, -wheelZoomDelta / WHEEL_ZOOM_DOUBLING_PX));
+  if (wanted === from) return;
+  wheelZoomDelta = 0;
+  const pct = Math.min(state.zoom_max_pct, Math.max(state.zoom_min_pct, wanted));
+  if (pct === from) return;
+  leaveZoomFit();
+  setZoomPct(pct);
 }
 
 async function undo() {
@@ -1096,6 +1166,37 @@ function getPageScrollFraction() {
   return (scrollRect.top - pageRect.top) / pageRect.height;
 }
 
+// Where the progress bar's read fill ends: a page and how far through it
+// (progress-layout.js's progressReadPosition). Strip: the scroll's overall
+// progress, so scrolled to the bottom is exactly 100% and a document that fits
+// without scrolling is 100% too. Book: the page being read, as far down it as
+// it has been scrolled (all of it for a page that fits), and the last page is
+// always 100%.
+function currentPageReadFraction() {
+  if (layoutMode === "book") {
+    if (state.page_index >= state.page_count - 1) return { page: state.page_index, fraction: 1 };
+    const range = bookScroll.scrollHeight - bookScroll.clientHeight;
+    return { page: state.page_index, fraction: range > 0 ? bookScroll.scrollTop / range : 1 };
+  }
+  return progressReadPosition({
+    scrollTop: stripScroll.scrollTop,
+    scrollHeight: stripScroll.scrollHeight,
+    clientHeight: stripScroll.clientHeight,
+    pages: stripPageEls.map((el) => ({ top: stripPageTop(el), height: el.getBoundingClientRect().height })),
+  }) || { page: state.page_index, fraction: 0 };
+}
+
+// Once a frame while either view scrolls, and only while the bar is shown.
+let progressScrollTicking = false;
+function scheduleProgressScroll() {
+  if (progressScrollTicking || !progressFollowsScroll()) return;
+  progressScrollTicking = true;
+  requestAnimationFrame(() => {
+    progressScrollTicking = false;
+    if (state.is_open) updateProgressScroll(currentPageReadFraction());
+  });
+}
+
 function applyPageScrollFraction(fraction) {
   const scrollEl = layoutMode === "book" ? bookScroll : stripScroll;
   const pageEl = getCurrentPageEl();
@@ -1131,6 +1232,7 @@ async function toggleLayout() {
   callApi("set_layout_mode", layoutMode);
   await refresh();
   applyPageScrollFraction(fraction);
+  refitZoom();
 }
 
 async function cycleTheme() {
@@ -1279,16 +1381,14 @@ pageInput.addEventListener("keydown", (ev) => {
 pageInput.addEventListener("blur", revertPageInput);
 zoomInBtn.addEventListener("click", zoomIn);
 zoomOutBtn.addEventListener("click", zoomOut);
-zoomLabel.addEventListener("click", (ev) => {
-  ev.stopPropagation();
-  toggleZoomPopover();
-});
-zoomSlider.addEventListener("input", () => setZoomPct(Number(zoomSlider.value)));
-document.addEventListener("click", (ev) => {
-  if (!zoomPopover.hidden && !zoomPopover.contains(ev.target) && ev.target !== zoomLabel) {
-    toggleZoomPopover(false);
-  }
-});
+window.addEventListener("wheel", (ev) => {
+  if (!(ev.ctrlKey || ev.metaKey)) return;
+  // Never the web view's own zoom, wherever the pointer is.
+  ev.preventDefault();
+  if (document.querySelector(".dialog-scrim:not([hidden])")) return;
+  wheelZoomDelta += ev.deltaY;
+  if (!wheelZoomFrame) wheelZoomFrame = requestAnimationFrame(applyWheelZoom);
+}, { passive: false });
 layoutBtn.addEventListener("click", toggleLayout);
 themeBtn.addEventListener("click", cycleTheme);
 undoBtn.addEventListener("click", undo);
@@ -1307,7 +1407,7 @@ referenceFooterBtn.addEventListener("click", openCommandReference);
 function enterFocusMode() {
   if (isFocusMode()) return;
   closeColorFlyout();
-  toggleZoomPopover(false);
+  closeZoomPopover();
   setFocusMode(true);
 }
 
@@ -1325,6 +1425,12 @@ focusModeBtn.addEventListener("click", () => {
 // listener runs, since a dialog's own Esc hides it before the handler below
 // gets the key, and one Esc must not both cancel it and leave Focus mode.
 let dialogOpenAtKey = false;
+
+const ZOOM_SHORTCUTS = {
+  0: () => chooseZoomFit(ZOOM_FIT_PAGE),
+  1: () => chooseActualSize(),
+  2: () => chooseZoomFit(ZOOM_FIT_WIDTH),
+};
 document.addEventListener("keydown", () => {
   dialogOpenAtKey = Boolean(document.querySelector(".dialog-scrim:not([hidden])"));
 }, true);
@@ -1346,10 +1452,18 @@ document.addEventListener("keydown", (ev) => {
     ev.key === "-" ? zoomOut() : zoomIn();
     return;
   }
+  // Ctrl+0 Fit page, Ctrl+1 100%, Ctrl+2 Fit width, as in Acrobat; from the
+  // inputs too, like the zoom steps above.
+  const zoomShortcut = (ev.ctrlKey || ev.metaKey) && !ev.altKey && ZOOM_SHORTCUTS[ev.key];
+  if (zoomShortcut) {
+    ev.preventDefault();
+    zoomShortcut();
+    return;
+  }
   // The zoom slider is an input itself, so its Esc is taken before the guard
   // below; and it comes ahead of everything else open, Focus mode included.
-  if (ev.key === "Escape" && !zoomPopover.hidden && !dialogOpenAtKey) {
-    toggleZoomPopover(false);
+  if (ev.key === "Escape" && isZoomPopoverOpen() && !dialogOpenAtKey) {
+    closeZoomPopover({ returnFocus: true });
     return;
   }
   if (ev.target.tagName === "INPUT") return;
@@ -1435,14 +1549,35 @@ configureFindBar({
   returnFocus: () => pageArea.focus({ preventScroll: true }),
 });
 
-configureProgressBar({ jumpTo: (index) => jumpToPageIndex(index) });
+configureProgressBar({
+  jumpTo: (index) => jumpToPageIndex(index),
+  panelOpen: () => isOutlinePanelOpen(),
+  preview: (index) => previewOutlinePage(index),
+});
 configureFocusMode({
   scroller: () => activeScrollEl(),
-  holdsPeek: () => !zoomPopover.hidden,
+  holdsPeek: () => isZoomPopoverOpen(),
 });
+configureZoomControl({
+  setZoomPct: (pct) => setZoomPct(pct),
+  fitGeometry: () => zoomFitGeometry(),
+  // In Focus mode the topbar was held down for the popover; it may go now.
+  onClose: () => settleFocusPeek(),
+});
+// A fit mode fits again whenever the page area changes size: the window, the
+// outline panel, Focus mode. Once a frame at most, while a window is dragged.
+let refitFrame = 0;
+new ResizeObserver(() => {
+  if (refitFrame || !state.is_open) return;
+  refitFrame = requestAnimationFrame(() => {
+    refitFrame = 0;
+    refitZoom();
+  });
+}).observe(pageArea);
 configureOutlinePanel({
   jumpTo: (index) => goToPage(index + 1),
   say: (text) => setMicHint(text),
+  onToggle: (open) => progressPanelToggled(open),
 });
 
 // What highlight-colors.js needs to know about this view's layouts.
@@ -1641,6 +1776,9 @@ const VOICE_ACTIONS = {
   TOGGLE_PROGRESS_BAR: () => toggleProgressBar(),
   FOCUS_MODE: () => enterFocusMode(),
   EXIT_FOCUS_MODE: () => setFocusMode(false),
+  FIT_WIDTH: () => chooseZoomFit(ZOOM_FIT_WIDTH),
+  FIT_PAGE: () => chooseZoomFit(ZOOM_FIT_PAGE),
+  ACTUAL_SIZE: () => chooseActualSize(),
   SET_HIGHLIGHT_COLOR: async (command) => {
     await setActiveHighlightColor(command.color);
     setMicHint(`Highlight color: ${command.color}`);
@@ -1896,6 +2034,9 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
     pageSizes: sizes,
     currentPage: state.page_index,
     open: prefs.outline_open,
+    width: prefs.outline_width,
+    minWidth: prefs.outline_width_min,
+    maxWidth: prefs.outline_width_max,
   });
   await initHighlightColors(state.highlight_color);
   await refresh();

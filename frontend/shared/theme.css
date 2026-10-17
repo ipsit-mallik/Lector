@@ -64,6 +64,13 @@
   --enter-rise: 6px;
   --pop-scale: 0.97;
 
+  /* The zoom popover's entrance (a fade and this short drop from its value)
+   * runs over --dur-quick, the one duration outside the fast/base pair (asked
+   * for by name, a touch slower than --dur-fast so the drop reads). The drop
+   * is zeroed under reduced motion, like the distances above. */
+  --drop-distance: -4px;
+  --dur-quick: 140ms;
+
   /* The one looping animation: a search field's halo while voice is typing
    * into it (shared/search-field.css). Slow, so it reads as breathing rather
    * than as an alert. */
@@ -170,6 +177,10 @@
 
   --shadow-1: 0 1px 2px rgba(22, 26, 24, 0.06), 0 1px 3px rgba(22, 26, 24, 0.08);
   --shadow-2: 0 4px 10px rgba(22, 26, 24, 0.12), 0 2px 4px rgba(22, 26, 24, 0.08);
+  /* The zoom popover: the lightest surface (near white), on the soft shadow
+   * the other popovers use. */
+  --popover-surface: var(--surface-input);
+  --popover-shadow: var(--shadow-2);
   --shadow-3: 0 24px 48px rgba(22, 26, 24, 0.22), 0 8px 16px rgba(22, 26, 24, 0.10);
   --shadow-page: 0 4px 24px rgba(22, 26, 24, 0.18);
 
@@ -244,6 +255,11 @@
 
   --shadow-1: none;
   --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.35);
+  /* The zoom popover rises by lightness, as cards do: the lighter input
+   * surface and a faint highlight along its top edge, not a drop shadow the
+   * dark page would swallow. */
+  --popover-surface: var(--surface-input);
+  --popover-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --shadow-3: 0 24px 56px rgba(0, 0, 0, 0.6), 0 8px 16px rgba(0, 0, 0, 0.35);
   --shadow-page: 0 4px 24px rgba(0, 0, 0, 0.5);
 
@@ -312,6 +328,8 @@
 
   --shadow-1: 0 1px 2px rgba(59, 47, 32, 0.08), 0 1px 3px rgba(59, 47, 32, 0.10);
   --shadow-2: 0 4px 10px rgba(59, 47, 32, 0.14), 0 2px 4px rgba(59, 47, 32, 0.10);
+  --popover-surface: var(--surface-input);
+  --popover-shadow: var(--shadow-2);
   --shadow-3: 0 24px 48px rgba(59, 47, 32, 0.24), 0 8px 16px rgba(59, 47, 32, 0.12);
   --shadow-page: 0 4px 24px rgba(59, 47, 32, 0.2);
 
@@ -447,6 +465,7 @@ body {
     --lift: 0px;
     --enter-rise: 0px;
     --pop-scale: 1;
+    --drop-distance: 0px;
   }
 
   /* applyTheme() does not start a View Transition at all under reduced motion;

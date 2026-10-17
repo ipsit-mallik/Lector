@@ -324,8 +324,8 @@ const offset = vm.runInContext("pageOffsetForWindow", context);
 const area = { windowWidth: 1280, areaLeft: 12, areaWidth: 1211 };
 console.log(JSON.stringify({
   narrow: offset({ ...area, pageWidth: 800 }),
-  justFits: offset({ ...area, pageWidth: 1134 }),
-  tooWide: offset({ ...area, pageWidth: 1150 }),
+  justFits: offset({ ...area, pageWidth: 1118 }),
+  tooWide: offset({ ...area, pageWidth: 1122 }),
   wider: offset({ ...area, pageWidth: 2000 }),
   panelOpen: offset({ windowWidth: 1280, areaLeft: 277, areaWidth: 946, pageWidth: 600 }),
   panelOpenWide: offset({ windowWidth: 1280, areaLeft: 277, areaWidth: 946, pageWidth: 800 }),
@@ -351,7 +351,7 @@ class PageCenteringTests(unittest.TestCase):
         self.assertEqual(self.out["narrow"], 23)
 
     def test_up_to_the_width_that_still_clears_the_toolbar(self):
-        # Right edge at 640 + 567 = 1207 = 1223 - 16.
+        # Right edge at 640 + 559 = 1199 = 1223 - 24, the scrollers' gutter.
         self.assertEqual(self.out["justFits"], 23)
 
     def test_a_page_too_wide_for_that_is_centred_in_its_area(self):
@@ -381,7 +381,7 @@ class ReaderMarkupTests(unittest.TestCase):
         return self.html[self.html.index(start):self.html.index(end)]
 
     def test_zoom_steps_sit_either_side_of_the_percentage_in_the_topbar(self):
-        zoom = self.section('<div class="zoom-control">', 'id="zoomPopover"')
+        zoom = self.section('<div class="zoom-control">', 'id="focusModeBtn"')
         ids = re.findall(r'id="(zoomOutBtn|zoomLabel|zoomInBtn)"', zoom)
         self.assertEqual(ids, ["zoomOutBtn", "zoomLabel", "zoomInBtn"])
         rail = self.section('<div class="rail focus-chrome">', '<div class="footer focus-chrome">')
@@ -430,7 +430,7 @@ class ReaderMarkupTests(unittest.TestCase):
     def test_entering_closes_the_popovers_in_the_hidden_chrome(self):
         body = self.js[self.js.index("function enterFocusMode()"):self.js.index("let dialogOpenAtKey")]
         self.assertIn("closeColorFlyout();", body)
-        self.assertIn("toggleZoomPopover(false);", body)
+        self.assertIn("closeZoomPopover();", body)
 
     def test_the_focus_button_sits_right_of_the_zoom_control_in_the_topbar(self):
         controls = self.section('<div class="page-controls">', '<div class="hline focus-chrome">')
@@ -448,7 +448,7 @@ class ReaderMarkupTests(unittest.TestCase):
         self.assertIn("enterFocusMode();", body)
 
     def test_esc_closes_the_zoom_slider_before_anything_else(self):
-        zoom_esc = self.js.index('if (ev.key === "Escape" && !zoomPopover.hidden && !dialogOpenAtKey)')
+        zoom_esc = self.js.index('if (ev.key === "Escape" && isZoomPopoverOpen() && !dialogOpenAtKey)')
         self.assertLess(zoom_esc, self.js.index('if (ev.target.tagName === "INPUT") return;'))
         self.assertLess(zoom_esc, self.js.index("else if (isFocusMode() && !dialogOpenAtKey) setFocusMode(false);"))
 
