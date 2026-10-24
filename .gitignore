@@ -25,3 +25,8 @@ assets/silero_vad.onnx
 # Tesseract English language data (~4 MB) - fetched, not committed.
 # Run: python scripts/fetch_tessdata.py
 assets/tessdata/
+
+# Claude Code: per-machine settings, proxy markers and agent worktrees
+.claude/settings.local.json
+.claude/.headroom_*
+.claude/worktrees/
