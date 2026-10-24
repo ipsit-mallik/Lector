@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDFs some tests open
 
 from lector import api as api_module  # noqa: E402
+from lector.features.reading import safe_write  # noqa: E402
 from lector.features.settings import store  # noqa: E402
 
 
@@ -364,13 +365,37 @@ class BrowseAndSaveDialogTests(unittest.TestCase):
         self.api._doc.save_copy.assert_called_once_with("/docs/copy.pdf")
         self.assertTrue(outcome["ok"])
 
-    def test_perform_save_reports_an_error_instead_of_raising(self):
+    def test_perform_save_reports_an_unexpected_error_in_plain_words_not_its_own_text(self):
+        # Hardening H2: this used to pin `str(exc)` reaching the reader, which
+        # for a real failure is MuPDF's code and the file's full path.
         self.api._doc = mock.Mock(is_open=False)
-        self.api._doc.save_overwrite.side_effect = OSError("disk full")
+        self.api._doc.save_overwrite.side_effect = RuntimeError("code=2: cannot open file 'C:\\x.pdf'")
+
+        with self.assertLogs("lector.api", level="ERROR"):
+            outcome = self.api.perform_save(store.OVERWRITE)
+
+        self.assertEqual(outcome, {"ok": False, "error": safe_write.MESSAGES[safe_write.UNKNOWN]})
+        self.assertNotIn("code=2", outcome["error"])
+
+    def test_perform_save_hands_a_save_errors_message_to_the_reader(self):
+        self.api._doc = mock.Mock(is_open=False)
+        self.api._doc.save_overwrite.side_effect = safe_write.SaveError(safe_write.LOCKED)
 
         outcome = self.api.perform_save(store.OVERWRITE)
 
-        self.assertEqual(outcome, {"ok": False, "error": "disk full"})
+        self.assertEqual(outcome, {"ok": False, "error": safe_write.MESSAGES[safe_write.LOCKED]})
+
+    def test_perform_save_tells_reading_when_the_saved_pdf_could_not_be_reopened(self):
+        # The save happened but the document is gone, so Reading has to leave.
+        self.api._doc = mock.Mock(is_open=False)
+        self.api._doc.save_overwrite.side_effect = safe_write.SaveError(safe_write.SAVED_NOT_REOPENED)
+
+        outcome = self.api.perform_save(store.OVERWRITE)
+
+        self.assertEqual(
+            outcome,
+            {"ok": False, "error": safe_write.MESSAGES[safe_write.SAVED_NOT_REOPENED], "closed": True},
+        )
 
 
 if __name__ == "__main__":

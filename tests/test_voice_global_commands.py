@@ -33,6 +33,7 @@ SCOPED_TABLES = {
     router.SAVE_CONFIRM: router.SAVE_CONFIRM_PHRASES,
     router.REFERENCE: router.REFERENCE_PHRASES,
     router.OVERWRITE_CONFIRM: router.OVERWRITE_CONFIRM_PHRASES,
+    router.REPLACE_CONFIRM: router.REPLACE_CONFIRM_PHRASES,
 }
 
 
@@ -153,6 +154,35 @@ class ModalScopeTests(unittest.TestCase):
     def test_modal_vocabularies_do_not_carry_the_screen_grammar_beneath(self):
         self.assertNotIn("theme", router.vocabulary_for(router.OVERWRITE_CONFIRM))
         self.assertNotIn("favorite", router.vocabulary_for(router.REFERENCE))
+
+
+class ReplaceConfirmScopeTests(unittest.TestCase):
+    """The "Replace this file?" question a copy onto a taken name asks
+    (hardening H2): its own modal scope, answered only on purpose."""
+
+    def test_it_is_a_declarable_context_that_lets_no_globals_through(self):
+        self.assertIn(router.REPLACE_CONFIRM, router.CONTEXTS)
+        self.assertEqual(router.MODAL_ALLOWED_GLOBALS[router.REPLACE_CONFIRM], frozenset())
+        self.assertIsNone(_intent(router.REPLACE_CONFIRM, "quit"))
+        self.assertIsNone(_intent(router.REPLACE_CONFIRM, "what can i say"))
+
+    def test_replacing_needs_an_explicit_spoken_confirmation(self):
+        for phrase in ("confirm replace", "replace it"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(_intent(router.REPLACE_CONFIRM, phrase), router.CONFIRM_REPLACE)
+        for phrase in ("cancel", "never mind"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(_intent(router.REPLACE_CONFIRM, phrase), router.CANCEL)
+
+    def test_a_bare_yes_does_not_replace_a_file(self):
+        for phrase in ("yes", "okay", "do it", "save here"):
+            with self.subTest(phrase=phrase):
+                self.assertNotEqual(_intent(router.REPLACE_CONFIRM, phrase), router.CONFIRM_REPLACE)
+
+    def test_confirm_replace_is_only_heard_inside_its_own_scope(self):
+        for context in (router.READING, router.SAVE_DIALOG, router.SAVE_CONFIRM):
+            with self.subTest(context=context):
+                self.assertNotEqual(_intent(context, "confirm replace"), router.CONFIRM_REPLACE)
 
 
 class ModalScopesAreReallyModalTests(unittest.TestCase):

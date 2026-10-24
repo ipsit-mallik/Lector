@@ -8,6 +8,7 @@ data — no PySide6/Qt types, no live PyMuPDF objects.
 """
 import base64
 import json
+import logging
 import os
 import threading
 
@@ -22,12 +23,15 @@ from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
 from lector.features.reading import ocr
 from lector.features.reading import outline as reading_outline
+from lector.features.reading import safe_write
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
 from lector.features.voice import command_grammar, reference, router
 from lector.features.voice import engine as engine_module
 from lector.features.voice.engine import VoiceEngine
 from lector.shared import window_chrome
+
+log = logging.getLogger(__name__)
 
 
 # Longer than any phrase a reader would look for; a pasted paragraph is cut
@@ -656,7 +660,11 @@ class Api:
         """`path` is required when `mode` is `settings.COPY` — the in-app
         Save-As screen (Milestone 8.7) gathers it via `browse_directory()`/
         `get_save_dialog_start()` before calling this, the same way the
-        native dialog used to hand back a chosen path."""
+        native dialog used to hand back a chosen path.
+
+        A failure comes back as `error`, a sentence for the reader saying what
+        happened and that the file on disk is unchanged — never the library's
+        own text, which names paths and MuPDF error codes."""
         try:
             if mode == settings.OVERWRITE:
                 self._doc.save_overwrite()
@@ -665,12 +673,40 @@ class Api:
                     return {"ok": False, "cancelled": True}
                 self._doc.save_copy(path)
             return {"ok": True, "state": self._state()}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+        except safe_write.SaveError as exc:
+            if exc.closes_document:
+                # The PDF couldn't be opened again, so no document is left
+                # open: Reading has to leave.
+                return {"ok": False, "error": exc.message, "closed": True}
+            return {"ok": False, "error": exc.message}
+        except Exception:
+            log.exception("Saving the PDF failed (%s)", mode)
+            return {"ok": False, "error": safe_write.MESSAGES[safe_write.UNKNOWN]}
+
+    def describe_save_target(self, path: str) -> dict:
+        """What the Save-As screen needs to know about a chosen path before
+        saving there: whether a file is already there (the reader is asked
+        before it is replaced), and whether that file is the open PDF itself
+        (which a copy refuses, so no "replace?" question is asked for it).
+        `name` and `folder` are what that question shows."""
+        return {
+            "exists": os.path.isfile(path),
+            "is_open_document": self._doc.is_open_document(path),
+            "name": os.path.basename(path),
+            "folder": os.path.dirname(path),
+        }
 
     def _suggested_copy_path(self) -> str:
+        """`<name> (highlighted).pdf` beside the original, or, when that is
+        taken, the first free `<name> (highlighted) (2).pdf`, (3), …, so the
+        suggestion never names a file that is already there."""
         base, ext = os.path.splitext(self._doc.path or "untitled.pdf")
-        return f"{base} (highlighted){ext}"
+        candidate = f"{base} (highlighted){ext}"
+        number = 2
+        while os.path.exists(candidate):
+            candidate = f"{base} (highlighted) ({number}){ext}"
+            number += 1
+        return candidate
 
     # ------------------------------------------------------------------ #
     # Settings / theme                                                     #

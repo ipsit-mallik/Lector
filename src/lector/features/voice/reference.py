@@ -52,7 +52,7 @@ _READING = (router.READING,)
 _SCREENS = (router.HOME, router.SETTINGS, router.READING)
 _PROMPTS = (
     router.PICKER, router.OPEN_DIALOG, router.SAVE_DIALOG,
-    router.REMOVE_CONFIRM, router.SAVE_CONFIRM, router.OVERWRITE_CONFIRM,
+    router.REMOVE_CONFIRM, router.SAVE_CONFIRM, router.OVERWRITE_CONFIRM, router.REPLACE_CONFIRM,
 )
 
 
@@ -379,6 +379,9 @@ def _prompts() -> dict:
             _command(_all(router.OVERWRITE_CONFIRM_PHRASES, router.CONFIRM_OVERWRITE),
                      "Confirms making \"overwrite the original\" the default.",
                      "Click Overwrite the original", (router.OVERWRITE_CONFIRM,)),
+            _command(_all(router.REPLACE_CONFIRM_PHRASES, router.CONFIRM_REPLACE),
+                     "Replaces the file that already has the name you chose for a copy.",
+                     "Click Replace", (router.REPLACE_CONFIRM,)),
         ],
     )
 

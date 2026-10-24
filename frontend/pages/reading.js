@@ -1289,10 +1289,8 @@ async function promptSaveIfDirty(allowDiscard) {
   // dialog's own return value — now gathered here instead.
   let path = null;
   if (mode === "copy") {
-    const start = await callApi("get_save_dialog_start");
-    const picked = await saveAsDialog.open({ dir: start.dir, filename: start.filename });
-    if (!picked || picked.cancelled) return false;
-    path = picked.path;
+    path = await pickCopyPath();
+    if (!path) return false;
   }
 
   const outcome = await callApi("perform_save", mode, path);
@@ -1300,10 +1298,37 @@ async function promptSaveIfDirty(allowDiscard) {
     state = outcome.state;
     return true;
   }
+  // `error` is already a sentence for the reader (api.perform_save): what
+  // happened, and that the file on disk is unchanged.
   if (!outcome.cancelled) {
-    alert(`Could not save the PDF:\n${outcome.error}`);
+    alert(outcome.error);
+  }
+  // The one exception: the highlights were saved but the PDF couldn't be
+  // opened again, so there is no document left to read here.
+  if (outcome.closed) {
+    window.location.href = "../index.html";
   }
   return false;
+}
+
+// The Save-As screen, asked again until it gives a path that is free or that
+// the reader agrees to replace — as a native Save-As does, Cancel on "Replace
+// this file?" goes back to the screen, on the same folder and name. Null when
+// the reader cancels the screen itself. The open PDF's own path is let
+// through: perform_save refuses it with its own explanation.
+async function pickCopyPath() {
+  let { dir, filename } = await callApi("get_save_dialog_start");
+  for (;;) {
+    const picked = await saveAsDialog.open({ dir, filename });
+    if (!picked || picked.cancelled) return null;
+    const target = await callApi("describe_save_target", picked.path);
+    if (!target.exists || target.is_open_document) return picked.path;
+    if (await ReplaceDialog.open({ name: target.name, folder: target.folder })) {
+      return picked.path;
+    }
+    dir = target.folder;
+    filename = target.name;
+  }
 }
 
 // ------------------------------------------------------------------ //
@@ -1856,6 +1881,12 @@ window.addEventListener("lector:command", (ev) => {
   // guard below know about it.
   if (saveAsDialog.isOpen()) {
     saveAsDialog.handleCommand(command);
+    return;
+  }
+  // CONFIRM_REPLACE/CANCEL: the "Replace this file?" question the Save-As
+  // screen leads to (router.py's REPLACE_CONFIRM scope).
+  if (ReplaceDialog.isOpen()) {
+    ReplaceDialog.handleCommand(command);
     return;
   }
   // SAVE_COPY/SAVE_OVERWRITE/DONT_SAVE/CANCEL only ever arrive while the

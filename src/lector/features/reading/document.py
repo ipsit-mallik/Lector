@@ -1,3 +1,4 @@
+import logging
 import math
 import threading
 from dataclasses import dataclass
@@ -5,9 +6,11 @@ from dataclasses import dataclass
 import fitz  # PyMuPDF
 
 from lector.features.annotations import highlighter
-from lector.features.reading import ocr, ocr_cache, search
+from lector.features.reading import ocr, ocr_cache, safe_write, search
 from lector.features.reading.outline import OutlineEntry, outline_tree
+from lector.features.reading.safe_write import SaveError
 
+log = logging.getLogger(__name__)
 
 @dataclass
 class _HighlightRef:
@@ -98,6 +101,9 @@ class PdfDocument:
         self._ocr_keys: dict[int, str] = {}
         self._ocr_status: dict[int, str] = {}
         self._ocr_text: dict[int, tuple[list[highlighter.Char], list[highlighter.Word]]] = {}
+        # Bridge calls each run on their own thread, so two saves (Ctrl+S
+        # pressed twice, or a close during a save) must not interleave.
+        self._save_lock = threading.Lock()
 
     def open(self, path: str):
         if self._doc:
@@ -572,14 +578,147 @@ class PdfDocument:
         counts = {i: highlighter.highlight_count(self._doc[i]) for i in range(len(self._doc))}
         return {i: n for i, n in counts.items() if n}
 
+    def is_open_document(self, path: str) -> bool:
+        """Whether `path` is the PDF that is open, however it is spelled."""
+        return bool(self._path) and safe_write.same_file(path, self._path)
+
     def save_overwrite(self):
-        self._doc.saveIncr()
-        self._dirty = False
+        """Write the highlights into the open PDF itself.
+
+        Not `saveIncr()`, which appends to the file in place (and refuses a
+        file MuPDF had to repair on open): the whole document is written
+        beside it, checked, and moved over it (`safe_write`), so the file is
+        never half-written. A signed PDF is refused, since rewriting it would
+        break its signature. Raises SaveError; on any failure the file on
+        disk is as it was and the highlights stay open, unsaved.
+        """
+        with self._save_lock:
+            if self._doc.get_sigflags() > 0:
+                raise SaveError(safe_write.SIGNED)
+            safe_write.check_writable(self._path)
+            safe_write.write_atomically(
+                self._path,
+                # KEEP, as saveIncr() did: a permissions-only encryption on
+                # the original stays on it.
+                lambda tmp: self._write_full(tmp, encryption=fitz.PDF_ENCRYPT_KEEP),
+                self._verify_saved,
+                swap=self._swap_into_place,
+            )
+            self._dirty = False
 
     def save_copy(self, new_path: str):
-        # No garbage collection here: it renumbers objects in the *live*
-        # fitz.Document, which corrupts a later saveIncr() back to the
-        # original file if the user picks "overwrite" in a subsequent save
-        # of the same session (verified: garbage=4 breaks the xref chain).
-        self._doc.save(new_path, deflate=True)
+        """Write the document, highlights included, to `new_path`, which may
+        already exist (the reader has confirmed replacing it). Never the open
+        PDF itself under another spelling: on a Mac that could unlink it
+        before writing. Raises SaveError."""
+        with self._save_lock:
+            if self.is_open_document(new_path):
+                raise SaveError(safe_write.IS_OPEN_DOCUMENT)
+            safe_write.write_atomically(new_path, self._write_full, self._verify_saved)
+            self._dirty = False
+
+    def _write_full(self, path: str, **options) -> None:
+        # No garbage collection: it renumbers objects in the *live*
+        # fitz.Document, and the undo/redo stacks name highlights by xref,
+        # which a save without it keeps (so do the reopens around an
+        # overwrite).
+        self._doc.save(path, deflate=True, **options)
+
+    def _verify_saved(self, path: str) -> None:
+        """Raise SaveError unless the file at `path` opens, needs no password,
+        and has the open document's pages and highlights."""
+        try:
+            saved = fitz.open(path)
+        except Exception as exc:
+            raise SaveError(safe_write.VERIFY_FAILED) from exc
+        try:
+            counts = {i: highlighter.highlight_count(saved[i]) for i in range(len(saved))}
+            matches = (
+                not saved.needs_pass
+                and len(saved) == len(self._doc)
+                and {i: n for i, n in counts.items() if n} == self.highlight_counts()
+            )
+        finally:
+            saved.close()
+        if not matches:
+            raise SaveError(safe_write.VERIFY_FAILED)
+
+    def _swap_into_place(self, tmp: str, dest: str) -> None:
+        """Move the checked file over the open original. The original has to
+        be let go of first (Windows will not replace a file that is open), so
+        the document is closed and reopened around the move; page, zoom, OCR
+        state and the undo/redo stacks live on this object and carry over."""
+        self._doc.close()
+        try:
+            safe_write.replace(tmp, dest)
+        except BaseException as exc:
+            # The original is untouched. Reopen what was just written, from
+            # memory (the temporary file is about to be deleted), so the
+            # reader carries on with every highlight still there to save.
+            kept = self._reopen_from_memory(tmp, dest)
+            if kept or not isinstance(exc, Exception):
+                raise
+            reason = safe_write.HIGHLIGHTS_LOST if self._doc is not None else safe_write.UNSAVED_NOT_REOPENED
+            raise SaveError(reason) from exc
+        # From here on the save has happened: nothing below may report the
+        # file as unchanged, or leave the closed document behind.
         self._dirty = False
+        try:
+            self._doc = self._reopen_saved(dest)
+        except Exception as exc:
+            log.exception("Saved the PDF but could not reopen it")
+            self._doc = None
+            raise SaveError(safe_write.SAVED_NOT_REOPENED) from exc
+        try:
+            self._forget_history_if_stale()
+        except Exception:
+            log.exception("Could not check undo/redo against the saved PDF")
+            self._clear_history()
+
+    @staticmethod
+    def _reopen_saved(dest: str) -> "fitz.Document":
+        """The file just moved into place, opened again — retried while a
+        scanner may be holding it, then from its bytes."""
+        try:
+            return safe_write.retry_briefly(lambda: fitz.open(dest))
+        except Exception:
+            with open(dest, "rb") as f:
+                return fitz.open(stream=f.read(), filetype="pdf")
+
+    def _reopen_from_memory(self, tmp: str, original: str) -> bool:
+        """Whether the highlights were kept: False when only the original as
+        it was on disk could be reopened, or (with `_doc` None) not even
+        that — never the closed document."""
+        try:
+            with open(tmp, "rb") as f:
+                self._doc = fitz.open(stream=f.read(), filetype="pdf")
+            return True
+        except Exception:
+            # Unreadable even now: fall back on the original as it was on
+            # disk, without this session's highlights.
+            self._clear_history()
+            self._dirty = False
+        try:
+            self._doc = fitz.open(original)
+        except Exception:
+            log.exception("Could not reopen the PDF after a failed save")
+            self._doc = None
+        return False
+
+    def _clear_history(self) -> None:
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._refs.clear()
+
+    def _forget_history_if_stale(self) -> None:
+        """Clear undo/redo if any highlight they name is no longer where its
+        xref says. A save without garbage collection keeps xrefs, so this is
+        a guard: an undo that found the wrong annotation would be worse than
+        none."""
+        live = {
+            annot.xref
+            for page in self._doc
+            for annot in page.annots(types=[fitz.PDF_ANNOT_HIGHLIGHT]) or []
+        }
+        if not set(self._refs) <= live:
+            self._clear_history()

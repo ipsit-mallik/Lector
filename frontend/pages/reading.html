@@ -360,6 +360,30 @@
     </div>
   </div>
 
+  <!-- "Save a copy" onto a name that is already taken asks first (hardening
+       H2): nothing on disk is replaced without a yes. Built like Settings'
+       overwrite confirmation — focus on the card, not a button, so a spoken
+       "confirm replace" is not swallowed by push-to-talk; its own modal
+       voice scope ("confirm replace" / "replace it" / "cancel"). -->
+  <div class="dialog-scrim dialog-scrim--enter voice-dialog" id="replaceConfirmScrim" hidden>
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="replaceConfirmTitle" tabindex="-1">
+      <div class="dialog-body">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="folder"></div>
+          <div>
+            <p class="dialog-title" id="replaceConfirmTitle">Replace this file?</p>
+            <p class="dialog-desc" id="replaceConfirmDesc"></p>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <span class="hint">Say “confirm replace”, or “cancel” to pick another name.</span>
+        <button class="btn btn-secondary" id="replaceConfirmCancelBtn">Cancel</button>
+        <button class="btn" id="replaceConfirmBtn">Replace</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../js/icons.js"></script>
   <script src="../js/ui.js"></script>
   <script src="../js/scrollbars.js"></script>
@@ -369,6 +393,7 @@
   <script src="../js/search-field.js"></script>
   <script src="../js/file-browser.js"></script>
   <script src="save-dialog.js"></script>
+  <script src="replace-dialog.js"></script>
   <script src="command-reference.js"></script>
   <script src="find-bar.js"></script>
   <script src="highlight-colors.js"></script>
