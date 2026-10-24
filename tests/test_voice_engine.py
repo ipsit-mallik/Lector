@@ -261,13 +261,13 @@ class NonBlockingStatusTests(unittest.TestCase):
     def test_a_load_that_failed_settles_to_unavailable(self):
         # Whatever the reason, once the background load has given up the
         # indicator must stop saying "still loading" and say why.
-        self.engine._load_error = "Could not load the speech model: boom"
+        self.engine._load_error = ve.MODEL_FAILED
 
         status = self.engine.status()
 
         self.assertFalse(status["available"])
         self.assertFalse(status["loading"])
-        self.assertEqual(status["error"], "Could not load the speech model: boom")
+        self.assertEqual(status["error"], ve.MODEL_FAILED)
 
 
 class MissingModelTests(unittest.TestCase):
@@ -278,10 +278,14 @@ class MissingModelTests(unittest.TestCase):
         self.engine = ve.VoiceEngine(model_dir=Path("no-such-directory-anywhere"))
 
     def test_status_reports_unavailable_with_a_reason(self):
-        status = self.engine.status()
+        # The reader gets a sentence; the path and the developer's fix go to
+        # the log (hardening H3).
+        with self.assertLogs("lector.features.voice.engine", level="WARNING") as logs:
+            status = self.engine.status()
         self.assertFalse(status["available"])
         self.assertFalse(status["listening"])
-        self.assertIn("fetch_vosk_model", status["error"])
+        self.assertEqual(status["error"], ve.MODEL_MISSING)
+        self.assertIn("fetch_vosk_model", "\n".join(logs.output))
 
     def test_start_listening_does_not_raise(self):
         status = self.engine.start_listening()
@@ -304,6 +308,61 @@ class MissingModelTests(unittest.TestCase):
     def test_warm_up_is_safe_with_no_model_installed(self):
         self.engine.warm_up()  # must not raise
         self.assertFalse(self.engine.status()["available"])
+
+
+class VoiceErrorWordingTests(unittest.TestCase):
+    """What reaches the voice box is a sentence from the engine, never the
+    library's own text (hardening H3)."""
+
+    SECRET = "quokkazephyr device detail"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix="lector-voice-")
+        self.addCleanup(tmp.cleanup)
+        self.model_dir = Path(tmp.name)
+        (self.model_dir / "am").mkdir()
+
+    def test_a_model_that_fails_to_load_says_so_without_the_library_text(self):
+        fake_vosk = mock.Mock(**{"Model.side_effect": RuntimeError(self.SECRET)})
+        engine = ve.VoiceEngine(model_dir=self.model_dir)
+
+        with mock.patch.dict(sys.modules, {"vosk": fake_vosk}), \
+                self.assertLogs("lector.features.voice.engine", level="ERROR"):
+            self.assertFalse(engine._ensure_model())
+
+        self.assertEqual(engine.status()["error"], ve.MODEL_FAILED)
+
+    def test_a_model_folder_that_cannot_be_read_is_not_a_crash(self):
+        # iterdir/resolve used to sit outside the try, where an OSError would
+        # kill the warm-up thread.
+        engine = ve.VoiceEngine(model_dir=self.model_dir)
+
+        with mock.patch.object(Path, "iterdir", side_effect=PermissionError(self.SECRET)), \
+                self.assertLogs("lector.features.voice.engine", level="WARNING"):
+            self.assertFalse(engine._ensure_model())
+
+        # There but unreadable is a failure to load, not a missing model.
+        self.assertEqual(engine.status()["error"], ve.MODEL_FAILED)
+
+    def test_a_microphone_that_will_not_open_says_so_without_the_device_text(self):
+        fake_sounddevice = mock.Mock(**{"RawInputStream.side_effect": OSError(self.SECRET)})
+        engine = ve.VoiceEngine(model_dir=self.model_dir)
+
+        with mock.patch.dict(sys.modules, {"sounddevice": fake_sounddevice}), \
+                self.assertLogs("lector.features.voice.engine", level="ERROR"):
+            failed = engine._begin_session(ve.MODE_WAKE, lambda: object())
+
+        self.assertEqual(failed["error"], ve.MIC_FAILED)
+        self.assertNotIn("quokkazephyr", failed["error"])
+
+    def test_a_failing_subscriber_is_logged_without_what_was_said(self):
+        engine = ve.VoiceEngine(model_dir=self.model_dir)
+        engine.subscribe(mock.Mock(side_effect=KeyError("boom")))
+
+        with self.assertLogs("lector.features.voice.engine", level="ERROR") as logs:
+            engine._emit("quokkazephyr page", final=True)
+
+        self.assertNotIn("quokkazephyr", "\n".join(r.getMessage() for r in logs.records))
 
 
 @unittest.skipUnless(voice_support.model_available(), voice_support.SKIP_REASON)

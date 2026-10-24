@@ -358,7 +358,7 @@ initRadioCards(document.getElementById("progressBarOptions"));
     await callApi("set_voice_context", "settings");
   } catch (err) {
     console.error("set_voice_context failed:", err);
-    voiceBox.showUnavailable(`Voice commands couldn't start on this screen. ${err}`);
+    voiceBox.showUnavailable("Voice commands couldn't start on this screen.");
     return;
   }
   // Milestone 8.12 adds the same status box Home has (it was absent here

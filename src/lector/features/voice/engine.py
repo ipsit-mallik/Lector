@@ -36,12 +36,22 @@ Two deliberate shapes:
   makes that call outlive the page that issued it.
 """
 import json
+import logging
 import queue
 import threading
 import time
 from pathlib import Path
 
 from lector.features.voice import audio_frontend, command_grammar, wake
+
+log = logging.getLogger(__name__)
+
+# What `status()["error"]` says, shown in the voice box and the mic pill's
+# tooltip. Written for the reader: the library's own text and the model path
+# go to the log, never to the screen.
+MODEL_MISSING = "No speech model installed."
+MODEL_FAILED = "The speech model couldn't be loaded."
+MIC_FAILED = "Couldn't open the microphone. Check that one is connected and that Lector may use it."
 
 # Vosk's English models are 16 kHz mono; feeding one anything else quietly
 # degrades recognition rather than erroring, so the rate is fixed here rather
@@ -203,7 +213,8 @@ class VoiceEngine:
             except Exception:
                 # A broken subscriber must not take the microphone down with
                 # it; voice is an accelerator, not the app's only input path.
-                pass
+                # Logged without the payload: it is what the reader said.
+                log.exception("A voice result subscriber failed")
 
     # ---------------------------------------------------------------- #
     # Model                                                              #
@@ -222,11 +233,18 @@ class VoiceEngine:
             return True
         if self._load_error is not None:
             return False
-        if not self._model_dir.exists() or not any(self._model_dir.iterdir()):
-            self._load_error = (
-                f"No speech model at {self._model_dir}. "
-                "Run: python scripts/fetch_vosk_model.py"
+        try:
+            installed = self._model_dir.exists() and any(self._model_dir.iterdir())
+        except OSError:
+            # There, but unreadable (permissions): not the same as missing.
+            log.exception("Could not look for the speech model")
+            self._load_error = MODEL_FAILED
+            return False
+        if not installed:
+            log.warning(
+                "No speech model at %s. Run: python scripts/fetch_vosk_model.py", self._model_dir
             )
+            self._load_error = MODEL_MISSING
             return False
         return True
 
@@ -246,8 +264,8 @@ class VoiceEngine:
                 return True
             if not self._model_is_installed():
                 return False
-            key = str(self._model_dir.resolve())
             try:
+                key = str(self._model_dir.resolve())
                 import vosk
 
                 vosk.SetLogLevel(-1)  # Vosk logs decoding chatter to stderr by default.
@@ -257,8 +275,9 @@ class VoiceEngine:
                         model = vosk.Model(str(self._model_dir))
                         _MODEL_CACHE[key] = model
                 self._model = model
-            except Exception as exc:
-                self._load_error = f"Could not load the speech model: {exc}"
+            except Exception:
+                log.exception("Could not load the speech model")
+                self._load_error = MODEL_FAILED
                 return False
             return True
 
@@ -427,8 +446,9 @@ class VoiceEngine:
                 callback=self._on_audio,
             )
             self._stream.start()
-        except Exception as exc:
-            self._load_error = f"Could not open the microphone: {exc}"
+        except Exception:
+            log.exception("Could not open the microphone")
+            self._load_error = MIC_FAILED
             self._teardown_stream()
             self._mode = MODE_IDLE
             return {"available": False, "listening": False, "error": self._load_error}
@@ -568,7 +588,8 @@ class VoiceEngine:
                 self._stream.stop()
                 self._stream.close()
             except Exception:
-                pass
+                # Already closing; a device that went away first is expected.
+                log.debug("Closing the microphone stream failed", exc_info=True)
             self._stream = None
 
     def _on_audio(self, indata, frames, time_info, status) -> None:
@@ -585,6 +606,7 @@ class VoiceEngine:
         the two branches below.
         """
         last_partial = ""
+        logged_failure = False
         while True:
             chunk = self._audio.get()
             if chunk is None:
@@ -635,7 +657,11 @@ class VoiceEngine:
                         self._emit(partial, final=False)
             except Exception:
                 # A malformed frame is not worth ending the listening session
-                # over; the next chunk usually decodes fine.
+                # over; the next chunk usually decodes fine. Logged once per
+                # session: this loop runs eight times a second.
+                if not logged_failure:
+                    logged_failure = True
+                    log.warning("Could not decode an audio chunk", exc_info=True)
                 continue
 
     def _check_command_endpoint(self, is_speech: bool) -> bool:

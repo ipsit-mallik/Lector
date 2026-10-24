@@ -808,8 +808,9 @@ configureCommandReference({
   try {
     await callApi("set_voice_context", "home");
   } catch (err) {
-    voiceScopeError = `Voice commands couldn't start on this screen. ${err}`;
-    console.error(voiceScopeError);
+    // The rejection's text is Python's; the box gets a sentence instead.
+    voiceScopeError = "Voice commands couldn't start on this screen.";
+    console.error("set_voice_context failed:", err);
   }
   await listShown;
   if (voiceScopeError) {

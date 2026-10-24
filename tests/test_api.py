@@ -398,5 +398,47 @@ class BrowseAndSaveDialogTests(unittest.TestCase):
         )
 
 
+class ErrorReportingTests(unittest.TestCase):
+    """Nothing the bridge hands the page carries a library's error text, and
+    a background failure reaches the page as a call, not text (hardening H3)."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory(prefix="lector-settings-")
+        patcher = mock.patch.object(
+            store, "_settings_path", lambda: Path(self.dir.name) / "settings.json"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.dir.cleanup)
+        self.api = api_module.Api()
+        self.addCleanup(self.api.shutdown_voice)
+
+    def test_a_microphone_that_will_not_open_returns_a_code_not_the_device_text(self):
+        fake = mock.Mock(**{"RawInputStream.side_effect": OSError("PortAudio: Secret Mic (2)")})
+
+        with mock.patch.dict(sys.modules, {"sounddevice": fake}), \
+                self.assertLogs("lector.api", level="WARNING"):
+            result = self.api.request_microphone()
+
+        self.assertEqual(result, {"granted": False, "error": api_module.MICROPHONE_UNAVAILABLE})
+
+    def test_a_background_error_calls_the_pages_handler(self):
+        window = mock.Mock()
+        with mock.patch.object(api_module.webview, "windows", [window]):
+            self.api.notify_background_error()
+
+        script = window.evaluate_js.call_args[0][0]
+        self.assertIn("window.lectorBackgroundError", script)
+
+    def test_a_background_error_with_no_window_does_not_raise(self):
+        with mock.patch.object(api_module.webview, "windows", []):
+            self.api.notify_background_error()  # must not raise
+
+    def test_a_page_that_cannot_take_the_call_does_not_raise(self):
+        window = mock.Mock(**{"evaluate_js.side_effect": RuntimeError("page gone")})
+        with mock.patch.object(api_module.webview, "windows", [window]):
+            self.api.notify_background_error()  # must not raise
+
+
 if __name__ == "__main__":
     unittest.main()

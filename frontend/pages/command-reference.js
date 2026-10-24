@@ -296,8 +296,10 @@ async function openCommandReference() {
       referencePanel = await callApi("get_command_reference");
     } catch (err) {
       // Failing to open a help list must not take the reader's place in the
-      // document with it, so this says so plainly and stops.
-      failure = `Couldn't load the command list: ${err}`;
+      // document with it, so this says so plainly and stops. The rejection's
+      // own text is Python's, so it only goes to the console.
+      console.error("get_command_reference failed:", err);
+      failure = "Couldn't load the command list.";
     }
   }
   referenceSearch.value = "";

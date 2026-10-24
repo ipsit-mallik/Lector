@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import threading
+from pathlib import Path
 
 import webview
 from webview.dom import DOMEventHandler
@@ -44,13 +45,19 @@ MAX_FIND_QUERY_CHARS = 200
 MIN_THUMBNAIL_PX = 16
 MAX_THUMBNAIL_PX = 480
 
+# `request_microphone`'s error when no capture could be opened. A code, not
+# the audio library's text, which can name devices and drivers.
+MICROPHONE_UNAVAILABLE = "microphone_unavailable"
+
 
 def _pixmap_to_png_b64(pix) -> str:
     return base64.b64encode(pix.tobytes("png")).decode("ascii")
 
 
 class Api:
-    def __init__(self):
+    def __init__(self, log_dir: Path | None = None):
+        """`log_dir` is the app's log folder (`shared/app_log.py`); the OCR
+        worker writes its crash log there. None, as in tests, writes none."""
         self._doc = PdfDocument()
         self._title = ""
         self._path = ""
@@ -79,7 +86,10 @@ class Api:
         # not by the reader (see `_voice_ocr_outcome`).
         self._voice_ocr_pages: list[int] = []
         # Reads scanned pages in a worker process, one at a time, on demand.
-        self._ocr = ocr.OcrRunner(self._on_ocr_finished)
+        self._ocr = ocr.OcrRunner(
+            self._on_ocr_finished,
+            crash_log=None if log_dir is None else log_dir / "ocr-worker.log",
+        )
         # Which screen/dialog is currently listening (Milestone 8.4). Starts
         # at `router.DEFAULT_CONTEXT` (`reading`) rather than `home` so a
         # caller that never makes a `set_voice_context` call — every test in
@@ -811,7 +821,8 @@ class Api:
 
         Returns `{"granted": bool, "error": str | None}`. A refusal is a
         normal outcome, not an exception — docs/PRD.md requires the app to
-        stay fully usable when the reader says no.
+        stay fully usable when the reader says no. `error` is a fixed code,
+        not the audio library's text (onboarding shows its own copy).
         """
         try:
             import sounddevice
@@ -825,8 +836,9 @@ class Api:
             stream.start()
             stream.stop()
             stream.close()
-        except Exception as exc:
-            return {"granted": False, "error": str(exc)}
+        except Exception:
+            log.warning("The microphone could not be opened", exc_info=True)
+            return {"granted": False, "error": MICROPHONE_UNAVAILABLE}
         return {"granted": True, "error": None}
 
     # ------------------------------------------------------------------ #
@@ -1049,7 +1061,9 @@ class Api:
                 f"window.dispatchEvent(new CustomEvent('lector:voice', {{detail: {payload}}}))"
             )
         except Exception:
-            pass
+            # Usually a page mid-navigation or a window closing. Logged
+            # without the payload: it holds what the reader said.
+            log.debug("Could not deliver a voice result to the page", exc_info=True)
 
     # ------------------------------------------------------------------ #
     # Drag-and-drop of a PDF onto the window (Milestone 8.12)              #
@@ -1110,7 +1124,21 @@ class Api:
                 f"window.dispatchEvent(new CustomEvent('{name}', {{detail: {payload}}}))"
             )
         except Exception:
-            pass
+            log.debug("Could not deliver %s to the page", name, exc_info=True)
+
+    def notify_background_error(self) -> None:
+        """Tell the reader, once per page, that something failed off-screen.
+
+        Called by `shared/app_log.py`'s `threading.excepthook`, from whichever
+        thread died, after the failure is already logged. The page decides how
+        to show it (`frontend/js/background-error.js`). Never raises: it runs
+        inside the exception hook.
+        """
+        try:
+            window = webview.windows[0]
+            window.evaluate_js("window.lectorBackgroundError && window.lectorBackgroundError()")
+        except Exception:
+            log.debug("Could not report a background error to the page", exc_info=True)
 
     def shutdown_voice(self) -> None:
         """Release the microphone. Called when the window closes."""

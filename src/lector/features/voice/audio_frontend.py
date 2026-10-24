@@ -30,9 +30,12 @@ internally, so it stays compatible with the model file that script fetches.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 # .../<repo>/src/lector/features/voice/audio_frontend.py -> .../<repo>/assets
 ASSETS_DIR = Path(__file__).resolve().parents[4] / "assets"
@@ -125,10 +128,10 @@ class SileroVAD:
         if self._load_error is not None:
             return False
         if not self._model_path.exists():
-            self._load_error = (
-                f"No VAD model at {self._model_path}. "
-                "Run: python scripts/fetch_vad_model.py"
+            log.warning(
+                "No VAD model at %s. Run: python scripts/fetch_vad_model.py", self._model_path
             )
+            self._load_error = "No VAD model installed."
             return False
         try:
             import onnxruntime
@@ -140,8 +143,9 @@ class SileroVAD:
                 str(self._model_path), sess_options=opts,
                 providers=["CPUExecutionProvider"],
             )
-        except Exception as exc:
-            self._load_error = f"Could not load the VAD model: {exc}"
+        except Exception:
+            log.exception("Could not load the VAD model")
+            self._load_error = "The VAD model couldn't be loaded."
             return False
         return True
 

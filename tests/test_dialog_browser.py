@@ -133,7 +133,8 @@ class ListDirectoryTests(unittest.TestCase):
         result = browser.list_directory(str(missing))
 
         self.assertEqual(result["entries"], [])
-        self.assertIsNotNone(result["error"])
+        # A code, not the OS's message with the full path in it (hardening H3).
+        self.assertEqual(result["error"], browser.UNREADABLE)
 
 
 class ListDrivesTests(unittest.TestCase):

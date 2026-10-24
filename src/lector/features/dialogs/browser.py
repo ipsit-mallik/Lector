@@ -9,6 +9,7 @@ directory contents have to be listed in Python and handed to the frontend
 rather than delegated to the OS.
 """
 import ctypes
+import logging
 import platform
 import stat
 import string
@@ -17,7 +18,12 @@ from pathlib import Path
 
 from lector.features.settings import store as settings
 
+log = logging.getLogger(__name__)
+
 PDF_EXTENSION = ".pdf"
+
+# `list_directory`'s error for a folder it could not list.
+UNREADABLE = "unreadable"
 
 # Home's children surfaced as Quick Access chips, in display order — each is
 # only offered if it actually exists on this machine.
@@ -47,12 +53,15 @@ def list_directory(path: str) -> dict:
     parent = _parent_of(resolved)
     try:
         raw_entries = list(resolved.iterdir())
-    except OSError as exc:
+    except OSError:
+        # The dialog draws its own "couldn't be read"; the OS text has the
+        # full path in it, so the log gets the exception's type only.
+        log.debug("Could not list a folder", exc_info=True)
         return {
             "path": str(resolved),
             "parent": parent,
             "entries": [],
-            "error": str(exc),
+            "error": UNREADABLE,
         }
 
     folders = sorted(

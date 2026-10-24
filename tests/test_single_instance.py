@@ -170,6 +170,9 @@ class MainTest(unittest.TestCase):
             ("clear_http_cache", mock.Mock()),
             ("window_chrome", mock.Mock(WINDOW_TITLE="Lector")),
             ("single_instance", mock.Mock()),
+            # The real one writes a log folder and replaces the process's
+            # exception hooks.
+            ("app_log", mock.Mock()),
         ):
             patcher = mock.patch.object(app_main, name, value)
             setattr(self, name, patcher.start())
@@ -226,6 +229,31 @@ class MainTest(unittest.TestCase):
         app_main.main([])
 
         self.FrontendServer.return_value.stop.assert_called_once()
+
+    def test_a_second_launch_never_touches_the_log(self):
+        self.single_instance.claim.return_value = None
+
+        app_main.main([])
+
+        self.app_log.setup.assert_not_called()
+        self.app_log.install_exception_hooks.assert_not_called()
+
+    def test_the_first_launch_logs_and_hands_the_log_folder_to_the_api(self):
+        app_main.main([])
+
+        log_dir = self.app_log.setup.call_args[0][0]
+        self.assertEqual(log_dir.name, "logs")
+        self.Api.assert_called_once_with(log_dir)
+        self.app_log.install_exception_hooks.assert_called_once()
+
+    def test_a_background_error_reaches_the_page_through_the_api(self):
+        app_main.main([])
+        on_background_error, on_fatal = self.app_log.install_exception_hooks.call_args[0]
+
+        on_background_error()
+
+        self.Api.return_value.notify_background_error.assert_called_once_with()
+        self.assertIs(on_fatal, self.app_log.show_fatal_message)
 
 
 if __name__ == "__main__":

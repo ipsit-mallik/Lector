@@ -36,6 +36,11 @@ const TYPING_TAGS = ["INPUT", "TEXTAREA", "SELECT"];
 // looking at the page, long enough not to spin the bridge.
 const STATUS_RETRY_MS = 300;
 
+// What the voice box and mic pill say when a voice call itself fails. The
+// rejection's own text is Python's exception message, so it goes to the
+// console, never to the screen.
+const VOICE_CALL_FAILED = "Voice couldn't start.";
+
 // Inputs that are activated like a button (Space toggles them) rather than
 // typed into, so they follow the button rule below instead of owning Space.
 const BUTTON_LIKE_INPUT_TYPES = ["checkbox", "radio", "button", "submit", "reset"];
@@ -206,6 +211,11 @@ function initVoice(onState, getViewport = () => []) {
 
   // Ready, off, or unavailable — the resting state, which depends both on
   // whether voice *can* work and on whether the reader wants it to.
+  const reportCallFailed = (err) => {
+    console.error("Voice call failed:", err);
+    report("unavailable", { error: VOICE_CALL_FAILED });
+  };
+
   const reportResting = () => {
     if (!available) return;
     if (!activation.push_to_talk && !activation.wake_phrase) {
@@ -234,7 +244,7 @@ function initVoice(onState, getViewport = () => []) {
           report("unavailable", { error: status.error });
         }
       })
-      .catch((err) => report("unavailable", { error: String(err) }));
+      .catch((err) => reportCallFailed(err));
   };
 
   // Which modes the reader has enabled. Asked for before the status so that
@@ -296,7 +306,7 @@ function initVoice(onState, getViewport = () => []) {
       .then((viewport) => callApi("start_listening", viewport || []))
       .catch((err) => {
         held = false;
-        report("unavailable", { error: String(err) });
+        reportCallFailed(err);
       });
   });
 
@@ -304,7 +314,7 @@ function initVoice(onState, getViewport = () => []) {
     if (ev.key !== PUSH_TO_TALK_KEY || !held) return;
     held = false;
     ev.preventDefault();
-    callApi("stop_listening").catch((err) => report("unavailable", { error: String(err) }));
+    callApi("stop_listening").catch((err) => reportCallFailed(err));
   });
 
   // Losing the window mid-hold never delivers the keyup, which would leave

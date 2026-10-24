@@ -9,7 +9,7 @@ import webview
 from lector.api import Api
 from lector.features.home import recent as home_recent
 from lector.features.settings import store as settings
-from lector.shared import single_instance, theme, window_chrome
+from lector.shared import app_log, single_instance, theme, window_chrome
 from lector.shared.frontend_server import FrontendServer
 
 log = logging.getLogger(__name__)
@@ -67,10 +67,21 @@ def main(args: list[str] | None = None) -> None:
     if lock is None:
         return
 
+    # Only once the lock is held, so one process owns the log file: a second
+    # launch that hands over never opens it, and can't block its rotation.
+    log_dir = settings.settings_dir() / "logs"
+    app_log.setup(log_dir)
+
+    def on_background_error() -> None:
+        if api is not None:
+            api.notify_background_error()
+
+    app_log.install_exception_hooks(on_background_error, app_log.show_fatal_message)
+
     webview_dir = settings.settings_dir() / "webview"
     # Before the web view exists: it opens these files when it starts.
     clear_http_cache(webview_dir)
-    api = Api()
+    api = Api(log_dir)
     # Lector's own server, on a port picked fresh for this launch, sends every
     # page with the saved theme already in <html data-theme>, so the first
     # frame is in it (see shared/frontend_server.py for why not pywebview's),

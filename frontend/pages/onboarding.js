@@ -57,10 +57,10 @@ function selectMode(card) {
 async function requestMicrophone() {
   allowMicBtn.disabled = true;
   allowMicBtn.textContent = "Asking…";
-  const result = await callApi("request_microphone").catch((err) => ({
-    granted: false,
-    error: String(err),
-  }));
+  const result = await callApi("request_microphone").catch((err) => {
+    console.error("request_microphone failed:", err);
+    return { granted: false, error: "microphone_unavailable" };
+  });
 
   micGranted = Boolean(result.granted);
   micResult.hidden = false;

@@ -340,6 +340,30 @@ class OcrJob:
     page_pdf: bytes
 
 
+# The worker's crash log, kept open for the life of the process: faulthandler
+# writes to it from inside a crash, when nothing can be opened any more.
+_crash_file = None
+
+
+def _worker_init(crash_log: str) -> None:
+    """Runs first in each new worker process. A Tesseract or MuPDF crash kills
+    the worker without a Python exception, which the parent only sees as a
+    timeout; faulthandler leaves the stack it died in (file, line and function
+    names, no page content) in `crash_log`. A log that can't be opened is
+    skipped: OCR still works without it."""
+    global _crash_file
+    import faulthandler
+
+    # Anything raised here would fail the pool's initializer, and the pool
+    # would restart the worker over and over, so OCR would never run.
+    try:
+        Path(crash_log).parent.mkdir(parents=True, exist_ok=True)
+        _crash_file = open(crash_log, "a", encoding="utf-8")
+        faulthandler.enable(file=_crash_file)
+    except Exception:
+        return
+
+
 # Called with the job, the outcome status (DONE, UNAVAILABLE or ERROR) and,
 # for DONE, `recognize`'s payload.
 FinishedCallback = Callable[[OcrJob, str, dict | None], None]
@@ -358,9 +382,17 @@ class OcrRunner:
     closed (measured), because Python joins those threads at exit.
     """
 
-    def __init__(self, on_finished: FinishedCallback, tessdata_dir: Path = TESSDATA_DIR):
+    def __init__(
+        self,
+        on_finished: FinishedCallback,
+        tessdata_dir: Path = TESSDATA_DIR,
+        crash_log: Path | None = None,
+    ):
         self._on_finished = on_finished
         self._tessdata_dir = tessdata_dir
+        # Where the worker writes a stack trace if Tesseract or MuPDF crashes
+        # it outright (see `_worker_init`); None writes nothing.
+        self._crash_log = crash_log
         self._jobs: queue.SimpleQueue = queue.SimpleQueue()
         self._closing = threading.Event()
         self._thread: threading.Thread | None = None
@@ -409,7 +441,13 @@ class OcrRunner:
                 pending.wait(_WAIT_SLICE_S)
             return DONE, pending.get(0)
         except multiprocessing.TimeoutError:
-            log.error("OCR timed out on page %d; replacing the worker", job.page_index)
+            # Also what a worker that crashed outright looks like: the pool
+            # replaces the process, and its result never comes.
+            log.error(
+                "OCR timed out on page %d (the worker may have crashed; see ocr-worker.log); "
+                "replacing the worker",
+                job.page_index,
+            )
             self._discard_pool()
             return ERROR, None
         except Exception as exc:
@@ -426,14 +464,25 @@ class OcrRunner:
             if self._pool is None:
                 # Spawn, never fork: the parent holds a webview, audio streams
                 # and threads that a forked child must not inherit.
-                self._pool = multiprocessing.get_context("spawn").Pool(processes=1)
+                context = multiprocessing.get_context("spawn")
+                if self._crash_log is None:
+                    self._pool = context.Pool(processes=1)
+                else:
+                    self._pool = context.Pool(
+                        processes=1, initializer=_worker_init, initargs=(str(self._crash_log),)
+                    )
             return self._pool
 
     def _discard_pool(self) -> None:
         with self._pool_lock:
             pool, self._pool = self._pool, None
         if pool is not None:
-            pool.terminate()
+            try:
+                pool.terminate()
+            except Exception:
+                # The worker thread must outlive a pool that won't stop, or
+                # every later job would sit in the queue forever.
+                log.exception("Could not stop the OCR worker")
 
     def shutdown(self) -> None:
         """Stop the worker process. Queued jobs are dropped; the app is
