@@ -6,14 +6,31 @@ equivalent, so this is now a plain JSON file in the OS's standard per-user app
 data location — "a straightforward substitution, not a design change" per
 docs/TECH_STACK.md. Behavior (keys, defaults, the 20-item recent-files cap)
 is unchanged from the QSettings-backed version.
+
+The file is never left half-written (docs/HARDENING.md H4): `_save` writes a
+temporary file beside it, flushes it to disk and moves it into place in one
+`os.replace`, and every read-modify-write runs under one lock, because bridge
+calls arrive on several threads and two setters interleaving used to save
+each other's half-read copy. A file that is there but doesn't parse is kept
+aside as `settings.json.corrupt-<timestamp>` before the defaults load, and a
+file that is there but can't be read is never written over.
 """
 import datetime
+import functools
 import json
+import logging
 import os
 import sys
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import ParamSpec, TypeVar
 
+from lector.features.reading import safe_write
 from lector.shared.theme import DEFAULT_HIGHLIGHT_COLOR, HIGHLIGHT_COLOR_NAMES, THEME_ORDER
+
+log = logging.getLogger(__name__)
 
 ASK = "ask"
 COPY = "copy"
@@ -78,23 +95,210 @@ def _settings_path() -> Path:
     return settings_dir() / "settings.json"
 
 
+# The shape of settings.json, written into it on every save. A file without
+# the key predates H4 and is version 0; see `_migrate`.
+SCHEMA_VERSION = 1
+_SCHEMA_VERSION_KEY = "schema_version"
+
+# A settings.json that doesn't parse is renamed to `settings.json.corrupt-` +
+# a timestamp, and this many of the newest such copies are kept.
+_CORRUPT_MARKER = ".corrupt-"
+CORRUPT_COPIES_KEPT = 2
+
+# An antivirus scanner or a sync client can hold the file for a moment;
+# Windows reports that as a sharing or lock violation (winerror.h), which is
+# worth a few short retries. Anything else (access denied) won't clear up by
+# waiting, and every getter reads the file, so it is not retried.
+_WIN_SHARING_VIOLATION = 32
+_WIN_LOCK_VIOLATION = 33
+_READ_ATTEMPTS = 5
+_READ_RETRY_SECONDS = 0.1
+
+# Held by every read and by every read-modify-write as a whole (`_serialized`).
+# Reentrant because setters call getters, which read.
+_lock = threading.RLock()
+
+# How many `_serialized` calls the thread holding `_lock` is inside. Only
+# touched under `_lock`, so a non-zero value always belongs to the caller.
+_write_depth = 0
+
+# Set during a setter when settings.json is there but couldn't be read, or
+# is unparseable and couldn't be moved aside: saving would replace the
+# reader's real file with defaults plus one change, so `_save` skips instead.
+# Cleared as the outermost setter starts and ends, so it never outlives the
+# operation that found the problem (a getter on its own sets nothing).
+_hold_writes = False
+
+# Problems currently reported in the log. One that persists (another program
+# keeping the file open) is logged when it starts and when it clears, not on
+# every read or page turn.
+_UNREADABLE = "settings.json could not be read; using defaults and not saving changes"
+_STUCK = "settings.json could not be parsed or moved aside; using defaults and not saving changes"
+_UNWRITABLE = "settings.json could not be written; the change was not saved and the old file is unchanged"
+_ongoing: set[str] = set()
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _serialized(func: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Run a load-modify-save setter as one step under `_lock`, so another
+    thread's write can't land between its read and its save (and be lost)."""
+
+    @functools.wraps(func)
+    def serialized(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        global _write_depth, _hold_writes
+        with _lock:
+            if _write_depth == 0:
+                _hold_writes = False
+            _write_depth += 1
+            try:
+                return func(*args, **kwargs)
+            finally:
+                _write_depth -= 1
+                if _write_depth == 0:
+                    _hold_writes = False
+
+    return serialized
+
+
+def _hold() -> None:
+    """Keep the running setter, if there is one, from saving."""
+    global _hold_writes
+    if _write_depth:
+        _hold_writes = True
+
+
+def _note(problem: str, failing: bool) -> None:
+    """Log `problem` when it starts and when it clears. Called from inside an
+    `except` block when failing, so the exception's type and frames go with it."""
+    if failing and problem not in _ongoing:
+        _ongoing.add(problem)
+        log.warning(problem, exc_info=True)
+    elif not failing and problem in _ongoing:
+        _ongoing.discard(problem)
+        log.info("Resolved: %s", problem)
+
+
 def _load() -> dict:
+    """The stored settings, or `{}` when there are none to use: no file yet,
+    one that can't be read (writes are then held), or one that doesn't parse
+    (kept aside first)."""
     path = _settings_path()
-    if not path.exists():
-        return {}
+    with _lock:
+        try:
+            raw = _read_bytes(path)
+        except OSError:
+            _hold()
+            _note(_UNREADABLE, failing=True)
+            return {}
+        _note(_UNREADABLE, failing=False)
+        if raw is None:
+            _note(_STUCK, failing=False)
+            return {}
+        try:
+            # utf-8-sig: a file hand-edited in an editor that adds a BOM is
+            # still the reader's settings, not a damaged file.
+            data = json.loads(raw.decode("utf-8-sig"))
+        except (ValueError, RecursionError):
+            data = None
+        if not isinstance(data, dict):
+            _set_aside(path)
+            return {}
+        _note(_STUCK, failing=False)
+        return _migrate(data)
+
+
+def _read_bytes(path: Path) -> bytes | None:
+    """The file's bytes, or None if there is no file. Raises OSError if it is
+    there but can't be read, after retrying briefly while it is held."""
+    for attempt in range(_READ_ATTEMPTS):
+        try:
+            return path.read_bytes()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            held = getattr(exc, "winerror", None) in (_WIN_SHARING_VIOLATION, _WIN_LOCK_VIOLATION)
+            if not held or attempt == _READ_ATTEMPTS - 1:
+                raise
+            time.sleep(_READ_RETRY_SECONDS)
+    return None
+
+
+def _set_aside(path: Path) -> None:
+    """Rename an unparseable settings.json out of the way, so the next save
+    doesn't destroy what the reader might still recover from it, and drop
+    all but the newest `CORRUPT_COPIES_KEPT` such copies. If the rename
+    fails, writes are held rather than going over it."""
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    kept = path.with_name(f"{path.name}{_CORRUPT_MARKER}{stamp}")
+    # A second damaged file within the same second must not replace the first copy.
+    suffix = 2
+    while kept.exists():
+        kept = path.with_name(f"{path.name}{_CORRUPT_MARKER}{stamp}-{suffix}")
+        suffix += 1
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
+        safe_write.replace(str(path), str(kept))
+    except OSError:
+        _hold()
+        _note(_STUCK, failing=True)
+        return
+    _note(_STUCK, failing=False)
+    log.warning("settings.json could not be parsed; kept it as %s and loaded defaults", kept.name)
+    copies = sorted(path.parent.glob(f"{path.name}{_CORRUPT_MARKER}*"), key=lambda p: p.name, reverse=True)
+    for old in copies[CORRUPT_COPIES_KEPT:]:
+        try:
+            old.unlink()
+        except OSError:
+            log.warning("Could not remove an old damaged settings copy %s", old.name)
+
+
+def _migrate(data: dict) -> dict:
+    """Bring a file written by an older Lector up to `SCHEMA_VERSION`.
+
+    Nothing to do yet: version 0 (no key, before H4) and version 1 have the
+    same keys. When a key is renamed or changes meaning, the step goes here,
+    keyed on `data.get(_SCHEMA_VERSION_KEY, 0)`, so the rest of this module
+    only ever reads the current shape. A file from a newer Lector is read as
+    it is; keys this version doesn't know are carried through untouched."""
+    return data
 
 
 def _save(data: dict) -> None:
+    """Write `data` as settings.json in one step: a complete temporary file
+    beside it, flushed to disk, then `os.replace`d over it, so the file on
+    disk is always the old one or the new one, whole.
+
+    A write that fails (disk full, another program holding the file past
+    `safe_write.replace`'s retries) is logged and the change is not saved;
+    it is not raised, so a setting can never be why a PDF fails to open or a
+    page fails to turn. Skipped outright while writes are held (`_hold`),
+    which `_load` has already logged."""
     path = _settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    with _lock:
+        if _hold_writes:
+            return
+        stored = data.get(_SCHEMA_VERSION_KEY)
+        newer = isinstance(stored, int) and not isinstance(stored, bool) and stored > SCHEMA_VERSION
+        payload = {**data, _SCHEMA_VERSION_KEY: stored if newer else SCHEMA_VERSION}
+        tmp = path.with_name(f"{path.name}.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            safe_write.replace(str(tmp), str(path))
+        except OSError:
+            _note(_UNWRITABLE, failing=True)
+            return
+        else:
+            _note(_UNWRITABLE, failing=False)
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                log.warning("Could not remove the temporary settings file")
 
 
 def get_save_behavior() -> str:
@@ -102,6 +306,7 @@ def get_save_behavior() -> str:
     return value if value in (ASK, COPY, OVERWRITE) else ASK
 
 
+@_serialized
 def set_save_behavior(mode: str) -> None:
     if mode not in (ASK, COPY, OVERWRITE):
         raise ValueError(f"invalid save behavior: {mode!r}")
@@ -115,6 +320,7 @@ def get_theme() -> str:
     return value if value in THEME_ORDER else "light"
 
 
+@_serialized
 def set_theme(name: str) -> None:
     if name not in THEME_ORDER:
         raise ValueError(f"invalid theme: {name!r}")
@@ -128,6 +334,7 @@ def get_recent_view() -> str:
     return value if value in (RECENT_VIEW_GRID, RECENT_VIEW_LIST) else RECENT_VIEW_GRID
 
 
+@_serialized
 def set_recent_view(mode: str) -> None:
     if mode not in (RECENT_VIEW_GRID, RECENT_VIEW_LIST):
         raise ValueError(f"invalid recent view: {mode!r}")
@@ -141,6 +348,7 @@ def get_reopen_behavior() -> str:
     return value if value in (CONTINUE, START) else CONTINUE
 
 
+@_serialized
 def set_reopen_behavior(mode: str) -> None:
     if mode not in (CONTINUE, START):
         raise ValueError(f"invalid reopen behavior: {mode!r}")
@@ -154,6 +362,7 @@ def get_highlight_color() -> str:
     return value if value in HIGHLIGHT_COLOR_NAMES else DEFAULT_HIGHLIGHT_COLOR
 
 
+@_serialized
 def set_highlight_color(name: str) -> None:
     if name not in HIGHLIGHT_COLOR_NAMES:
         raise ValueError(f"invalid highlight color: {name!r}")
@@ -176,6 +385,7 @@ def get_default_view() -> str:
     return value if value in (BOOK, STRIP) else BOOK
 
 
+@_serialized
 def set_default_view(mode: str) -> None:
     if mode not in (BOOK, STRIP):
         raise ValueError(f"invalid default view: {mode!r}")
@@ -188,6 +398,7 @@ def get_progress_bar() -> bool:
     return _as_bool(_load().get(_PROGRESS_BAR_KEY), True)
 
 
+@_serialized
 def set_progress_bar(on: bool) -> None:
     data = _load()
     data[_PROGRESS_BAR_KEY] = bool(on)
@@ -198,6 +409,7 @@ def get_outline_open() -> bool:
     return _as_bool(_load().get(_OUTLINE_OPEN_KEY), False)
 
 
+@_serialized
 def set_outline_open(is_open: bool) -> None:
     data = _load()
     data[_OUTLINE_OPEN_KEY] = bool(is_open)
@@ -224,6 +436,7 @@ def get_outline_width() -> int:
     return _clamp_outline_width(value)
 
 
+@_serialized
 def set_outline_width(width: float) -> int:
     """Stores `width` within the panel's limits and returns what was stored."""
     stored = _clamp_outline_width(width)
@@ -248,6 +461,7 @@ def get_voice_activation() -> dict:
     }
 
 
+@_serialized
 def set_voice_activation(push_to_talk: bool, wake_phrase: bool) -> None:
     """Store both flags. Either, both, or neither may be on — docs/PRD.md
     makes them independent, and "neither" is a supported choice, not an error
@@ -277,6 +491,7 @@ def get_recent_files() -> list[dict]:
     ]
 
 
+@_serialized
 def add_recent_file(path: str) -> None:
     """Move `path` to the front, deduping, capped at RECENT_FILES_CAP entries.
 
@@ -297,6 +512,7 @@ def add_recent_file(path: str) -> None:
     _save(data)
 
 
+@_serialized
 def remove_recent_file(path: str) -> tuple[int, dict] | None:
     """Drop `path` from the recent-files list only (Milestone 8.9).
 
@@ -349,6 +565,7 @@ def is_favorite(path: str) -> bool:
     return any(e["path"] == path for e in get_favorites())
 
 
+@_serialized
 def add_favorite(path: str) -> bool:
     """Pin `path` at the front. False (and no write) if it already was."""
     if is_favorite(path):
@@ -360,6 +577,7 @@ def add_favorite(path: str) -> bool:
     return True
 
 
+@_serialized
 def remove_favorite(path: str) -> bool:
     """Unpin `path`. False (and no write) if it wasn't a favorite."""
     favorites = get_favorites()
@@ -377,6 +595,7 @@ ALREADY_LISTED = "already_listed"
 LIST_FULL = "full"
 
 
+@_serialized
 def restore_recent_file(index: int, entry: dict) -> str:
     """Put an entry `remove_recent_file` returned back at `index` (the
     Recent list's Undo). Returns RESTORED, or why nothing changed:
@@ -441,6 +660,7 @@ def get_document_position(path: str) -> dict | None:
     return None if entry is None else position_from_entry(entry)
 
 
+@_serialized
 def set_document_position(path: str, page_index: int, layout_mode: str, zoom: float) -> None:
     """Record where `path` is being read, leaving recent-list order alone.
 
