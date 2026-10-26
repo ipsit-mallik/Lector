@@ -19,7 +19,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDFs some tests open
+import pymupdf  # noqa: E402  # PyMuPDF: builds the throwaway PDFs some tests open
 
 from lector import api as api_module  # noqa: E402
 from lector.features.reading import safe_write  # noqa: E402
@@ -205,7 +205,7 @@ class OpenPdfDefaultsTests(unittest.TestCase):
 
     def _make_pdf(self, name: str) -> str:
         path = str(Path(self.pdf_dir.name) / name)
-        doc = fitz.open()
+        doc = pymupdf.open()
         for _ in range(3):
             doc.new_page()
         doc.save(path)

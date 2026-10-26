@@ -133,6 +133,7 @@ All live in `frontend/shared/components.css`. Behaviour that needs JavaScript is
 - **IconButton:** `.icon-btn` is 44px and `.icon-btn--sm` is 32px. `.active` marks the current tool. The reader's rail sizes its own to 40px and draws `.active` as an inset tint (see "Reading view").
 - **Tooltip:** add `data-tooltip="Name"` (and optionally `data-shortcut="Ctrl K"`) to any control. A single shared floating tooltip shows after 450ms on hover, or immediately on keyboard focus, is linked via `aria-describedby`, and is dismissed with Esc. It has inverted colours (`--text-primary` background) so it needs no per-theme value. Controls inside `data-tooltip-side="right"` (the Reader rail) get it beside them instead of above.
 - **Toggle**, **RadioCard** (`.option-row`), **Checkbox** (`.checkbox-row input`): real inputs, restyled. Unchecked outlines are `--text-tertiary`, so they reach at least 3:1.
+- **Dialog field:** `.dialog-field` (a label above an input, inside a dialog's header column) and `.dialog-field-error` (the line under it). The input is the Save-As filename field's: 36px, `--surface-input`, a 1px `--border`, `--radius-sm`, and the 2px `--focus-ring` with a 1px offset. A wrong entry sets `aria-invalid="true"`, which turns its border `--danger`, and shows the error line in `--danger` at `--text-sm` (≥ 4.5:1 on a card), linked by `aria-describedby` only while it shows. Used by the password dialog (hardening H5).
 - **Chip:** `.chip`, `.chip--accent`, `.chip--voice`.
 - **Toast:** `showToast(message, { actionLabel, onAction })`. Inverted colours, bottom-centre, announced through a polite live region. The timeout pauses while the toast is hovered or focused, so an Undo is never pulled out from under the pointer.
 - **ProgressBar:** `.progress-bar` / `.progress-bar-fill`.
@@ -501,6 +502,25 @@ Every page has one header row (`.page-header`, 40px tall, `--control-h`, and `--
   - **Windows:** every drive letter A–Z that actually exists, checked directly rather than depending on `psutil` or `os.listdrives()` (the latter needs Python 3.12+; this project's floor is 3.11).
   - **Mac (and other POSIX platforms):** there's no drive-letter concept, so this surfaces `/` plus whatever is mounted under `/Volumes`, except an entry that resolves back to `/` itself (`/Volumes/<boot volume>` is normally a symlink to it), so the boot volume is not listed twice.
 - **Hidden folders:** dot-folders everywhere, and on Windows folders carrying the hidden attribute (`$RECYCLE.BIN`, `System Volume Information`), are left out of the tree and the right pane. The system attribute alone does not hide a folder — customised user folders (desktop.ini) carry it and must stay browsable.
+
+## Opening a PDF: messages and the password dialog (hardening H5)
+
+Every screen opens a PDF through one function (`frontend/pages/open-pdf.js`), so a file that can't be opened is answered the same way from a Recent card, the Open dialog, a drop or voice.
+
+- **Failure messages.** The shared toast, one sentence from `open_errors.MESSAGES`, and the screen stays where it was (the reader keeps the PDF that was open). Each says what is wrong with the file, never the library's text or the file's path. "The PDF…" and "the file…", never "That PDF…":
+  - moved or deleted: "The PDF couldn't be found. It may have been moved or deleted." (also what a drop says for a file that is gone);
+  - zero bytes: "The PDF is empty, so there's nothing to open.";
+  - damaged or not a PDF: "Couldn't open the file. It's damaged or isn't a PDF.";
+  - no pages: "The PDF has no pages to show.";
+  - another program holding it, or no permission: "Couldn't read the PDF. Another program may be using it, or Lector isn't allowed to open it.";
+  - anything else: "Couldn't open the PDF. It may be damaged or no longer there."
+- **A missing Recent file.** On Home's Recent list, the toast for a file that has been moved or deleted carries the action **Remove from Recent**. It opens the usual Remove-from-Recent confirmation and then its Undo toast (see "Remove-from-Recent affordance"): no new removal path, and nothing on disk is touched. Favorites shows the message alone; the star already takes a file off that list.
+- **Password dialog.** A PDF that needs a password to open asks for it. The shared frame, like the Replace confirmation: `.dialog-scrim--enter.voice-dialog`, a 560px `.dialog-card` (`role="dialog"`, `aria-modal`), a `.dialog-badge` with the `lock` icon, the serif title "Enter the password", and the description "“<file name>” is protected by a password." Under it a `.dialog-field` labelled "Password" (`type="password"`, no autocomplete or spellcheck) and a `.checkbox-row` "Show password". Footer hint "Type the password and press Enter, or say “cancel”."; buttons Cancel (secondary) and **Open** (primary). Its markup is in `password-dialog.js`, once for all three screens.
+  - **Focus and keys.** Unlike the confirmations, focus starts **in the field** and **Enter submits**: this is a form, and nothing irreversible happens on Enter. Escape and Cancel close it; Tab goes field, Show password, Cancel, Open. Focus returns to where it was.
+  - **States.** Open is disabled while the field is empty. While a password is being tried it reads "Opening…" and the field is read-only. A wrong one shows "The password isn't right. Try again." under the field in `--danger`, turns the field's border `--danger`, and selects what was typed so the next try replaces it; typing clears it.
+  - **Voice.** Its own modal scope, `password_prompt`, which hears only "cancel" / "never mind". A password is typed, never spoken: a spoken one would pass through the recognizer. With the field focused, Space types a space rather than starting push-to-talk; the wake phrase still works for "cancel".
+  - **Afterwards.** The field is emptied and hidden again whenever the dialog closes. The password is asked for every time the PDF is opened: Lector never remembers one.
+- **A protected PDF on Home.** Its card has no thumbnail (the existing no-thumbnail placeholder): its first page can't be drawn without the password.
 
 ## Accessibility baseline
 

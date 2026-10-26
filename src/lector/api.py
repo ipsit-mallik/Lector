@@ -22,7 +22,7 @@ from lector.features.dialogs import browser as dialog_browser
 from lector.features.home import file_drop
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
-from lector.features.reading import ocr
+from lector.features.reading import ocr, open_errors
 from lector.features.reading import outline as reading_outline
 from lector.features.reading import safe_write
 from lector.features.reading.document import PdfDocument
@@ -243,8 +243,21 @@ class Api:
     # Document lifecycle                                                   #
     # ------------------------------------------------------------------ #
 
-    def open_pdf(self, path: str) -> dict:
-        self._doc.open(path)
+    def open_pdf(self, path: str, password: str | None = None) -> dict:
+        """Open `path` (unlocked with `password`, for a protected PDF) and
+        return the reader's state. A PDF that can't be opened comes back as
+        `{"error": sentence, "reason": code}` (`open_errors`), with nothing
+        else changed: the open document stays open and Recent is untouched.
+        `reason` "password" asks the page for the password; the password is
+        held only by the open document and never logged or stored."""
+        if password is not None and not isinstance(password, str):
+            # The bridge takes any JSON value; only the page's own field is
+            # expected here, so anything else is a mistake, not a password.
+            return {"error": open_errors.MESSAGES[open_errors.UNKNOWN], "reason": open_errors.UNKNOWN}
+        try:
+            self._doc.open(path, password)
+        except open_errors.OpenError as exc:
+            return {"error": exc.message, "reason": exc.reason}
         # A viewport names pages of the document it was measured on; kept
         # across an open, the next vocabulary rebuild would ask the new one
         # for pages it may not have.

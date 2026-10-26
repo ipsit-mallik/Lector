@@ -27,7 +27,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests open
+import pymupdf  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests open
 
 from lector import api as api_module  # noqa: E402
 from lector.features.annotations import highlighter  # noqa: E402
@@ -120,7 +120,7 @@ def _palette() -> dict[str, tuple[int, int, int]]:
 
 def _make_pdf(directory: str) -> str:
     path = str(Path(directory) / "doc.pdf")
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=400, height=300)
     page.insert_text((40, 80), TEXT, fontsize=14)
     page.insert_text((40, 140), TEXT, fontsize=14)
@@ -185,7 +185,7 @@ class PdfAnnotationTests(unittest.TestCase):
     def _saved_copy(self):
         path = str(Path(self.dir.name) / "copy.pdf")
         self.doc.save_copy(path)
-        reopened = fitz.open(path)
+        reopened = pymupdf.open(path)
         self.addCleanup(reopened.close)
         return reopened
 
@@ -200,7 +200,7 @@ class PdfAnnotationTests(unittest.TestCase):
         for annot, name in zip(annots, theme.HIGHLIGHT_COLOR_NAMES):
             rgb = highlighter.HIGHLIGHT_COLORS[name]
             with self.subTest(name=name):
-                self.assertEqual(annot.type[0], fitz.PDF_ANNOT_HIGHLIGHT)
+                self.assertEqual(annot.type[0], pymupdf.PDF_ANNOT_HIGHLIGHT)
                 self.assertEqual(highlighter.color_name(highlighter.stroke_rgb(annot)), name)
                 fill = re.search(rb"([\d.]+) ([\d.]+) ([\d.]+) rg", annot._getAP())
                 self.assertIsNotNone(fill)
@@ -215,7 +215,7 @@ class PdfAnnotationTests(unittest.TestCase):
         self.doc.highlight_word_indices(0, 0, 3, "blue")
         page = self._saved_copy()[0]
         (box,) = highlighter.highlight_rects(next(page.annots()))
-        pix = page.get_pixmap(matrix=fitz.Matrix(3, 3), clip=box)
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(3, 3), clip=box)
         counts = {}
         for y in range(pix.height):
             for x in range(pix.width):
@@ -265,7 +265,7 @@ class PdfAnnotationTests(unittest.TestCase):
 
     def test_another_apps_highlight_comes_back_exactly(self):
         page = self.doc._doc[0]
-        foreign = page.add_highlight_annot(fitz.Rect(40, 66, 160, 84))
+        foreign = page.add_highlight_annot(pymupdf.Rect(40, 66, 160, 84))
         foreign.set_colors(stroke=(0.2, 0.8, 0.9))
         foreign.set_info(content="a note", title="someone")
         foreign.update()

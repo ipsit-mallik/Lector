@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass
 from typing import Protocol, Sequence
 
-import fitz  # PyMuPDF
+import pymupdf
 
 from lector.shared import theme
 
@@ -49,14 +49,14 @@ class LineBounded(Protocol):
     it sits on, so adjacent items on the same line can be merged into one bar
     regardless of whether they're characters or whole words."""
 
-    rect: fitz.Rect
+    rect: pymupdf.Rect
     block_no: int
     line_no: int
 
 
 @dataclass(frozen=True)
 class Char:
-    rect: fitz.Rect
+    rect: pymupdf.Rect
     text: str
     block_no: int
     line_no: int
@@ -65,14 +65,14 @@ class Char:
 
 @dataclass(frozen=True)
 class Word:
-    rect: fitz.Rect
+    rect: pymupdf.Rect
     text: str
     block_no: int
     line_no: int
     word_no: int
 
 
-def chars_on_page(page: fitz.Page) -> list[Char]:
+def chars_on_page(page: pymupdf.Page) -> list[Char]:
     """All characters on `page` in reading order (top-to-bottom, left-to-right).
 
     Drives mouse-drag selection: hit-testing per character (rather than per
@@ -91,7 +91,7 @@ def chars_on_page(page: fitz.Page) -> list[Char]:
             for span in line.get("spans", []):
                 for ch in span.get("chars", []):
                     x0, y0, x1, y1 = ch["bbox"]
-                    chars.append(Char(fitz.Rect(x0, y0, x1, y1), ch["c"], block_no, line_no, char_no))
+                    chars.append(Char(pymupdf.Rect(x0, y0, x1, y1), ch["c"], block_no, line_no, char_no))
                     char_no += 1
     return chars
 
@@ -102,11 +102,11 @@ def chars_between(chars: list[Char], start_idx: int, end_idx: int) -> list[Char]
     return chars[lo:hi + 1]
 
 
-def words_on_page(page: fitz.Page) -> list[Word]:
+def words_on_page(page: pymupdf.Page) -> list[Word]:
     """All words on `page` in reading order (top-to-bottom, left-to-right)."""
     raw = page.get_text("words")
     words = [
-        Word(fitz.Rect(x0, y0, x1, y1), text, block_no, line_no, word_no)
+        Word(pymupdf.Rect(x0, y0, x1, y1), text, block_no, line_no, word_no)
         for x0, y0, x1, y1, text, block_no, line_no, word_no in raw
     ]
     words.sort(key=lambda w: (w.block_no, w.line_no, w.word_no))
@@ -119,7 +119,7 @@ def words_between(words: list[Word], start_idx: int, end_idx: int) -> list[Word]
     return words[lo:hi + 1]
 
 
-def merge_line_rects(items: Sequence[LineBounded]) -> list[fitz.Rect]:
+def merge_line_rects(items: Sequence[LineBounded]) -> list[pymupdf.Rect]:
     """One rect per line of text, spanning the selected items on that line.
 
     `items` is a contiguous reading-order run (what `chars_between`/
@@ -132,18 +132,18 @@ def merge_line_rects(items: Sequence[LineBounded]) -> list[fitz.Rect]:
     be composed the same way or the shape would change under the reader's
     cursor the moment they release the mouse.
     """
-    merged: list[tuple[tuple[int, int], fitz.Rect]] = []
+    merged: list[tuple[tuple[int, int], pymupdf.Rect]] = []
     for item in items:
         key = (item.block_no, item.line_no)
         if merged and merged[-1][0] == key:
             merged[-1][1].include_rect(item.rect)
         else:
-            merged.append((key, fitz.Rect(item.rect)))
+            merged.append((key, pymupdf.Rect(item.rect)))
     return [rect for _, rect in merged]
 
 
 def _set_rectangular_appearance(
-    page: fitz.Page, annot, rects: list[fitz.Rect], rgb: tuple[float, float, float]
+    page: pymupdf.Page, annot, rects: list[pymupdf.Rect], rgb: tuple[float, float, float]
 ) -> None:
     """Repaint `annot` as one plain rectangle per line, replacing MuPDF's default.
 
@@ -184,7 +184,7 @@ def _set_rectangular_appearance(
 RGB = tuple[float, float, float]
 
 
-def _paint(page: fitz.Page, annot, rects: list[fitz.Rect], rgb: RGB) -> None:
+def _paint(page: pymupdf.Page, annot, rects: list[pymupdf.Rect], rgb: RGB) -> None:
     """Give `annot` the colour `rgb` in both places a viewer can read it from:
     /C, which a viewer that draws its own highlights uses, and the appearance
     stream, which every other viewer (and Lector) renders as-is. Writing only
@@ -196,20 +196,20 @@ def _paint(page: fitz.Page, annot, rects: list[fitz.Rect], rgb: RGB) -> None:
     _set_rectangular_appearance(page, annot, rects, rgb)
 
 
-def add_highlight_rects(page: fitz.Page, rects: Sequence[fitz.Rect], rgb: RGB):
+def add_highlight_rects(page: pymupdf.Page, rects: Sequence[pymupdf.Rect], rgb: RGB):
     """Write one real PDF highlight annotation covering `rects`, one per line.
 
     Takes a raw colour rather than a palette name because undoing the removal
     of another app's highlight has to put back that app's own colour."""
     if not rects:
         return None
-    rects = [fitz.Rect(rect) for rect in rects]
+    rects = [pymupdf.Rect(rect) for rect in rects]
     annot = page.add_highlight_annot(quads=[rect.quad for rect in rects])
     _paint(page, annot, rects, rgb)
     return annot
 
 
-def add_highlight(page: fitz.Page, items: Sequence[LineBounded], color: str = DEFAULT_COLOR):
+def add_highlight(page: pymupdf.Page, items: Sequence[LineBounded], color: str = DEFAULT_COLOR):
     """Write `items` as one real PDF highlight annotation (not a UI overlay).
 
     One quad per line of the selection (see `merge_line_rects`) so a selection
@@ -221,12 +221,12 @@ def add_highlight(page: fitz.Page, items: Sequence[LineBounded], color: str = DE
     return add_highlight_rects(page, merge_line_rects(items), HIGHLIGHT_COLORS[color])
 
 
-def highlight_rects(annot) -> list[fitz.Rect]:
+def highlight_rects(annot) -> list[pymupdf.Rect]:
     """The per-line boxes a highlight covers, read back from its /QuadPoints
     (four vertices per line, in the same page space `add_highlight_rects`
     was given) — what a recolour repaints and an undone removal re-adds."""
     points = annot.vertices or []
-    return [fitz.Quad(points[i:i + 4]).rect for i in range(0, len(points) - 3, 4)]
+    return [pymupdf.Quad(points[i:i + 4]).rect for i in range(0, len(points) - 3, 4)]
 
 
 def stroke_rgb(annot) -> RGB | None:
@@ -246,7 +246,7 @@ def color_name(rgb: RGB | None) -> str | None:
     return None
 
 
-def recolor_highlight(page: fitz.Page, annot, rgb: RGB) -> None:
+def recolor_highlight(page: pymupdf.Page, annot, rgb: RGB) -> None:
     """Repaint an existing highlight in `rgb`, keeping its shape, its /NM id
     and anything another app attached to it (author, note)."""
     _paint(page, annot, highlight_rects(annot), rgb)
@@ -259,17 +259,17 @@ class Highlight:
     document, so it is what the frontend sends back to name a highlight."""
 
     xref: int
-    rects: tuple[fitz.Rect, ...]
+    rects: tuple[pymupdf.Rect, ...]
     color: str | None
 
 
-def highlights_on_page(page: fitz.Page) -> list[Highlight]:
+def highlights_on_page(page: pymupdf.Page) -> list[Highlight]:
     """Every highlight annotation on `page`, Lector's and other apps' alike."""
     return [
         Highlight(annot.xref, tuple(highlight_rects(annot)), color_name(stroke_rgb(annot)))
-        for annot in (page.annots(types=[fitz.PDF_ANNOT_HIGHLIGHT]) or [])
+        for annot in (page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]) or [])
     ]
 
 
-def highlight_count(page: fitz.Page) -> int:
-    return sum(1 for a in (page.annots() or []) if a.type[0] == fitz.PDF_ANNOT_HIGHLIGHT)
+def highlight_count(page: pymupdf.Page) -> int:
+    return sum(1 for a in (page.annots() or []) if a.type[0] == pymupdf.PDF_ANNOT_HIGHLIGHT)

@@ -12,6 +12,8 @@ straight away, while Reading must first ask about unsaved highlights.
 """
 import os
 
+from lector.features.reading import open_errors
+
 PDF_SUFFIX = ".pdf"
 
 NOT_A_PDF = "Lector can only open PDF files."
@@ -19,7 +21,7 @@ UNREADABLE = "Couldn't find where that file is. Try Open PDF instead."
 # A name ending .pdf that is not a file on disk (moved or deleted since the
 # drag began, or a folder). Not "not a PDF": the reader dropped what looks like
 # one, and telling them otherwise would be wrong.
-MISSING = "That PDF couldn't be found. It may have been moved or deleted."
+MISSING = open_errors.MESSAGES[open_errors.MISSING]
 
 
 def pdf_from_drop(event: dict) -> dict | None:

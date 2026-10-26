@@ -1,12 +1,14 @@
 import logging
 import math
+import os
 import threading
 from dataclasses import dataclass
 
-import fitz  # PyMuPDF
+import pymupdf
 
 from lector.features.annotations import highlighter
-from lector.features.reading import ocr, ocr_cache, safe_write, search
+from lector.features.reading import ocr, ocr_cache, open_errors, safe_write, search
+from lector.features.reading.open_errors import OpenError
 from lector.features.reading.outline import OutlineEntry, outline_tree
 from lector.features.reading.safe_write import SaveError
 
@@ -43,7 +45,7 @@ class _Edit:
 
     page_index: int
     ref: _HighlightRef
-    rects: tuple[fitz.Rect, ...]
+    rects: tuple[pymupdf.Rect, ...]
     info: tuple[tuple[str, str], ...]
     before: highlighter.RGB | None
     after: highlighter.RGB | None
@@ -52,6 +54,80 @@ class _Edit:
 # What `Annot.set_info` accepts back from `Annot.info`; the rest (id, dates)
 # is regenerated for a re-added annotation.
 _RESTORED_INFO_KEYS = ("content", "title", "subject")
+
+
+def _open_checked(path: str, password: str | None) -> tuple["pymupdf.Document", bool]:
+    """`path` opened, unlocked and checked to have a first page that loads,
+    and whether it needed a password; or OpenError. Asked in this order so the reader hears the real reason:
+    whether the file is there and readable is Python's question (MuPDF only
+    has one error for all of it), what is in it is MuPDF's."""
+    if not os.path.isfile(path):
+        raise OpenError(open_errors.MISSING)
+    try:
+        with open(path, "rb") as f:
+            empty = not f.read(1)
+    except FileNotFoundError as exc:  # gone since the check above
+        raise OpenError(open_errors.MISSING) from exc
+    except OSError as exc:
+        raise OpenError(open_errors.UNREADABLE) from exc
+    if empty:
+        raise OpenError(open_errors.EMPTY)
+    try:
+        doc = pymupdf.open(path, filetype="pdf")
+    except pymupdf.FileNotFoundError as exc:  # gone since the check above
+        raise OpenError(open_errors.MISSING) from exc
+    except pymupdf.FileDataError as exc:  # EmptyFileError included
+        raise OpenError(open_errors.NOT_A_PDF) from exc
+    except ValueError as exc:
+        # What MuPDF says of some files it can't make sense of, but also of
+        # a mistake in how it was called: logged, so the second is visible.
+        log.warning("MuPDF refused a PDF", exc_info=True)
+        raise OpenError(open_errors.NOT_A_PDF) from exc
+    except Exception as exc:
+        log.exception("MuPDF could not open a PDF")
+        raise OpenError(open_errors.UNKNOWN) from exc
+    try:
+        needed = _check_opened(doc, password)
+    except BaseException:
+        doc.close()
+        raise
+    return doc, needed
+
+
+def _check_opened(doc: "pymupdf.Document", password: str | None) -> bool:
+    if not doc.is_pdf:
+        raise OpenError(open_errors.NOT_A_PDF)
+    # A PDF with only an owner password (printing or copying restricted)
+    # has needs_pass 0 and opens like any other; only one that can't be read
+    # without a password asks for it. Either of its passwords unlocks it.
+    needed = _unlock(doc, password)
+    if len(doc) == 0:
+        raise OpenError(open_errors.NO_PAGES)
+    try:
+        doc.load_page(0)
+    except Exception as exc:
+        raise OpenError(open_errors.NOT_A_PDF) from exc
+    return needed
+
+
+def _unlock(doc: "pymupdf.Document", password: str | None) -> bool:
+    """Unlock `doc` with `password` if it needs one, and say whether it did;
+    OpenError when it does and the password is missing or wrong.
+
+    `needs_pass` is read once, before `authenticate`: PyMuPDF 1.28 locks the
+    document again when it is read afterwards, and every page then comes
+    back empty, with no error."""
+    if not doc.needs_pass:
+        return False
+    if password is None:
+        raise OpenError(open_errors.PASSWORD)
+    try:
+        unlocked = doc.authenticate(password)
+    except (TypeError, ValueError) as exc:  # e.g. a lone surrogate from the page
+        raise OpenError(open_errors.WRONG_PASSWORD) from exc
+    if not unlocked:
+        raise OpenError(open_errors.WRONG_PASSWORD)
+    return True
 
 
 class PdfDocument:
@@ -76,6 +152,7 @@ class PdfDocument:
     def __init__(self):
         self._doc = None
         self._path = None
+        self._password: str | None = None
         self._page_index = 0
         self._zoom = self.DEFAULT_ZOOM
         self._dirty = False
@@ -105,11 +182,32 @@ class PdfDocument:
         # pressed twice, or a close during a save) must not interleave.
         self._save_lock = threading.Lock()
 
-    def open(self, path: str):
+    def open(self, path: str, password: str | None = None):
+        """Open `path`, unlocking it with `password` if it has one. Raises
+        OpenError, and then the document that was open is still open, as it
+        was: the new file is checked in full before the old one is let go."""
+        doc, needed_password = _open_checked(path, password)
+        # Never in the middle of a save, which closes and reopens the PDF
+        # around moving the new file into place.
+        with self._save_lock:
+            self._switch_to(doc, path, password if needed_password else None)
+
+    def _switch_to(self, doc: "pymupdf.Document", path: str, password: str | None) -> None:
         if self._doc:
             self._doc.close()
-        self._doc = fitz.open(path)
-        self._path = path
+        with self._ocr_lock:
+            # Together, so nothing sees the new document with the old one's
+            # password or OCR state. The password is kept only while this PDF
+            # is open: a save has to open the file it wrote to check it, and
+            # that file needs the same password.
+            self._doc = doc
+            self._path = path
+            self._password = password
+            self._generation += 1
+            self._scanned.clear()
+            self._ocr_keys.clear()
+            self._ocr_status.clear()
+            self._ocr_text.clear()
         self._page_index = 0
         # Per-document state: a PDF with no saved position must start at the
         # default zoom, not at whatever the previously open one was left on.
@@ -119,17 +217,19 @@ class PdfDocument:
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._refs.clear()
-        with self._ocr_lock:
-            self._generation += 1
-            self._scanned.clear()
-            self._ocr_keys.clear()
-            self._ocr_status.clear()
-            self._ocr_text.clear()
 
     def close(self):
         if self._doc:
             self._doc.close()
             self._doc = None
+        with self._ocr_lock:
+            # A job still running for the closed PDF is then dropped.
+            self._generation += 1
+            self._password = None
+
+    @property
+    def is_password_protected(self) -> bool:
+        return self._password is not None
 
     @property
     def is_open(self) -> bool:
@@ -209,7 +309,7 @@ class PdfDocument:
         area = page.rect.width * page.rect.height * scale * scale
         if area > self.MAX_RENDER_PIXELS:
             scale *= (self.MAX_RENDER_PIXELS / area) ** 0.5
-        return page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+        return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
 
     def render_thumbnail(self, index: int, width_px: int):
         """Page `index` scaled to `width_px` pixels wide, whatever the zoom —
@@ -219,7 +319,7 @@ class PdfDocument:
             return None
         page = self._doc[index]
         scale = max(1, width_px) / page.rect.width if page.rect.width else 1
-        return page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+        return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
 
     def outline(self) -> list[OutlineEntry]:
         """The PDF's bookmarks as a nested tree (see outline.py); [] when it
@@ -357,7 +457,7 @@ class PdfDocument:
             # found are matched to the rects by where each one's centre is.
             return " ".join(
                 w.text for rect in rects for w in ocr_text[1]
-                if fitz.Rect(rect).contains((w.rect.tl + w.rect.br) / 2)
+                if pymupdf.Rect(rect).contains((w.rect.tl + w.rect.br) / 2)
             ).strip()
         page = self._doc[page_index]
         return " ".join(" ".join(page.get_textbox(rect).split()) for rect in rects).strip()
@@ -400,25 +500,31 @@ class PdfDocument:
                 return None
             self._ocr_status[page_index] = ocr.RUNNING
             generation = self._generation
+            cacheable = self._password is None
         return ocr.OcrJob(
             generation,
             page_index,
             self._ocr_key(page_index),
             ocr.single_page_pdf(self._doc, page_index),
+            cacheable=cacheable,
         )
 
     def finish_ocr(self, job: ocr.OcrJob, status: str, payload: dict | None) -> bool:
         """Take in a job's outcome. False when the job belonged to a document
         that is no longer open, which is then simply forgotten. A result is
         cached on disk whether or not it held legible text, so a page that
-        could not be read is not read again either."""
+        could not be read is not read again either; never one of a
+        password-protected PDF."""
         with self._ocr_lock:
             if job.generation != self._generation:
                 return False
             installed = status == ocr.DONE and self._install_ocr(job.page_index, payload)
             if not installed:
                 self._ocr_status[job.page_index] = ocr.ERROR if status == ocr.DONE else status
-        if installed:
+        # Not for a password-protected PDF (`cacheable` False): the cache is
+        # plain text on disk, and its pages are only for someone who has the
+        # password.
+        if installed and job.cacheable:
             ocr_cache.store(job.key, payload)
         return True
 
@@ -462,7 +568,7 @@ class PdfDocument:
         if not self._doc or not 0 <= page_index < len(self._doc):
             return None
         page = self._doc[page_index]
-        for annot in page.annots(types=[fitz.PDF_ANNOT_HIGHLIGHT]) or []:
+        for annot in page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]) or []:
             if annot.xref == xref:
                 return page, annot
         return None
@@ -600,7 +706,7 @@ class PdfDocument:
                 self._path,
                 # KEEP, as saveIncr() did: a permissions-only encryption on
                 # the original stays on it.
-                lambda tmp: self._write_full(tmp, encryption=fitz.PDF_ENCRYPT_KEEP),
+                lambda tmp: self._write_full(tmp, encryption=pymupdf.PDF_ENCRYPT_KEEP),
                 self._verify_saved,
                 swap=self._swap_into_place,
             )
@@ -614,27 +720,43 @@ class PdfDocument:
         with self._save_lock:
             if self.is_open_document(new_path):
                 raise SaveError(safe_write.IS_OPEN_DOCUMENT)
-            safe_write.write_atomically(new_path, self._write_full, self._verify_saved)
+            # KEEP, as overwrite: MuPDF's default writes a copy without its
+            # encryption, which would make a copy of a password-protected PDF
+            # an unprotected one, and drop a restricted one's restrictions.
+            safe_write.write_atomically(
+                new_path,
+                lambda tmp: self._write_full(tmp, encryption=pymupdf.PDF_ENCRYPT_KEEP),
+                self._verify_saved,
+            )
             self._dirty = False
 
     def _write_full(self, path: str, **options) -> None:
         # No garbage collection: it renumbers objects in the *live*
-        # fitz.Document, and the undo/redo stacks name highlights by xref,
+        # pymupdf.Document, and the undo/redo stacks name highlights by xref,
         # which a save without it keeps (so do the reopens around an
         # overwrite).
         self._doc.save(path, deflate=True, **options)
 
     def _verify_saved(self, path: str) -> None:
-        """Raise SaveError unless the file at `path` opens, needs no password,
-        and has the open document's pages and highlights."""
+        """Raise SaveError unless the file at `path` opens, with the open
+        document's password if it has one and with none otherwise, and has
+        the open document's pages and highlights."""
         try:
-            saved = fitz.open(path)
+            saved = pymupdf.open(path)
         except Exception as exc:
             raise SaveError(safe_write.VERIFY_FAILED) from exc
         try:
-            counts = {i: highlighter.highlight_count(saved[i]) for i in range(len(saved))}
+            try:
+                needed = _unlock(saved, self._password)
+            except OpenError:
+                needed = None
+            counts = (
+                {i: highlighter.highlight_count(saved[i]) for i in range(len(saved))}
+                if needed is not None
+                else {}
+            )
             matches = (
-                not saved.needs_pass
+                needed == (self._password is not None)
                 and len(saved) == len(self._doc)
                 and {i: n for i, n in counts.items() if n} == self.highlight_counts()
             )
@@ -668,6 +790,7 @@ class PdfDocument:
         except Exception as exc:
             log.exception("Saved the PDF but could not reopen it")
             self._doc = None
+            self._password = None
             raise SaveError(safe_write.SAVED_NOT_REOPENED) from exc
         try:
             self._forget_history_if_stale()
@@ -675,15 +798,27 @@ class PdfDocument:
             log.exception("Could not check undo/redo against the saved PDF")
             self._clear_history()
 
-    @staticmethod
-    def _reopen_saved(dest: str) -> "fitz.Document":
+    def _open_unlocked(self, *args, **kwargs) -> "pymupdf.Document":
+        """`pymupdf.open(*args, **kwargs)` (a file this object wrote, or the
+        original again), unlocked with the open document's password. Raises
+        OpenError when it won't unlock, which callers treat as any other
+        failure to reopen."""
+        doc = pymupdf.open(*args, **kwargs)
+        try:
+            _unlock(doc, self._password)
+        except OpenError:
+            doc.close()
+            raise
+        return doc
+
+    def _reopen_saved(self, dest: str) -> "pymupdf.Document":
         """The file just moved into place, opened again — retried while a
         scanner may be holding it, then from its bytes."""
         try:
-            return safe_write.retry_briefly(lambda: fitz.open(dest))
+            return safe_write.retry_briefly(lambda: self._open_unlocked(dest))
         except Exception:
             with open(dest, "rb") as f:
-                return fitz.open(stream=f.read(), filetype="pdf")
+                return self._open_unlocked(stream=f.read(), filetype="pdf")
 
     def _reopen_from_memory(self, tmp: str, original: str) -> bool:
         """Whether the highlights were kept: False when only the original as
@@ -691,7 +826,7 @@ class PdfDocument:
         that — never the closed document."""
         try:
             with open(tmp, "rb") as f:
-                self._doc = fitz.open(stream=f.read(), filetype="pdf")
+                self._doc = self._open_unlocked(stream=f.read(), filetype="pdf")
             return True
         except Exception:
             # Unreadable even now: fall back on the original as it was on
@@ -699,10 +834,11 @@ class PdfDocument:
             self._clear_history()
             self._dirty = False
         try:
-            self._doc = fitz.open(original)
+            self._doc = self._open_unlocked(original)
         except Exception:
             log.exception("Could not reopen the PDF after a failed save")
             self._doc = None
+            self._password = None
         return False
 
     def _clear_history(self) -> None:
@@ -718,7 +854,7 @@ class PdfDocument:
         live = {
             annot.xref
             for page in self._doc
-            for annot in page.annots(types=[fitz.PDF_ANNOT_HIGHLIGHT]) or []
+            for annot in page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]) or []
         }
         if not set(self._refs) <= live:
             self._clear_history()

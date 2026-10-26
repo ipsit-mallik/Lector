@@ -5,7 +5,7 @@ Run with:
 
     python -m unittest discover -s tests
 
-`Word` needs only a `fitz.Rect`, not a real page, so these build word lists by
+`Word` needs only a `pymupdf.Rect`, not a real page, so these build word lists by
 hand rather than opening a PDF — the geometry is what's under test, not
 PyMuPDF's text extraction.
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import fitz  # noqa: E402
+import pymupdf  # noqa: E402
 
 from lector.features.annotations import highlight_matcher as hm  # noqa: E402
 from lector.features.annotations.highlighter import Word  # noqa: E402
@@ -25,7 +25,7 @@ def _line_of_words(texts: list[str], y0: float = 0.0, y1: float = 10.0,
                     block_no: int = 0, line_no: int = 0) -> list[Word]:
     """One line of words, left to right, 10pt apart, all on the same line."""
     return [
-        Word(fitz.Rect(i * 10, y0, i * 10 + 8, y1), text, block_no, line_no, i)
+        Word(pymupdf.Rect(i * 10, y0, i * 10 + 8, y1), text, block_no, line_no, i)
         for i, text in enumerate(texts)
     ]
 

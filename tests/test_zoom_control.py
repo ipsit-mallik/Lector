@@ -33,7 +33,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import fitz
+import pymupdf
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -459,7 +459,7 @@ class ZoomBackendTests(unittest.TestCase):
         pdf_dir = tempfile.TemporaryDirectory(prefix="lector-pdfs-")
         self.addCleanup(pdf_dir.cleanup)
         path = str(Path(pdf_dir.name) / "mixed.pdf")
-        doc = fitz.open()
+        doc = pymupdf.open()
         doc.new_page(width=A4[0], height=A4[1])
         doc.new_page(width=A4[1], height=A4[0])
         doc.save(path)

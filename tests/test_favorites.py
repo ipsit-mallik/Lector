@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests list
+import pymupdf  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests list
 
 from lector import api as api_module  # noqa: E402
 from lector.features.home import recent  # noqa: E402
@@ -31,7 +31,7 @@ class _TempSettings(unittest.TestCase):
 
     def _make_pdf(self, name: str, pages: int = 1) -> str:
         path = str(Path(self.dir.name) / name)
-        doc = fitz.open()
+        doc = pymupdf.open()
         for _ in range(pages):
             doc.new_page()
         doc.save(path)

@@ -254,6 +254,50 @@ button {
   line-height: 1.45;
 }
 
+/* A text field inside a dialog, under its description (hardening H5's
+   password box). The input is the Save-As filename field's, the label above
+   it rather than beside it, and an error line under it in --danger. */
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* The header's text column is only as wide as its words; one holding a
+   field takes the card's full width, so the field isn't sized by the
+   description above it. */
+.dialog-header > div:has(> .dialog-field) { flex: 1; min-width: 0; }
+
+.dialog-field label {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.dialog-field input {
+  height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.dialog-field input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.dialog-field input[aria-invalid="true"] { border-color: var(--danger); }
+
+.dialog-field-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+
 /* ------------------------------------------------------------------ */
 /* Card family — option cards, theme cards, voice cards                 */
 /* ------------------------------------------------------------------ */

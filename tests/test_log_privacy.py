@@ -20,7 +20,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDF
+import pymupdf  # noqa: E402  # PyMuPDF: builds the throwaway PDF
 
 from lector import api as api_module  # noqa: E402
 from lector.features.reading import ocr  # noqa: E402
@@ -54,7 +54,7 @@ class LogPrivacyTests(unittest.TestCase):
         self.addCleanup(logging.getLogger().removeHandler, self.handler)
 
         self.pdf = self.root / "private notes.pdf"
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page()
         page.insert_text((72, 72), f"The {DOCUMENT_WORDS[0]} met a {DOCUMENT_WORDS[1]} today.")
         doc.save(self.pdf)

@@ -23,7 +23,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import fitz  # noqa: E402
+import pymupdf  # noqa: E402
 
 from lector import api as api_module  # noqa: E402
 from lector.features.reading import outline  # noqa: E402
@@ -99,7 +99,7 @@ class _ApiCase(unittest.TestCase):
 
     def make_pdf(self, name: str, pages: int = 6, toc: list | None = None) -> str:
         path = str(Path(self.pdf_dir.name) / name)
-        doc = fitz.open()
+        doc = pymupdf.open()
         for i in range(pages):
             page = doc.new_page(width=300, height=400)
             page.insert_text((40, 60), f"Page {i + 1} quick brown fox", fontsize=12)

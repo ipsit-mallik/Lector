@@ -34,6 +34,7 @@ SCOPED_TABLES = {
     router.REFERENCE: router.REFERENCE_PHRASES,
     router.OVERWRITE_CONFIRM: router.OVERWRITE_CONFIRM_PHRASES,
     router.REPLACE_CONFIRM: router.REPLACE_CONFIRM_PHRASES,
+    router.PASSWORD_PROMPT: router.PASSWORD_PROMPT_PHRASES,
 }
 
 
@@ -154,6 +155,26 @@ class ModalScopeTests(unittest.TestCase):
     def test_modal_vocabularies_do_not_carry_the_screen_grammar_beneath(self):
         self.assertNotIn("theme", router.vocabulary_for(router.OVERWRITE_CONFIRM))
         self.assertNotIn("favorite", router.vocabulary_for(router.REFERENCE))
+
+
+class PasswordPromptScopeTests(unittest.TestCase):
+    """The password box for a protected PDF (hardening H5): a modal scope
+    whose only spoken command is cancel, since a password is typed."""
+
+    def test_it_is_a_declarable_context_that_lets_no_globals_through(self):
+        self.assertIn(router.PASSWORD_PROMPT, router.CONTEXTS)
+        self.assertEqual(router.MODAL_ALLOWED_GLOBALS[router.PASSWORD_PROMPT], frozenset())
+        self.assertIsNone(_intent(router.PASSWORD_PROMPT, "quit"))
+        self.assertIsNone(_intent(router.PASSWORD_PROMPT, "open settings"))
+
+    def test_cancel_is_the_only_command(self):
+        self.assertEqual(set(router.PASSWORD_PROMPT_PHRASES), {router.CANCEL})
+        for phrase in ("cancel", "never mind"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(_intent(router.PASSWORD_PROMPT, phrase), router.CANCEL)
+
+    def test_the_recognizer_listens_for_no_other_words(self):
+        self.assertEqual(router.vocabulary_for(router.PASSWORD_PROMPT), ["cancel", "mind", "never"])
 
 
 class ReplaceConfirmScopeTests(unittest.TestCase):

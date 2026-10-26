@@ -21,7 +21,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests list
+import pymupdf  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests list
 
 from lector import api as api_module  # noqa: E402
 from lector.features.home import recent  # noqa: E402
@@ -42,7 +42,7 @@ class _TempSettings(unittest.TestCase):
 
     def _make_pdf(self, name: str, pages: int = 1) -> str:
         path = str(Path(self.dir.name) / name)
-        doc = fitz.open()
+        doc = pymupdf.open()
         for _ in range(pages):
             doc.new_page()
         doc.save(path)
@@ -54,7 +54,7 @@ class ListWithoutThumbnailsTests(_TempSettings):
     def test_the_list_does_not_render_thumbnails(self):
         store.add_recent_file(self._make_pdf("a.pdf", pages=3))
 
-        with mock.patch.object(fitz.Page, "get_pixmap", side_effect=AssertionError("rendered")):
+        with mock.patch.object(pymupdf.Page, "get_pixmap", side_effect=AssertionError("rendered")):
             [entry] = recent.list_recent()
 
         self.assertIsNone(entry["thumbnail"])
@@ -66,7 +66,7 @@ class ListWithoutThumbnailsTests(_TempSettings):
         store.add_recent_file(path)
         store.add_favorite(path)
 
-        with mock.patch.object(fitz.Page, "get_pixmap", side_effect=AssertionError("rendered")):
+        with mock.patch.object(pymupdf.Page, "get_pixmap", side_effect=AssertionError("rendered")):
             [entry] = recent.list_favorites()
 
         self.assertTrue(entry["thumbnail_pending"])
@@ -86,7 +86,7 @@ class ListWithoutThumbnailsTests(_TempSettings):
         path = self._make_pdf("a.pdf")
         first = recent.load_thumbnail(path)
 
-        with mock.patch.object(fitz.Page, "get_pixmap", side_effect=AssertionError("rendered")):
+        with mock.patch.object(pymupdf.Page, "get_pixmap", side_effect=AssertionError("rendered")):
             self.assertEqual(recent.load_thumbnail(path), first)
 
     def test_an_unreadable_file_has_no_thumbnail_to_wait_for(self):
@@ -150,7 +150,7 @@ class PageStateTests(_TempSettings):
     def test_does_not_open_any_pdf(self):
         store.add_recent_file(self._make_pdf("a.pdf"))
 
-        with mock.patch.object(fitz, "open", side_effect=AssertionError("opened")):
+        with mock.patch.object(pymupdf, "open", side_effect=AssertionError("opened")):
             recent.page_state()
 
 

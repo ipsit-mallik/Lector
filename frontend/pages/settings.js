@@ -52,13 +52,7 @@ onFileDrop(async (path) => {
     showToast("Close this window first, then drop the file again.");
     return;
   }
-  try {
-    await callApi("open_pdf", path);
-  } catch (err) {
-    console.error("open_pdf failed:", err);
-    showToast("Couldn't open that PDF. It may be damaged or no longer there.");
-    return;
-  }
+  if (!(await openPdf(path))) return;
   window.location.href = "reading.html";
 });
 
@@ -398,6 +392,11 @@ window.addEventListener("lector:command", (ev) => {
   // The "What can I say?" panel is a modal scope with its own listener
   // (command-reference.js), so nothing here should act behind it.
   if (!referenceDialog.hidden) return;
+  // CANCEL is all the password box hears (router.py's PASSWORD_PROMPT).
+  if (PasswordDialog.isOpen()) {
+    PasswordDialog.handleCommand(command);
+    return;
+  }
   // CONFIRM_OVERWRITE/CANCEL only ever arrive while the confirmation is the
   // active voice context (router.py scopes them there).
   if (!overwriteConfirmScrim.hidden) {

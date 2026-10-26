@@ -1857,13 +1857,9 @@ onFileDrop(async (path) => {
     return;
   }
   if (!(await promptSaveIfDirty(true))) return;
-  try {
-    await callApi("open_pdf", path);
-  } catch (err) {
-    console.error("open_pdf failed:", err);
-    showToast("Couldn't open that PDF. It may be damaged or no longer there.");
-    return;
-  }
+  // On a failure or a cancelled password the PDF on screen stays open as it
+  // was (Api.open_pdf only lets it go once the new one has opened).
+  if (!(await openPdf(path))) return;
   // The page reads the open document on load, so reloading shows the new one.
   window.location.reload();
 });
@@ -1887,6 +1883,11 @@ window.addEventListener("lector:command", (ev) => {
   // screen leads to (router.py's REPLACE_CONFIRM scope).
   if (ReplaceDialog.isOpen()) {
     ReplaceDialog.handleCommand(command);
+    return;
+  }
+  // CANCEL is all the password box hears (router.py's PASSWORD_PROMPT).
+  if (PasswordDialog.isOpen()) {
+    PasswordDialog.handleCommand(command);
     return;
   }
   // SAVE_COPY/SAVE_OVERWRITE/DONT_SAVE/CANCEL only ever arrive while the

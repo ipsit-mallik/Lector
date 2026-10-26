@@ -16,7 +16,7 @@ import io
 import sys
 from pathlib import Path
 
-import fitz
+import pymupdf
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,10 +35,10 @@ ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256,
 
 def _render_glyph(color: str, size: int) -> Image.Image:
     svg = LOGO_SVG.read_text(encoding="utf-8").replace("currentColor", color)
-    doc = fitz.open(stream=svg.encode("utf-8"), filetype="svg")
+    doc = pymupdf.open(stream=svg.encode("utf-8"), filetype="svg")
     page = doc[0]
     zoom = size / max(page.rect.width, page.rect.height)
-    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=True)
     return Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGBA")
 
 

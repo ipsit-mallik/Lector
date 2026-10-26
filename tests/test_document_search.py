@@ -20,7 +20,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import fitz  # noqa: E402
+import pymupdf  # noqa: E402
 
 from lector import api as api_module  # noqa: E402
 from lector.features.reading import search  # noqa: E402
@@ -38,11 +38,11 @@ WRAPPING_TEXT = (
 
 def _make_pdf(path: str, pages: list[str | None]) -> str:
     """One page per entry; None makes a page with no text layer at all."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     for text in pages:
         page = doc.new_page()
         if text is not None:
-            page.insert_textbox(fitz.Rect(50, 50, 200, 400), text, fontsize=11)
+            page.insert_textbox(pymupdf.Rect(50, 50, 200, 400), text, fontsize=11)
     doc.save(path)
     doc.close()
     return path
@@ -50,7 +50,7 @@ def _make_pdf(path: str, pages: list[str | None]) -> str:
 
 class GroupFragmentsTests(unittest.TestCase):
     def _r(self, n):
-        return fitz.Rect(n, n, n + 1, n + 1)
+        return pymupdf.Rect(n, n, n + 1, n + 1)
 
     def test_each_whole_hit_is_its_own_match(self):
         frags = [(self._r(1), "Brown"), (self._r(2), "brown")]
@@ -81,7 +81,7 @@ class SearchSliceTests(unittest.TestCase):
         self.addCleanup(self.dir.cleanup)
 
     def _open(self, pages):
-        doc = fitz.open(_make_pdf(str(Path(self.dir.name) / "doc.pdf"), pages))
+        doc = pymupdf.open(_make_pdf(str(Path(self.dir.name) / "doc.pdf"), pages))
         self.addCleanup(doc.close)
         return doc
 

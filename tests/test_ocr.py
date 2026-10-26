@@ -24,7 +24,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import fitz
+import pymupdf
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,13 +50,13 @@ PROSE = (
 )
 
 
-def _text_page(doc: fitz.Document, text: str = PROSE) -> fitz.Page:
+def _text_page(doc: pymupdf.Document, text: str = PROSE) -> pymupdf.Page:
     page = doc.new_page(width=420, height=300)
-    page.insert_textbox(fitz.Rect(30, 30, 390, 270), text, fontsize=14)
+    page.insert_textbox(pymupdf.Rect(30, 30, 390, 270), text, fontsize=14)
     return page
 
 
-def _scanned_copy(text_page: fitz.Page, out: fitz.Document, dpi: int = 200) -> fitz.Page:
+def _scanned_copy(text_page: pymupdf.Page, out: pymupdf.Document, dpi: int = 200) -> pymupdf.Page:
     """A picture of `text_page` on a page of the same size, with no text
     layer — what a scanner produces."""
     pix = text_page.get_pixmap(dpi=dpi)
@@ -65,7 +65,7 @@ def _scanned_copy(text_page: fitz.Page, out: fitz.Document, dpi: int = 200) -> f
     return page
 
 
-def _payload_for(page: fitz.Page) -> dict:
+def _payload_for(page: pymupdf.Page) -> dict:
     """The payload `ocr.recognize` would return for a page whose text it
     read perfectly: that page's own boxes."""
     return {
@@ -81,7 +81,7 @@ def _payload_for(page: fitz.Page) -> dict:
 
 
 def _words(*texts: str) -> list[highlighter.Word]:
-    return [highlighter.Word(fitz.Rect(0, 0, 1, 1), t, 0, 0, i) for i, t in enumerate(texts)]
+    return [highlighter.Word(pymupdf.Rect(0, 0, 1, 1), t, 0, 0, i) for i, t in enumerate(texts)]
 
 
 class TempDirTestCase(unittest.TestCase):
@@ -98,9 +98,9 @@ class TempDirTestCase(unittest.TestCase):
 
     def mixed_pdf(self) -> Path:
         """Page 0 born-digital, page 1 scanned, page 2 blank."""
-        source = fitz.open()
+        source = pymupdf.open()
         text_page = _text_page(source)
-        doc = fitz.open()
+        doc = pymupdf.open()
         _text_page(doc)
         _scanned_copy(text_page, doc)
         doc.new_page(width=420, height=300)
@@ -111,36 +111,36 @@ class TempDirTestCase(unittest.TestCase):
 
 class DetectionTests(TempDirTestCase):
     def test_detection_is_per_page(self):
-        doc = fitz.open(self.mixed_pdf())
+        doc = pymupdf.open(self.mixed_pdf())
         self.assertEqual([ocr.page_needs_ocr(p) for p in doc], [False, True, False])
 
     def test_a_blank_page_is_not_scanned(self):
-        doc = fitz.open()
+        doc = pymupdf.open()
         self.assertFalse(ocr.page_needs_ocr(doc.new_page()))
 
 
 class PageKeyTests(TempDirTestCase):
     def test_key_survives_highlighting_and_both_kinds_of_save(self):
         path = self.mixed_pdf()
-        doc = fitz.open(path)
+        doc = pymupdf.open(path)
         self.addCleanup(doc.close)
         before = ocr.page_key(doc, doc[1])
         page = doc[1]
-        page.add_highlight_annot(fitz.Rect(40, 40, 200, 60))
+        page.add_highlight_annot(pymupdf.Rect(40, 40, 200, 60))
         self.assertEqual(ocr.page_key(doc, doc[1]), before)
         copy = self.dir / "copy.pdf"
         doc.save(copy, deflate=True)
-        reopened = fitz.open(copy)
+        reopened = pymupdf.open(copy)
         self.addCleanup(reopened.close)
         self.assertEqual(ocr.page_key(reopened, reopened[1]), before)
         doc.saveIncr()
-        overwritten = fitz.open(path)
+        overwritten = pymupdf.open(path)
         self.addCleanup(overwritten.close)
         self.assertEqual(ocr.page_key(overwritten, overwritten[1]), before)
 
     def test_key_differs_between_pages_and_with_rotation(self):
-        source = fitz.open()
-        doc = fitz.open()
+        source = pymupdf.open()
+        doc = pymupdf.open()
         _scanned_copy(_text_page(source, "First page words."), doc)
         _scanned_copy(_text_page(source, "Second page, other words."), doc)
         first = ocr.page_key(doc, doc[0])
@@ -149,10 +149,10 @@ class PageKeyTests(TempDirTestCase):
         self.assertNotEqual(first, ocr.page_key(doc, doc[0]))
 
     def test_single_page_pdf_carries_no_annotations(self):
-        doc = fitz.open(self.mixed_pdf())
+        doc = pymupdf.open(self.mixed_pdf())
         page = doc[1]
-        page.add_highlight_annot(fitz.Rect(40, 40, 200, 60))
-        single = fitz.open("pdf", ocr.single_page_pdf(doc, 1))
+        page.add_highlight_annot(pymupdf.Rect(40, 40, 200, 60))
+        single = pymupdf.open("pdf", ocr.single_page_pdf(doc, 1))
         self.assertEqual(len(single), 1)
         self.assertEqual(list(single[0].annots()), [])
 
@@ -180,8 +180,8 @@ class ReadableTests(unittest.TestCase):
         self.assertFalse(ocr.is_readable(_words("the", "of")))
 
 
-def _gray(page: fitz.Page, dpi: int = 150) -> "np.ndarray":
-    pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csGRAY)
+def _gray(page: pymupdf.Page, dpi: int = 150) -> "np.ndarray":
+    pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY)
     return np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width).copy()
 
 
@@ -195,26 +195,28 @@ def _speckled(gray: "np.ndarray", per_megapixel: int = 3000, seed: int = 7) -> "
     return out
 
 
-def _tilted_scan(text_page: fitz.Page, degrees: float, noisy: bool = False) -> tuple[fitz.Document, fitz.Matrix]:
+def _tilted_scan(
+    text_page: pymupdf.Page, degrees: float, noisy: bool = False
+) -> tuple[pymupdf.Document, pymupdf.Matrix]:
     """An image-only page showing `text_page` turned by `degrees`
     (positive: lines run down to the right), as a crooked scan would, and
     the matrix taking a point on `text_page` to where it shows on the scan."""
-    render = fitz.Matrix(200 / 72, 200 / 72) * fitz.Matrix(degrees)
-    pix = text_page.get_pixmap(matrix=render, colorspace=fitz.csGRAY)
+    render = pymupdf.Matrix(200 / 72, 200 / 72) * pymupdf.Matrix(degrees)
+    pix = text_page.get_pixmap(matrix=render, colorspace=pymupdf.csGRAY)
     gray = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width)
     if noisy:
         gray = _speckled(gray)
-    image = fitz.Pixmap(fitz.csGRAY, gray.shape[1], gray.shape[0], gray.tobytes(), False)
-    doc = fitz.open()
+    image = pymupdf.Pixmap(pymupdf.csGRAY, gray.shape[1], gray.shape[0], gray.tobytes(), False)
+    doc = pymupdf.open()
     page = doc.new_page(width=pix.width * 72 / 200, height=pix.height * 72 / 200)
     page.insert_image(page.rect, stream=image.tobytes("png"))
-    to_scan = render * fitz.Matrix(1, 0, 0, 1, -pix.x, -pix.y) * fitz.Matrix(72 / 200, 72 / 200)
+    to_scan = render * pymupdf.Matrix(1, 0, 0, 1, -pix.x, -pix.y) * pymupdf.Matrix(72 / 200, 72 / 200)
     return doc, to_scan
 
 
 class DespeckleTests(unittest.TestCase):
     def test_isolated_specks_go_and_text_stays(self):
-        doc = fitz.open()
+        doc = pymupdf.open()
         clean = _gray(_text_page(doc))
         noisy = _speckled(clean)
         self.assertGreater(int((noisy < 128).sum()), int((clean < 128).sum()))
@@ -231,7 +233,7 @@ class DespeckleTests(unittest.TestCase):
 
 class SkewTests(unittest.TestCase):
     def test_measures_a_known_tilt(self):
-        source = fitz.open()
+        source = pymupdf.open()
         text_page = _text_page(source)
         for degrees in (0.0, 2.0, -4.0, 7.0):
             with self.subTest(degrees=degrees):
@@ -244,7 +246,7 @@ class SkewTests(unittest.TestCase):
 
 class PayloadTests(unittest.TestCase):
     def test_round_trip(self):
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = _text_page(doc)
         chars, words = ocr.text_from_payload(_payload_for(page))
         self.assertEqual([w.text for w in words], [w.text for w in highlighter.words_on_page(page)])
@@ -299,7 +301,7 @@ class DocumentOcrTests(TempDirTestCase):
         self.doc = PdfDocument()
         self.doc.open(str(self.path))
         self.addCleanup(self.doc.close)
-        source = fitz.open()
+        source = pymupdf.open()
         self.payload = _payload_for(_text_page(source))
 
     def _read(self, payload=None, status=ocr.DONE):
@@ -486,14 +488,14 @@ class RealOcrTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.runner.shutdown()
 
-    def _read(self, doc: fitz.Document, index: int) -> tuple[str, dict | None]:
+    def _read(self, doc: pymupdf.Document, index: int) -> tuple[str, dict | None]:
         self.finished.clear()
         page = doc[index]
         self.runner.submit(ocr.OcrJob(1, index, ocr.page_key(doc, page), ocr.single_page_pdf(doc, index)))
         self.assertTrue(self.finished.wait(ocr.OCR_TIMEOUT_S))
         return self.results[index]
 
-    def _assert_boxes_match(self, text_page: fitz.Page, payload: dict, to_page=fitz.Identity):
+    def _assert_boxes_match(self, text_page: pymupdf.Page, payload: dict, to_page=pymupdf.Identity):
         """Each found word's centre lies on that word in `text_page`, mapped
         into the scanned page's text coordinates by `to_page`."""
         _, words = ocr.text_from_payload(payload)
@@ -507,9 +509,9 @@ class RealOcrTests(unittest.TestCase):
             self.assertTrue(expected.contains(centre), f"{word!r} box is off the word")
 
     def test_reads_a_scanned_page_onto_the_words_it_shows(self):
-        source = fitz.open()
+        source = pymupdf.open()
         text_page = _text_page(source)
-        doc = fitz.open()
+        doc = pymupdf.open()
         _scanned_copy(text_page, doc)
         status, payload = self._read(doc, 0)
         self.assertEqual(status, ocr.DONE)
@@ -518,9 +520,9 @@ class RealOcrTests(unittest.TestCase):
     def test_boxes_on_a_rotated_page_match_its_text_coordinates(self):
         # How scanners produce a rotated page: the image stored sideways and
         # /Rotate turning it upright, so it displays exactly as `text_page`.
-        source = fitz.open()
+        source = pymupdf.open()
         text_page = _text_page(source)
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page(width=text_page.rect.height, height=text_page.rect.width)
         page.insert_image(page.rect, stream=text_page.get_pixmap(dpi=200).tobytes("png"), rotate=90)
         page.set_rotation(90)
@@ -529,7 +531,7 @@ class RealOcrTests(unittest.TestCase):
         self._assert_boxes_match(text_page, payload, to_page=doc[0].derotation_matrix)
 
     def test_a_crooked_scan_is_read_and_its_boxes_land_on_the_words(self):
-        source = fitz.open()
+        source = pymupdf.open()
         text_page = _text_page(source)
         for degrees in (4.0, -6.0):
             with self.subTest(degrees=degrees):
@@ -541,7 +543,7 @@ class RealOcrTests(unittest.TestCase):
     def test_a_crooked_speckled_scan_is_read(self):
         # Both troubles of the office scan this was tuned on, together: single
         # black specks all over, and a tilt.
-        source = fitz.open()
+        source = pymupdf.open()
         text_page = _text_page(source)
         scan, to_scan = _tilted_scan(text_page, 3.0, noisy=True)
         status, payload = self._read(scan, 0)
@@ -578,7 +580,7 @@ class BridgeTests(TempDirTestCase):
         self.addCleanup(patcher.stop)
         self.api.open_pdf(str(self.mixed_pdf()))
         self.addCleanup(self.api._doc.close)  # Windows will not delete an open file
-        self.payload = _payload_for(_text_page(fitz.open()))
+        self.payload = _payload_for(_text_page(pymupdf.open()))
 
     def _finish_submitted(self, status=ocr.DONE):
         job = self.api._ocr.submit.call_args[0][0]
@@ -632,7 +634,7 @@ class BridgeTests(TempDirTestCase):
         # next vocabulary rebuild asked a one-page PDF for page 3 and the
         # reading page's set_voice_context call failed on load.
         self.api.start_listening([{"page_index": 2, "y0": 0, "y1": 300}])
-        single = fitz.open()
+        single = pymupdf.open()
         _text_page(single)
         path = self.dir / "single.pdf"
         single.save(path)

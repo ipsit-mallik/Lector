@@ -10,7 +10,7 @@ import subprocess
 import sys
 import threading
 
-import fitz  # PyMuPDF
+import pymupdf
 
 from lector.features.settings import store as settings
 
@@ -45,7 +45,7 @@ def _mtime(path: str) -> float | None:
         return None
 
 
-def _metadata_title(doc: fitz.Document) -> str | None:
+def _metadata_title(doc: pymupdf.Document) -> str | None:
     """The PDF's own Title metadata, or None when it has none worth showing
     (missing or blank) — the caller falls back to the filename."""
     title = (doc.metadata or {}).get("title") or ""
@@ -56,7 +56,7 @@ def _metadata_title(doc: fitz.Document) -> str | None:
 
 def _load_document_info(path: str) -> tuple[int, str | None, bool]:
     """The PDF's page count and metadata title, and whether it has a first
-    page to make a thumbnail of. Opens and closes its own fitz.Document
+    page to make a thumbnail of. Opens and closes its own pymupdf.Document
     rather than sharing the reading view's — recent cards render on the Home
     screen, before any document is otherwise open."""
     mtime = _mtime(path)
@@ -66,7 +66,7 @@ def _load_document_info(path: str) -> tuple[int, str | None, bool]:
 
     with _fitz_lock:
         try:
-            doc = fitz.open(path)
+            doc = pymupdf.open(path)
         except Exception:
             result = (0, None, False)
         else:
@@ -104,14 +104,14 @@ def load_thumbnail(path: str, height: int = THUMBNAIL_HEIGHT) -> str | None:
 
     with _fitz_lock:
         try:
-            doc = fitz.open(path)
+            doc = pymupdf.open(path)
         except Exception:
             png = None
         else:
             try:
                 rect = doc[0].rect
                 zoom = height / rect.height if rect.height else 1.0
-                pix = doc[0].get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                pix = doc[0].get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
                 png = base64.b64encode(pix.tobytes("png")).decode("ascii")
             except Exception:
                 png = None

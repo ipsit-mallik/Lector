@@ -26,7 +26,7 @@ Rejected alternatives and why (unchanged from the original evaluation, PySide6 i
 - **Fully separate native codebases per OS** — unrealistic maintenance burden for a solo developer.
 - **PySide6/Qt** — see revision note above.
 
-## PDF rendering & annotation: PyMuPDF (fitz)
+## PDF rendering & annotation: PyMuPDF (`import pymupdf`)
 
 The only library that provides page rendering, word/line-level bounding-box extraction, AND real PDF annotation writing in one dependency. Avoids stitching together a separate rendering library (e.g. PDFium) with a separate annotation-writing approach.
 

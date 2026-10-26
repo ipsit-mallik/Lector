@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-import fitz  # PyMuPDF
+import pymupdf
 import numpy as np
 
 from lector.features.annotations import highlighter
@@ -96,7 +96,7 @@ ERROR = "error"  # the OCR itself failed
 RESTARTABLE = (NEEDED, ERROR, UNAVAILABLE)
 
 
-def page_needs_ocr(page: fitz.Page) -> bool:
+def page_needs_ocr(page: pymupdf.Page) -> bool:
     """True for a page with no extractable text that does show an image —
     a blank page has no text either, but nothing to read."""
     if page.get_text("text").strip():
@@ -104,7 +104,7 @@ def page_needs_ocr(page: fitz.Page) -> bool:
     return bool(page.get_images(full=True))
 
 
-def page_key(doc: fitz.Document, page: fitz.Page) -> str:
+def page_key(doc: pymupdf.Document, page: pymupdf.Page) -> str:
     """Cache key for `page`'s OCR result: what the page draws (its content
     stream and the raw bytes of its images) plus everything that changes how
     it is read (language, resolution, rotation, page box). Annotations live
@@ -127,24 +127,24 @@ def page_key(doc: fitz.Document, page: fitz.Page) -> str:
 _IMAGE_CODECS = frozenset({"/DCTDecode", "/JPXDecode", "/JBIG2Decode", "/CCITTFaxDecode"})
 
 
-def _image_bytes(doc: fitz.Document, xref: int) -> bytes:
+def _image_bytes(doc: pymupdf.Document, xref: int) -> bytes:
     kind, value = doc.xref_get_key(xref, "Filter")
     if kind == "name" and value in _IMAGE_CODECS:
         return doc.xref_stream_raw(xref) or b""
     return doc.xref_stream(xref) or b""
 
 
-def single_page_pdf(doc: fitz.Document, index: int) -> bytes:
+def single_page_pdf(doc: pymupdf.Document, index: int) -> bytes:
     """Page `index` alone, without annotations, as PDF bytes — what the
     worker process is handed. A copy rather than the open document because
     the worker cannot share it, and annotation-free so an existing highlight
     is not read as part of the scan."""
-    out = fitz.open()
+    out = pymupdf.open()
     out.insert_pdf(doc, from_page=index, to_page=index, annots=False)
     return out.tobytes()
 
 
-def _ocr_dpi(page: fitz.Page) -> int:
+def _ocr_dpi(page: pymupdf.Page) -> int:
     area_in_sq_inches = (page.rect.width / 72) * (page.rect.height / 72)
     if area_in_sq_inches <= 0:
         return OCR_DPI
@@ -192,7 +192,7 @@ def detect_skew(gray: np.ndarray) -> float:
     return float(max(np.arange(coarse - 0.5, coarse + 0.5 + 1e-9, 0.05), key=sharpness))
 
 
-def _render(page: fitz.Page, dpi: int, angle: float) -> tuple[np.ndarray, fitz.Matrix]:
+def _render(page: pymupdf.Page, dpi: int, angle: float) -> tuple[np.ndarray, pymupdf.Matrix]:
     """A greyscale render of `page` as displayed, turned by `-angle` so its
     text is level, and the matrix taking points on the OCR page made from it
     back to the page's own text coordinates.
@@ -203,25 +203,25 @@ def _render(page: fitz.Page, dpi: int, angle: float) -> tuple[np.ndarray, fitz.M
     box does not start at 0,0), the inverse render matrix undoes the turn
     and the zoom, and the page's derotation goes from "as displayed" to the
     unrotated coordinates text extraction uses."""
-    to_pixels = fitz.Matrix(dpi / 72, dpi / 72)
-    render_matrix = to_pixels * fitz.Matrix(-angle)
-    pix = page.get_pixmap(matrix=render_matrix, colorspace=fitz.csGRAY, alpha=False, annots=False)
+    to_pixels = pymupdf.Matrix(dpi / 72, dpi / 72)
+    render_matrix = to_pixels * pymupdf.Matrix(-angle)
+    pix = page.get_pixmap(matrix=render_matrix, colorspace=pymupdf.csGRAY, alpha=False, annots=False)
     gray = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width).copy()
-    back = to_pixels * fitz.Matrix(1, 0, 0, 1, pix.x, pix.y) * ~render_matrix * page.derotation_matrix
+    back = to_pixels * pymupdf.Matrix(1, 0, 0, 1, pix.x, pix.y) * ~render_matrix * page.derotation_matrix
     return gray, back
 
 
-def _ocr_bitmap(gray: np.ndarray, dpi: int, tessdata: str) -> fitz.Page:
+def _ocr_bitmap(gray: np.ndarray, dpi: int, tessdata: str) -> pymupdf.Page:
     """OCR one greyscale bitmap; the page of the PDF MuPDF writes for it,
     whose invisible text layer is what was read. Handed over as RGB: a
     greyscale pixmap is accepted, then reads as no text at all."""
     rgb = np.repeat(gray[:, :, None], 3, axis=2)
-    pix = fitz.Pixmap(fitz.csRGB, gray.shape[1], gray.shape[0], rgb.tobytes(), False)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, gray.shape[1], gray.shape[0], rgb.tobytes(), False)
     pix.set_dpi(dpi, dpi)
-    return fitz.open("pdf", pix.pdfocr_tobytes(language=OCR_LANGUAGE, tessdata=tessdata))[0]
+    return pymupdf.open("pdf", pix.pdfocr_tobytes(language=OCR_LANGUAGE, tessdata=tessdata))[0]
 
 
-def ink_coverage(gray: np.ndarray, ocr_page: fitz.Page, dpi: int) -> float:
+def ink_coverage(gray: np.ndarray, ocr_page: pymupdf.Page, dpi: int) -> float:
     """The share of the page's ink that lies inside a recognized word.
 
     What tells a good read from one that silently dropped lines: Tesseract
@@ -262,12 +262,12 @@ def recognize(page_pdf: bytes, tessdata: str) -> dict:
     of the app uses gives boxes in the same shape; `_render`'s matrix takes
     them back onto the original page.
     """
-    page = fitz.open("pdf", page_pdf)[0]
+    page = pymupdf.open("pdf", page_pdf)[0]
     dpi = _ocr_dpi(page)
     angle = detect_skew(_render(page, SKEW_DPI, 0.0)[0])
     if abs(angle) < MIN_SKEW_DEG:
         angle = 0.0
-    best: tuple[float, fitz.Page, fitz.Matrix] | None = None
+    best: tuple[float, pymupdf.Page, pymupdf.Matrix] | None = None
     for pass_dpi, clean in ((dpi, False), (dpi, True), (dpi * 2 // 3, True)):
         gray, back = _render(page, pass_dpi, angle)
         if clean:
@@ -280,7 +280,7 @@ def recognize(page_pdf: bytes, tessdata: str) -> dict:
             break
     _, ocr_page, to_page = best
 
-    def box(rect: fitz.Rect) -> list[float]:
+    def box(rect: pymupdf.Rect) -> list[float]:
         r = rect * to_page
         return [round(r.x0, 2), round(r.y0, 2), round(r.x1, 2), round(r.y1, 2)]
 
@@ -300,11 +300,11 @@ def text_from_payload(payload: dict) -> tuple[list[highlighter.Char], list[highl
     """`recognize`'s (or the cache's) plain lists back as Char/Word objects.
     Raises ValueError/TypeError on a malformed payload."""
     chars = [
-        highlighter.Char(fitz.Rect(x0, y0, x1, y1), str(text), int(block), int(line), int(n))
+        highlighter.Char(pymupdf.Rect(x0, y0, x1, y1), str(text), int(block), int(line), int(n))
         for x0, y0, x1, y1, text, block, line, n in payload["chars"]
     ]
     words = [
-        highlighter.Word(fitz.Rect(x0, y0, x1, y1), str(text), int(block), int(line), int(n))
+        highlighter.Word(pymupdf.Rect(x0, y0, x1, y1), str(text), int(block), int(line), int(n))
         for x0, y0, x1, y1, text, block, line, n in payload["words"]
     ]
     return chars, words
@@ -338,6 +338,10 @@ class OcrJob:
     page_index: int
     key: str
     page_pdf: bytes
+    # False for a password-protected PDF's page: its text is not written to
+    # the on-disk cache (hardening H5). Decided when the job is made, so a
+    # result that lands after another PDF was opened can't be misjudged.
+    cacheable: bool = True
 
 
 # The worker's crash log, kept open for the life of the process: faulthandler

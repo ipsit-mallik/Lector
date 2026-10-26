@@ -33,7 +33,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import fitz  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests save
+import pymupdf  # noqa: E402  # PyMuPDF: builds the throwaway PDFs these tests save
 
 from lector import api as api_module  # noqa: E402
 from lector.features.reading import safe_write  # noqa: E402
@@ -52,7 +52,7 @@ class _Sharing(PermissionError):
 
 
 def _make_pdf(path: Path, pages: int = 3) -> Path:
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i in range(pages):
         doc.new_page().insert_text((72, 72), PAGE_TEXT.format(i))
     doc.save(path)
@@ -65,15 +65,15 @@ def _sha256(path: Path) -> str:
 
 
 def _highlights_on_disk(path: Path) -> list[int]:
-    doc = fitz.open(path)
+    doc = pymupdf.open(path)
     try:
-        return [len(list(page.annots(types=[fitz.PDF_ANNOT_HIGHLIGHT]) or [])) for page in doc]
+        return [len(list(page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]) or [])) for page in doc]
     finally:
         doc.close()
 
 
 def _write_half_then_fail(self, path, *args, **kwargs):
-    """Stands in for `fitz.Document.save`: starts the file, then fails the
+    """Stands in for `pymupdf.Document.save`: starts the file, then fails the
     way MuPDF's writer does (RuntimeError, not OSError)."""
     with open(path, "wb") as f:
         f.write(b"%PDF-1.7\n% cut off here")
@@ -81,7 +81,7 @@ def _write_half_then_fail(self, path, *args, **kwargs):
 
 
 def _one_blank_page() -> bytes:
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page()
     try:
         return doc.tobytes()
@@ -95,7 +95,7 @@ _ANOTHER_PDF = _one_blank_page()
 
 
 def _write_another_pdf(self, path, *args, **kwargs):
-    """Stands in for `fitz.Document.save`: writes a valid PDF that is not
+    """Stands in for `pymupdf.Document.save`: writes a valid PDF that is not
     this document (one page, no highlights), so only the check can catch it."""
     Path(path).write_bytes(_ANOTHER_PDF)
 
@@ -203,7 +203,7 @@ class InterruptedSaveTests(SaveSafetyTestCase):
         before = _sha256(self.original)
         self.highlight()
 
-        with mock.patch.object(fitz.Document, "save", _write_half_then_fail):
+        with mock.patch.object(pymupdf.Document, "save", _write_half_then_fail):
             reason = self.reason_of(self.doc.save_overwrite)
 
         self.assertEqual(reason, safe_write.UNKNOWN)
@@ -216,7 +216,7 @@ class InterruptedSaveTests(SaveSafetyTestCase):
         before = (_sha256(self.original), _sha256(existing))
         self.highlight()
 
-        with mock.patch.object(fitz.Document, "save", _write_half_then_fail):
+        with mock.patch.object(pymupdf.Document, "save", _write_half_then_fail):
             self.reason_of(lambda: self.doc.save_copy(str(existing)))
 
         self.assertEqual((_sha256(self.original), _sha256(existing)), before)
@@ -227,7 +227,7 @@ class InterruptedSaveTests(SaveSafetyTestCase):
         before = _sha256(self.original)
         self.highlight()
 
-        with mock.patch.object(fitz.Document, "save", _write_another_pdf):
+        with mock.patch.object(pymupdf.Document, "save", _write_another_pdf):
             reason = self.reason_of(self.doc.save_overwrite)
 
         self.assertEqual(reason, safe_write.VERIFY_FAILED)
@@ -284,7 +284,7 @@ class InterruptedSaveTests(SaveSafetyTestCase):
             return _REAL_OPEN(*args, **kwargs)
 
         with mock.patch.object(safe_write.os, "replace", side_effect=PermissionError(errno.EACCES, "denied")), \
-                mock.patch.object(fitz, "open", no_streams):
+                mock.patch.object(pymupdf, "open", no_streams):
             reason = self.reason_of(self.doc.save_overwrite)
 
         self.assertEqual(reason, safe_write.HIGHLIGHTS_LOST)
@@ -308,7 +308,7 @@ class InterruptedSaveTests(SaveSafetyTestCase):
             return _REAL_OPEN(*args, **kwargs)
 
         with mock.patch.object(safe_write.os, "replace", side_effect=PermissionError(errno.EACCES, "denied")), \
-                mock.patch.object(fitz, "open", nothing_reopens), \
+                mock.patch.object(pymupdf, "open", nothing_reopens), \
                 self.assertLogs("lector.features.reading.document", level="ERROR"):
             reason = self.reason_of(self.doc.save_overwrite)
 
@@ -330,7 +330,7 @@ class InterruptedSaveTests(SaveSafetyTestCase):
         self.assert_still_open_and_unsaved({1: 1})
 
 
-_REAL_OPEN = fitz.open
+_REAL_OPEN = pymupdf.open
 
 
 class AfterTheMoveTests(SaveSafetyTestCase):
@@ -345,7 +345,7 @@ class AfterTheMoveTests(SaveSafetyTestCase):
         self.addCleanup(patcher.stop)
 
     def failing_reopen(self, times: int, streams_too: bool = False):
-        """`fitz.open` that fails the first `times` opens of the original by
+        """`pymupdf.open` that fails the first `times` opens of the original by
         path (only the reopen after the move opens it so; the check opens the
         temporary file), and every open from bytes if `streams_too`."""
         failures = []
@@ -357,7 +357,7 @@ class AfterTheMoveTests(SaveSafetyTestCase):
                 raise RuntimeError("code=2: cannot open file")
             return _REAL_OPEN(*args, **kwargs)
 
-        return mock.patch.object(fitz, "open", flaky)
+        return mock.patch.object(pymupdf, "open", flaky)
 
     def assert_saved_and_reading_on(self):
         self.assertEqual(_highlights_on_disk(self.original), [0, 1, 0])
@@ -430,7 +430,7 @@ class AfterTheMoveTests(SaveSafetyTestCase):
 
 class RefusedSaveTests(SaveSafetyTestCase):
     def test_a_signed_pdf_is_never_overwritten_but_can_be_copied(self):
-        signed = fitz.open(self.original)
+        signed = pymupdf.open(self.original)
         signed.xref_set_key(signed.pdf_catalog(), "AcroForm", "<</Fields[]/SigFlags 3>>")
         signed_path = self.dir / "signed.pdf"
         signed.save(signed_path)

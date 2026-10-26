@@ -10,16 +10,23 @@ const headerSearchInput = document.getElementById("headerSearchInput");
 const headerSearchToggle = document.getElementById("headerSearchToggle");
 
 async function openPath(path) {
-  try {
-    await callApi("open_pdf", path);
-  } catch (err) {
-    // A dropped or listed file can be gone or damaged by now. Say so rather
-    // than leave the reader on a screen where nothing happened.
-    console.error("open_pdf failed:", err);
-    showToast("Couldn't open that PDF. It may be damaged or no longer there.");
+  // A dropped or listed file can be gone, damaged or locked by now; openPdf
+  // says which (or asks for the password) and the reader stays on Home.
+  if (!(await openPdf(path, { onMissing: (message) => offerRemoval(path, message) }))) return;
+  window.location.href = "pages/reading.html";
+}
+
+// A Recent file that has been moved or deleted: say so, and offer the
+// existing removal (the same confirmation, then Undo) from the same toast.
+// Removing it touches only the list, never anything on disk. Not on
+// Favorites, where the star already takes a file off the list.
+function offerRemoval(path, message) {
+  const entry = homeSection === "recent" && recentEntries.find((e) => e.path === path);
+  if (!entry) {
+    showToast(message);
     return;
   }
-  window.location.href = "pages/reading.html";
+  showToast(message, { actionLabel: "Remove from Recent", onAction: () => removeEntry(entry) });
 }
 
 // In-app Open dialog (Milestone 8.7), replacing the native
@@ -873,6 +880,11 @@ window.addEventListener("lector:command", (ev) => {
   // The "What can I say?" panel is a modal scope with its own listener
   // (command-reference.js), so nothing here should act behind it.
   if (!referenceDialog.hidden) return;
+  // CANCEL is all the password box hears (router.py's PASSWORD_PROMPT).
+  if (PasswordDialog.isOpen()) {
+    PasswordDialog.handleCommand(command);
+    return;
+  }
   // CONFIRM_REMOVE/CANCEL only ever arrive while the remove-confirmation
   // dialog is the active voice context (router.py scopes them there), so
   // it is checked first, the same way openDialog/pickerActive already are

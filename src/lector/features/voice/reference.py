@@ -53,6 +53,7 @@ _SCREENS = (router.HOME, router.SETTINGS, router.READING)
 _PROMPTS = (
     router.PICKER, router.OPEN_DIALOG, router.SAVE_DIALOG,
     router.REMOVE_CONFIRM, router.SAVE_CONFIRM, router.OVERWRITE_CONFIRM, router.REPLACE_CONFIRM,
+    router.PASSWORD_PROMPT,
 )
 
 

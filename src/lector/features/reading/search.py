@@ -16,7 +16,7 @@ import re
 import time
 from typing import Callable
 
-import fitz  # PyMuPDF
+import pymupdf
 
 # Long enough to get through dozens of ordinary pages per call, short enough
 # that a page render waiting behind the slice is never visibly late.
@@ -40,7 +40,7 @@ def _joins(acc: str, text: str) -> list[str]:
     return [_normalize(j) for j in joined]
 
 
-def group_fragments(fragments: list[tuple[fitz.Rect, str]], needle: str) -> list[list[fitz.Rect]]:
+def group_fragments(fragments: list[tuple[pymupdf.Rect, str]], needle: str) -> list[list[pymupdf.Rect]]:
     """Group `search_for`'s per-line rects into one list of rects per hit.
 
     `fragments` pairs each rect with the text inside it, in the order
@@ -51,7 +51,7 @@ def group_fragments(fragments: list[tuple[fitz.Rect, str]], needle: str) -> list
     better than losing a hit the search did find.
     """
     target = _normalize(needle)
-    hits: list[list[fitz.Rect]] = []
+    hits: list[list[pymupdf.Rect]] = []
     i = 0
     while i < len(fragments):
         rect, text = fragments[i]
@@ -69,7 +69,7 @@ def group_fragments(fragments: list[tuple[fitz.Rect, str]], needle: str) -> list
     return hits
 
 
-def _search_page(page: fitz.Page, needle: str) -> tuple[bool, list[list[fitz.Rect]]]:
+def _search_page(page: pymupdf.Page, needle: str) -> tuple[bool, list[list[pymupdf.Rect]]]:
     """Whether the page has any text at all, and its hits."""
     textpage = page.get_textpage()
     if not textpage.extractText().strip():
@@ -80,7 +80,7 @@ def _search_page(page: fitz.Page, needle: str) -> tuple[bool, list[list[fitz.Rec
 
 
 def search_slice(
-    doc: fitz.Document,
+    doc: pymupdf.Document,
     needle: str,
     start: int,
     end: int | None,

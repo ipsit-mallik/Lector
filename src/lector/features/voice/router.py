@@ -102,6 +102,9 @@ REFERENCE = "reference"
 OVERWRITE_CONFIRM = "overwrite_confirm"
 # Hardening H2: "Save a copy" onto a file that already exists asks first.
 REPLACE_CONFIRM = "replace_confirm"
+# Hardening H5: the password box for a password-protected PDF. A password is
+# typed, never spoken: dictating one would put it in a transcript.
+PASSWORD_PROMPT = "password_prompt"
 
 # Every context a page or dialog may declare itself as, via `Api.set_voice_context`.
 # Extendable: 8.6-8.9 add screens that need no new entry here beyond what is
@@ -109,6 +112,7 @@ REPLACE_CONFIRM = "replace_confirm"
 CONTEXTS: tuple[str, ...] = (
     HOME, READING, SETTINGS, SAVE_DIALOG, OPEN_DIALOG, PICKER, DICTATION,
     REMOVE_CONFIRM, SAVE_CONFIRM, REFERENCE, OVERWRITE_CONFIRM, REPLACE_CONFIRM,
+    PASSWORD_PROMPT,
 )
 
 # What a fresh `VoiceEngine`/`Api` should behave as before any page has made
@@ -400,6 +404,12 @@ REPLACE_CONFIRM_PHRASES: dict[str, tuple[str, ...]] = {
     CANCEL: ("cancel", "never mind"),
 }
 
+# Hardening H5: the password box only listens for "cancel". Opening the PDF
+# takes the typed password, so there is nothing else to say.
+PASSWORD_PROMPT_PHRASES: dict[str, tuple[str, ...]] = {
+    CANCEL: ("cancel", "never mind"),
+}
+
 
 # Modal scopes that do not let screen-level globals through (Milestone 8.12),
 # mapped to the few they do. Every other context matches the whole global set
@@ -413,6 +423,7 @@ MODAL_ALLOWED_GLOBALS: dict[str, frozenset[str]] = {
     REFERENCE: frozenset({HELP, START_DICTATION}),
     OVERWRITE_CONFIRM: frozenset(),
     REPLACE_CONFIRM: frozenset(),
+    PASSWORD_PROMPT: frozenset(),
 }
 
 
@@ -444,6 +455,9 @@ _OVERWRITE_CONFIRM_ORDERED_PHRASES, _OVERWRITE_CONFIRM_PHRASE_TO_INTENT = _flatt
 _REPLACE_CONFIRM_ORDERED_PHRASES, _REPLACE_CONFIRM_PHRASE_TO_INTENT = _flatten_phrases(
     REPLACE_CONFIRM_PHRASES
 )
+_PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT = _flatten_phrases(
+    PASSWORD_PROMPT_PHRASES
+)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
 # except `READING` (which delegates to `command_grammar` instead) and
@@ -464,6 +478,7 @@ _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     REFERENCE: (_REFERENCE_ORDERED_PHRASES, _REFERENCE_PHRASE_TO_INTENT),
     OVERWRITE_CONFIRM: (_OVERWRITE_CONFIRM_ORDERED_PHRASES, _OVERWRITE_CONFIRM_PHRASE_TO_INTENT),
     REPLACE_CONFIRM: (_REPLACE_CONFIRM_ORDERED_PHRASES, _REPLACE_CONFIRM_PHRASE_TO_INTENT),
+    PASSWORD_PROMPT: (_PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT),
 }
 
 
@@ -509,6 +524,7 @@ _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     REFERENCE: _vocabulary_from_phrases(REFERENCE_PHRASES),
     OVERWRITE_CONFIRM: _vocabulary_from_phrases(OVERWRITE_CONFIRM_PHRASES),
     REPLACE_CONFIRM: _vocabulary_from_phrases(REPLACE_CONFIRM_PHRASES),
+    PASSWORD_PROMPT: _vocabulary_from_phrases(PASSWORD_PROMPT_PHRASES),
 }
 
 
