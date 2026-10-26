@@ -30,8 +30,8 @@ reply and ask.
 | H3 | Errors and logging | yes | reviewed | committed to master as e932540, pushed (branch merged and removed) | review 2026-10-24: all PASS |
 | H4 | Settings file safety | yes | reviewed | committed to master as e4385b6, pushed (branch merged and removed) | review 2026-10-25: all PASS |
 | H5 | Odd and hostile PDFs | yes | reviewed | committed to master with this file (the commit that added docs/HARDENING.md), pushed (branch merged and removed) | review 2026-10-26: all PASS |
-| H6 | PDF fixtures and regression tests | no | todo | - | - |
-| H7 | Guard-rail tests | no | todo | - | - |
+| H6 | PDF fixtures and regression tests | no | reviewed | committed to master as be26179, pushed (branch merged and removed); docs/HARDENING.md not in that commit | review 2026-10-26: all PASS |
+| H7 | Guard-rail tests | no | reviewed | committed to master as 2ba8c09 (licensing gate in CLAUDE.md as dc32013), pushed (branch merged and removed); docs/HARDENING.md not in those commits | review 2026-10-26: 1 requirement not met (`socket` not allowed in single_instance.py); fixed 2026-10-26; re-review 2026-10-26: all PASS |
 
 Status values: `todo` -> `implemented` -> `reviewed`. Also `report-ready`
 (H1 only, waiting for the developer to read FINDINGS) and `needs-fixes`
@@ -1408,3 +1408,225 @@ Diffed the working tree against `master` @ `e932540`: 3 modified files (`store.p
   - **H7:** this is H7's optional item, so H7 has nothing left to do for it.
   - **Checks:** with every warning shown, importing the app's modules prints nothing about it. Suite: 1262 passed, 2561 subtests passed.
 - **Commit:** the developer chose one commit for H5 and the rename together, including this file, merged to master and pushed.
+
+### H6 — PDF fixtures and regression tests (2026-10-26)
+
+- **Branch:** `hardening/h6-pdf-fixtures`, from `master` @ `1c2bdc0`. **Uncommitted**: diff the working tree. New, untracked files (include them in the diff): `tests/pdf_support.py`, `tests/test_pdf_support.py`, `tests/test_pdf_regressions.py`.
+- **Plan (Plan mode = no; short plan given, then done):**
+  - `tests/pdf_support.py`, in the `voice_support.py` pattern: builders that write each kind of PDF into the test's own folder, plus `sha256` and `highlights_on_disk` (a fresh PyMuPDF reader, not Lector).
+  - `tests/test_pdf_support.py`: each builder is what its name says, so no other test passes for the wrong reason.
+  - `tests/test_pdf_regressions.py`: what H2–H5 did not already pin. Existing tests were left as they were; none were moved onto the new builders (scope).
+  - Fix real bugs one at a time. One was found: rotated pages (below).
+- **Fixtures:** plain text, multi-page, rotated (90/180/270), image-only (a picture of text, no text layer), encrypted (AES-256, known password), unicode (Latin accents, Greek, Cyrillic, CJK in MuPDF's built-in Droid Sans Fallback), already highlighted (one highlight in another app's colour with a note and author, one with no /C at all), zero-byte, truncated (cut before the xref, repaired on open). No binaries: `tests/fixtures/` still holds only the three `.wav` files.
+- **Regression tests added:**
+  - **Highlight round trip:** highlight → save a copy / overwrite → read back with a fresh reader, on plain, multi-page (last page), unicode, repaired, password-protected and rotated 90/180/270. Colour and covered text are checked; the original is byte-identical after a copy.
+  - **No text layer:** search on an image-only page returns nothing and `text_pages` 0; a scanned page between two text pages is skipped and not counted; nothing can be highlighted there and the document stays clean.
+  - **Change then save (copy and overwrite):** another app's highlight, recoloured, keeps its note and author; a removed highlight is gone from the file; removing every highlight leaves none; an undone recolour and an undone removal are not written; a new highlight recoloured is saved in its last colour.
+  - **Rotated pages:** see the bug below.
+- **Bug found and fixed: boxes on rotated pages were in the wrong place.** MuPDF reports text, search hits and highlight quads on the *unrotated* page but renders it turned, and the bridge sent the turned page size with unrotated boxes. Nothing in `frontend/` handled rotation. So on a page with /Rotate 90/180/270:
+  - a drag selected the wrong characters, and the selection wash was drawn somewhere else;
+  - a highlight's click target was off the highlight (the highlight itself was written and drawn correctly);
+  - find marks landed on blank paper, and the scroll-to-match went to the wrong place;
+  - voice highlighting matched the words in the wrong band of the page.
+  - **Fix:** `PdfDocument.as_shown(page_index, rects)` (the page's `rotation_matrix`) and `words_as_shown(page_index)`. `Api.get_page_chars` and `get_page_highlights` send boxes through `as_shown`; `search.search_slice` turns its hits (`_shown_box`); `highlight_by_voice` and `_viewport_vocabulary` match the viewport against `words_as_shown`. Nothing comes back as coordinates (highlights return as indices), so no inverse was needed. Rotation 0 is unchanged (identity matrix).
+  - **Red check:** with only `src/` stashed, the rotated tests failed 12 subtests (90/180/270 × characters, highlight, find, voice outside the region); with the fix, all pass. Rotation 0 passed both ways.
+  - **Self-review fix:** `as_shown` returns `[]` for no boxes before touching the page, so `highlight_by_voice` with no document open stays a miss instead of raising (test added).
+- **Found, not fixed (needs a decision):** find in document folds case for **ASCII letters only**. That is MuPDF's `search_for`. "café" finds "Café", but "CAFÉ", "привет" and "ωmega" find nothing for "Café", "Привет" and "Ωmega". Fixing it means matching on extracted text in `search.py` instead of `search_for`, a larger behaviour change than this task. `test_unicode_words_are_found` searches in the words' written case and says why.
+- **Files changed:**
+  - Code: `src/lector/features/reading/document.py` (`as_shown`, `words_as_shown`, `dataclasses.replace` import), `src/lector/features/reading/search.py` (`_shown_box`, docstring), `src/lector/api.py` (`get_page_chars`, `get_page_highlights`, `highlight_by_voice`, `_viewport_vocabulary`, `start_listening` docstring).
+  - Tests: the three new files above. No existing test changed.
+  - Docs: `docs/ARCHITECTURE.md` (new bullet "Boxes cross the bridge on the page as shown…" after the hit-testing bullet), `CHANGELOG.md` (one `[Unreleased]` → Fixed entry). PRD, TECH_STACK and DESIGN_SYSTEM unchanged (nothing in them moved). `docs/TASKS.md` not touched.
+- **Tests:**
+  - **Before:** `python -m pytest -q` at `1c2bdc0` → 1262 passed, 2561 subtests passed.
+  - **After:** **1288 passed, 2614 subtests passed, 0 failed** (+26 tests, +53 subtests; none removed or weakened).
+- **Code review:** no Agent tool in this session, so the review was the author's own pass over `git diff` (the no-document guard above came from it). The fresh-context review session is the independent one.
+- **In-app check** (scratch launcher outside the repo, in the job's temp folder):
+  - **Setup:** a **hidden** window, isolated `APPDATA` (onboarding marked seen), its own single-instance pipe, WebView2 DevTools port 9333.
+  - **Driven by JS only:** `MouseEvent`s dispatched on `pageSurface`/`document`, the find input's value plus an `input` event, button `.click()`. No desktop capture and no OS input.
+  - **Test file:** a 2-page PDF, page 1 /Rotate 90 and page 2 upright, with the same paragraph.
+  - **Drag:** pressed at the centre of "b" of "brown" and moved to "x" of "fox" (positions from `get_page_chars`).
+    - The live selection wash covered exactly "brown fox" on the sideways line.
+    - On release, `get_page_highlights` returned one highlight, text "brown fox", yellow; the counter read "1 highlight on this page".
+    - The highlight's click target was at the same box as the wash.
+  - **Find "lazy dog":** "1 of 2", with the current mark on "lazy dog" on the rotated page and the view scrolled to it. "2 of 2" went to page 2 (upright). There the match is on the first line, under the floating find bar: at the top of the scroll there is nowhere further to scroll. That is pre-existing and not rotation-related.
+  - The developer's real `%APPDATA%\Lector\settings.json` was last modified at 11:18, before the check.
+- **Screenshots** (job temp folder `h6app/`, not committed; light theme, DevTools page capture): `01_open_rotated`, `02_drag_selection`, `03_highlight_applied`, `04_find_marks`, `05_find_upright_page`.
+  - No new visual element or style. Compared against DESIGN_SYSTEM.md's selection wash, highlight and find mark, they look as they do on an upright page, only now on the words. **Matches.**
+  - As in H5, one DevTools capture stalled until the page changed.
+- **Not verified:**
+  - Dark and sepia (no style changed, only positions).
+  - Strip layout on a rotated page (same `as_shown` boxes, same `pageScale()`; not driven).
+  - A rotated **scanned** page after OCR. OCR boxes are already mapped to the unrotated page (`ocr.py` derotation, `test_boxes_on_a_rotated_page_match_its_text_coordinates`), so they go through the same `as_shown`; not run in the app.
+  - Voice in the running app (the viewport path is covered by the API tests only).
+  - Anything on macOS.
+  - Pages whose CropBox does not start at the MediaBox origin (`rotation_matrix` is MuPDF's; not tested with an offset box).
+- **Known limits:**
+  - On a sideways page a line of text runs down the screen, but `reading.js`'s "nearest character on the line it's level with" rule, used when a drag leaves the text, still assumes lines run across. Drags over the text are right; a drag out into the margin can extend less naturally. Noted in ARCHITECTURE.
+  - Find's ASCII-only case folding (above).
+  - `api.py` is still over the 800-line soft ceiling (pre-existing).
+- **For H7:** an intermittent pytest `DependencyWarning` (urllib3 SOCKS) comes from `vosk/__init__.py`, which imports `requests` (Vosk's own model downloader). It is loaded on the `voice-model-warmup` thread that every `Api()` starts. Lector never calls it, and H7's scan covers `src/` only, but it is a network-capable library in the process.
+- **Commit:** uncommitted; the commit question goes to the developer.
+
+#### Review (2026-10-26, fresh context)
+
+- **Diff reviewed:** working tree against `1c2bdc0` (6 tracked files, +111/−13) plus the three untracked test files, read in full. `docs/HARDENING.md` excluded.
+- **Tests:** `python -m pytest -q` → **1288 passed, 2614 subtests passed, 0 failed** (74.7 s). Matches the log.
+- **Red check, redone:** the three new test files in a temporary detached worktree at `1c2bdc0` (removed afterwards) → 13 failed, 25 passed. The 12 rotation subtests (90/180/270 × characters, highlight, find, voice outside the region) fail, and so does `test_with_no_document_open_there_is_nothing_to_turn` (`as_shown` does not exist there). Rotation 0, every round trip, every no-text test and every change-then-save test pass on master. That agrees with the log: highlights were already written correctly, only the boxes sent to the page were wrong.
+- **Extra probe (scratch script, not committed):** a page whose CropBox is offset from the MediaBox origin and not square (100,150–450,650), at 0/90/180/270. `page_size_points` matched the rendered pixmap each time (350×500 / 500×350), and `as_shown`'s box for "fox" covered 31 ink pixels at every rotation. This covers the log's unverified item "CropBox not at the MediaBox origin", for character boxes; find and highlights use the same matrix.
+- **Fresh-context review checklist:**
+  - **Can a failure path change or lose the original PDF?** PASS. No save or open path changed. `as_shown`/`words_as_shown` (`document.py:393-413`) and `_shown_box` (`search.py:82-86`) only read. Highlights are still written from indices on the unrotated page (`api.py:655-661`, `highlight_word_indices`). `test_a_saved_copy_holds_the_highlight_and_the_original_does_not` checks the original's sha256 after a copy, including the protected and repaired files.
+  - **New `fitz`/`pymupdf` import outside the five files?** PASS. In `src/` only `document.py` and `search.py` gained PyMuPDF use, and both already import it. The tests' imports are allowed (H7's scope is `src/`).
+  - **New network use?** PASS. None in the diff.
+  - **Raw exception text or traceback to the UI; content in logs?** PASS. No new error path, log call or message. `as_shown` returns `[]` for no boxes before touching the page (`document.py:403`), so with no PDF open `highlight_by_voice` stays a miss instead of raising (`test_with_no_document_open_there_is_nothing_to_turn`).
+  - **UI-thread blocking / PyMuPDF from several threads?** PASS. The new calls run on the same bridge calls as the `chars_on_page`/`highlights_on_page`/`search_slice` calls they sit beside. One `rotation_matrix` per page per call is cheap; there is no new thread and no new lock use.
+  - **Windows AND Mac?** PASS, not run on Mac. The change is pure geometry, with nothing OS-specific.
+  - **Tests added, whole suite passing?** PASS. `test_pdf_support.py` (9 builder checks) and `test_pdf_regressions.py` (17 tests). 1288 passed. No existing test changed (`git diff --stat` touches no file under `tests/`).
+  - **CHANGELOG / docs / screenshots / nothing committed?** PASS.
+    - **CHANGELOG:** one `[Unreleased]` → Fixed entry in plain language.
+    - **Docs:** ARCHITECTURE has a new bullet "Boxes cross the bridge on the page as shown…". PRD, TECH_STACK and DESIGN_SYSTEM need nothing, since no documented behaviour or look moved.
+    - **Screenshots:** the five files in the implementation job's `h6app/` folder exist. `02_drag_selection` and `04_find_marks` were looked at this session: the wash sits on "brown fox" and the find mark on "lazy dog" on the sideways line.
+    - **Commit:** none (uncommitted).
+- **H6 spec requirements:**
+  - **Helpers built in code with PyMuPDF in `tests/pdf_support.py`, in the `voice_support.py` pattern, no committed binaries:** met. Same `sys.path` setup as `voice_support.py`. `tests/fixtures/` holds only the three `.wav` files (`git ls-files tests/fixtures`).
+  - **Cover plain text, multi-page, rotated, image-only, encrypted with a known password, unicode, already-highlighted, zero-byte, truncated:** met. All nine are builders in `pdf_support.py`, and each is checked to be what its name says in `test_pdf_support.py`.
+  - **Regression tests for what H2–H5 did not cover:**
+    - **Highlight round trip:** met (`HighlightRoundTripTests`, 8 files × copy/overwrite).
+    - **Search on a no-text page:** met (`PageWithNoTextTests`).
+    - **Recolour/remove then save:** met (`ChangeThenSaveTests`, 5 tests × copy/overwrite, including undone changes).
+  - **Follow the existing test naming:** met. `test_*.py` modules, `unittest.TestCase` classes and `test_` methods in descriptive sentences, like the other 69 modules.
+  - **Run the whole suite, report failures honestly, fix real bugs one at a time:** met. One bug (rotated-page boxes) was fixed with a red-then-green proof. One finding was reported without a fix and left for a decision: find's ASCII-only case folding.
+  - **Do not weaken or delete existing tests:** met. No existing test file changed.
+  - **Do not commit; ask:** met (uncommitted).
+- **Observations, not faults:**
+  - On master, `test_voice_matches_the_words_in_the_region_shown` also passes for 90/180/270: it takes its band from `get_page_chars`, which was unrotated there too, so old code was self-consistent. Its partner `test_voice_does_not_match_words_outside_the_region_shown` is the one that catches the bug. The pair is enough; neither needs changing.
+  - `test_unicode_words_are_found` writes down the ASCII-only case-folding limit, not the behaviour a reader would want. If the developer decides to fold case for all scripts, that test should gain lower/upper-case needles for the other scripts.
+  - Lint not run: `ruff` is not installed in this environment.
+- **Result:** all PASS, every requirement met → `reviewed`.
+- **Not covered by this review:**
+  - **No app run this session.** In-app behaviour rests on the implementation session's hidden-window check and its screenshots (two of which were looked at).
+  - **Strip layout, dark and sepia, and a rotated scanned page after OCR** stay unverified in the app, as the log says.
+  - **Nothing run on macOS.**
+  - **Same model:** this is the same model reading the code again with fresh context. It catches real mistakes, but it is not proof that the code is correct.
+
+#### Commit (2026-10-26)
+
+- At the developer's request: committed as `be26179` on `hardening/h6-pdf-fixtures`, fast-forwarded onto `master`, pushed to `origin/master`, and the branch deleted. It was local only, and no worktree was used.
+- `docs/HARDENING.md` was left out of the commit, per the rule in WORK SESSION step 8. It is uncommitted on master.
+
+### H7 — Guard-rail tests (2026-10-26)
+
+- **Branch:** `hardening/h7-guard-rails`, from `master` @ `be26179`. **Uncommitted**: diff the working tree. One new, untracked file: `tests/test_guard_rails.py`.
+- **Plan (Plan mode = no; short plan given, then done):**
+  - One test module that reads every `.py` under `src/lector` with `ast` (no import, no run), in the style of `test_untrusted_pdf_content.py`'s launcher scan.
+  - Imports are counted wherever they are: at the top, inside a function, `from x import y` (counted as `x.y`), and `importlib.import_module("...")` / `__import__("...")` with a written-out name. Relative imports (`from .requests import x`) are not mistaken for libraries.
+  - A scanner self-check, so a broken scan cannot pass green: it must see PyMuPDF in each of the five allowed files and each allowed socket import where it is allowed.
+  - No refactor, no source change.
+- **Test 1, PyMuPDF spread:** `pymupdf` or `fitz` may be imported only by `features/annotations/highlighter.py`, `features/home/recent.py`, `features/reading/document.py`, `ocr.py`, `search.py`. The failure message says "decide in ARCHITECTURE.md before spreading PyMuPDF further, then add the file to PYMUPDF_ALLOWED here".
+- **Test 2, network:** no module in `src/lector` may import `urllib.request`, `http.client`, `requests`, `httpx`, `aiohttp`, `ftplib`, `smtplib`. Socket-level modules are allowed only where they are expected: `socket`, `socketserver`, `http.server` in `shared/frontend_server.py`, and `multiprocessing.connection` in `shared/single_instance.py`. `scripts/` is not scanned.
+- **Decisions made without asking (the spec allowed them or was silent; flag if wrong):**
+  - `socketserver` and `http.server` are treated like `socket` (allowed only in `frontend_server.py`), because they open sockets themselves. The spec only named `socket`.
+  - `multiprocessing.connection` is allowed only in `single_instance.py`: it can do TCP as well as pipes. Plain `multiprocessing` (the OCR worker pool in `ocr.py`) is not restricted.
+- **Optional item (`import fitz` → `import pymupdf`):** already done after the H5 review (see H5 "After the review"), so nothing left. `src/` has no `import fitz`.
+- **Red check:** a temporary `src/lector/_h7_red_probe.py` with `import pymupdf`, `from urllib import request` and `import socket` inside a function → exactly 3 subtests failed (one per rule), each naming the file and module; the probe was deleted afterwards.
+- **Files changed:** `tests/test_guard_rails.py` (new). No source, doc or CHANGELOG change: not user-facing, and no documented behaviour moved. `docs/TASKS.md` not touched.
+- **Tests:**
+  - **Before:** `python -m pytest -q` at `be26179` → 1288 passed, 2614 subtests passed.
+  - **After:** **1296 passed, 2842 subtests passed, 0 failed** (+8 tests, +228 subtests).
+- **Screenshots:** not needed (no visual change).
+- **Not covered / known limits:**
+  - **Third-party libraries are not scanned.** As H6 noted, `vosk/__init__.py` imports `requests` (Vosk's model downloader); it is loaded on the voice warm-up thread, and Lector never calls it. The guard is on Lector's own code only, as the spec says.
+  - Imports by a computed name (`import_module(name)` with a variable) and `exec`/`eval` are not seen; nothing in `src/` does either today.
+  - The scan says nothing about *where* the frontend server binds; that is pinned by `test_frontend_server.py` (`127.0.0.1`), not here.
+  - Nothing run on macOS (the test is pure source parsing, nothing OS-specific).
+  - Lint not run: `ruff` is not installed in this environment.
+- **Commit:** uncommitted; the commit question goes to the developer.
+
+#### Review (2026-10-26, fresh context)
+
+- **Diff reviewed:** working tree against `be26179`: one untracked file, `tests/test_guard_rails.py` (164 lines, read in full). No tracked source, doc or CHANGELOG file changed (`git diff --stat` touches only `docs/HARDENING.md`, excluded).
+- **Tests:** `python -m pytest -q` → **1296 passed, 2842 subtests passed, 0 failed** (81.9 s). Matches the log.
+- **Red check, redone without touching the repo:** a scratch script (job temp folder, not committed) copied `src/` and planted two probes, then ran the module with `SRC`/`SOURCES` pointed at the copy:
+  - `features/_probe_a.py`: `import urllib.request as u`, `from http import client`, and inside a function `import fitz` and `importlib.import_module('requests')`, plus `from . import requests`;
+  - `shared/_probe_b.py`: `from multiprocessing import connection`, `__import__('socket')`.
+  - Result: exactly 4 subtests failed. PyMuPDF (`fitz`) in `_probe_a`; network (`http.client, requests, urllib.request`) in `_probe_a`; `socket` and `multiprocessing.connection` in `_probe_b`. Each message names the file and module. The relative import was not counted.
+- **Imports in `src/` today (grep):** PyMuPDF in exactly the five allowed files, as `import pymupdf` (no `fitz` left). `http.server`, `socket` and `socketserver` only in `shared/frontend_server.py:27-32`. `multiprocessing.connection` only in `shared/single_instance.py:25`. No `importlib.import_module`/`__import__` anywhere. `src/` holds only `lector/`. No `http(s)://` URL in the frontend's JS/HTML/CSS besides localhost/w3.org (outside the spec, checked as context for "fully offline").
+- **Fresh-context review checklist:**
+  - **Can a failure path change or lose the original PDF?** N/A. Test-only change. No file under `src/` changed.
+  - **New `fitz`/`pymupdf` import outside the five allowed files?** PASS. None (grep above). This is now enforced by `test_guard_rails.py:119`.
+  - **New network use?** PASS. None. This is now enforced by `test_guard_rails.py:134` and `:144`.
+  - **Raw exception text or traceback to the UI; content in logs?** N/A. No app code changed.
+  - **UI-thread blocking / PyMuPDF from several threads?** N/A. No app code changed. The test only parses source with `ast`, and nothing is imported or run.
+  - **Windows AND Mac?** PASS, not run on Mac. Paths are compared as `as_posix()` (`test_guard_rails.py:79`), and files are read as UTF-8.
+  - **Tests added, whole suite passing?** PASS. 8 tests: 5 scanner self-checks and 3 guards. 1296 passed.
+  - **CHANGELOG / docs / screenshots / nothing committed?** PASS.
+    - **CHANGELOG:** not needed (the spec says not user-facing).
+    - **Docs:** no documented behaviour moved.
+    - **Screenshots:** no visual change.
+    - **Commit:** uncommitted.
+- **H7 spec requirements:**
+  - **No refactor:** met. Test-only.
+  - **Test 1: only the five modules may import fitz/pymupdf; fails if a new file does; message says "decide in ARCHITECTURE.md before spreading PyMuPDF further":** met. Allowlist at `test_guard_rails.py:27-33`, message at `:127`, failure shown by the red check.
+  - **Test 2: scan `src/lector` for `urllib.request`, `http.client`, `requests`, `httpx`, `aiohttp`, `ftplib`, `smtplib`:** met (`:36-44`, red check).
+  - **Test 2: `scripts/` exempt:** met. Only `src/lector` is scanned (`:24`).
+  - **Test 2: "`socket` outside shared/frontend_server.py and single_instance.py":** **not met as written.** The spec allows `socket` in **both** files. `SOCKET_ALLOWED["socket"]` lists only `frontend_server.py` (`:47`), so a `socket` import in `single_instance.py` would fail the test. That is the file the spec allows it in, and it is the one that uses a Unix socket on macOS (`single_instance.py:3`). Nothing imports `socket` there today, so the suite is green; but this contradicts an explicit allowance, rather than filling a gap the spec left open. The log's "Decisions made without asking" does not list it.
+  - **Optional `import fitz` → `import pymupdf`:** met. Already done after H5, and the grep confirms no `fitz` in `src/`.
+  - **Do not commit; ask:** met (uncommitted).
+- **What to fix (one change, test file only):**
+  1. Add `"lector/shared/single_instance.py"` to `SOCKET_ALLOWED["socket"]` (`test_guard_rails.py:47`).
+  2. The self-check at `:96-101` then fails, because it requires each allowed module to be seen in *every* allowed file, and `single_instance.py` does not import `socket`. Change it to require each allowed module to be seen in *at least one* of its allowed files. That still proves the scan can see `socket`, `socketserver`, `http.server` and `multiprocessing.connection`.
+  3. Re-run the whole suite, and the red check: `socket` in a non-allowed file must still fail.
+- **For the developer to confirm in the fix session (the implementer decided these without asking, though the log flags them):**
+  - (a) `socketserver` and `http.server` are restricted like `socket`, to `frontend_server.py` only.
+  - (b) `multiprocessing.connection` is restricted to `single_instance.py` only.
+  - Both are stricter than the spec, and neither breaks anything today. The ground rules say to ask rather than guess, so the fix session should ask: keep them, or also allow each in the other of the two files?
+- **Observations, not faults:**
+  - `imported_modules` adds `x.*` for `from x import *`. It is harmless, since no rule name ends in `*`.
+  - A computed-name import or `exec` is not seen, as the log says.
+  - Third-party code (Vosk's `requests`) is outside the scan, as the spec scopes it.
+  - Lint not run: `ruff` is not installed in this environment.
+- **Result:** one requirement not met as written → `needs-fixes`.
+- **Not covered by this review:**
+  - **No app run.** None is needed for a source-scan test.
+  - **Nothing run on macOS.**
+  - **Same model:** this is the same model reading the code again with fresh context. It catches real mistakes, but it is not proof that the code is correct.
+
+#### Fixes (2026-10-26, work session after the review)
+
+- **Branch:** still `hardening/h7-guard-rails` from `master` @ `be26179`, **uncommitted**. Only `tests/test_guard_rails.py` changed (still untracked).
+- **Fix 1:** `SOCKET_ALLOWED["socket"]` now lists `lector/shared/single_instance.py` as well as `frontend_server.py`, as the spec allows.
+- **Fix 2:** the scanner self-check is renamed `test_every_allowed_socket_import_is_seen_in_a_file_allowed_it`. It now requires each restricted module to be seen in *at least one* of its allowed files (one subtest per module), with a comment saying an allowance is not a requirement. It still proves the scan sees `socket`, `socketserver`, `http.server` and `multiprocessing.connection`.
+- **Fix 3, red check (scratch script in the job temp folder, repo untouched):** copied `src/`, appended `import socket` to `single_instance.py`, and planted `features/_probe_c.py` (`import socket` inside a function) and `shared/_probe_d.py` (`import socketserver`). Result: exactly 2 subtests failed, `socket` in `_probe_c` and `socketserver` in `_probe_d`, each naming the file and the allowed files. `socket` in `single_instance.py` passed.
+- **Review's open questions (a) `socketserver`/`http.server` only in `frontend_server.py`, (b) `multiprocessing.connection` only in `single_instance.py`:** left as they were, stricter than the spec. They are put to the developer in this session's reply; if they want either widened, it is a one-line change to `SOCKET_ALLOWED`.
+- **Tests:** before the fix (the review's run): 1296 passed, 2842 subtests passed. After: `python -m pytest -q` → **1296 passed, 2841 subtests passed, 0 failed** (82.6 s). One subtest fewer is expected: the guard now skips the (`single_instance.py`, `socket`) pair it used to check; the self-check stays at 4 subtests (one per module instead of one per allowed file).
+- **Screenshots:** not needed (no visual change). Lint not run (`ruff` not installed).
+
+#### Re-review (2026-10-26, fresh context)
+
+- **Diff reviewed:** working tree against `be26179` (`HEAD` = `master` = `be26179`): still one untracked file, `tests/test_guard_rails.py` (159 lines, read in full). No tracked file changed apart from `docs/HARDENING.md` (excluded).
+- **Tests:** `python -m pytest -q` → **1296 passed, 2841 subtests passed, 0 failed** (90.7 s). Matches the fix log.
+- **Red check, redone (scratch copy of `src/` in the job temp folder, repo untouched; module loaded with `SRC`/`SOURCES` pointed at the copy):**
+  - `import socket` appended to `shared/single_instance.py`, plus `features/_probe_e.py` (inside a function: `import socket`, `import http.server`) and `shared/_probe_f.py` (`from socketserver import TCPServer`, `importlib.import_module("fitz")`, `from requests import get`).
+  - Result: exactly 5 failures, one per planted violation: `requests` (network), `socket` and `http.server` in `_probe_e`, `socketserver` in `_probe_f`, `fitz` (PyMuPDF). Each message names the file and the allowed files. `socket` in `single_instance.py` passed.
+- **Imports in `src/` today (grep):** `pymupdf` in exactly the five allowed files (`recent.py:13`, `document.py:7`, `ocr.py:35`, `search.py:19`, `highlighter.py:20`). `http.server`, `socket`, `socketserver` only in `frontend_server.py:27-32`. `multiprocessing.connection` only in `single_instance.py:25`. No `import_module`/`__import__`.
+- **Fresh-context review checklist:**
+  - **Can a failure path change or lose the original PDF?** N/A. Test-only change.
+  - **New `fitz`/`pymupdf` import outside the five allowed files?** PASS. None; enforced by `test_guard_rails.py:120`.
+  - **New network use?** PASS. None; enforced by `test_guard_rails.py:135` and `:145`.
+  - **Raw exception text or traceback to the UI; content in logs?** N/A. No app code changed.
+  - **UI-thread blocking / PyMuPDF from several threads?** N/A. The test parses source with `ast` and imports nothing from the app.
+  - **Windows AND Mac?** PASS, not run on Mac. Paths compared as `as_posix()` (`:79`), files read as UTF-8.
+  - **Tests added, whole suite passing?** PASS. 8 tests (5 scanner self-checks, 3 guards); 1296 passed.
+  - **CHANGELOG / docs / screenshots / nothing committed?** PASS. No CHANGELOG needed (spec: not user-facing); no documented behaviour moved; no visual change; uncommitted.
+- **H7 spec requirements:**
+  - **No refactor:** met. Test-only.
+  - **Test 1 (five modules only; fails on a new file; message says "decide in ARCHITECTURE.md before spreading PyMuPDF further"):** met. Allowlist `:27-33`, message `:128-130`, red check.
+  - **Test 2 (forbidden list `urllib.request`, `http.client`, `requests`, `httpx`, `aiohttp`, `ftplib`, `smtplib`):** met. `:36-44`, red check.
+  - **Test 2 (`socket` allowed in `shared/frontend_server.py` and `single_instance.py`, nowhere else):** **met now.** `SOCKET_ALLOWED["socket"]` lists both (`:47`); the red check showed `socket` passing in `single_instance.py` and failing elsewhere. The self-check (`:96-102`) needs each restricted module in at least one allowed file, so it still proves the scan sees all four.
+  - **Test 2 (`scripts/` exempt):** met. Only `src/lector` is scanned (`:24`).
+  - **Optional `import fitz` → `import pymupdf`:** met (done after H5; no `fitz` in `src/`).
+  - **Do not commit; ask:** met.
+- **Still open for the developer (not a fault; stricter than the spec, breaks nothing today):** the fix log says these went to the developer, but no answer is recorded here: (a) `socketserver`/`http.server` allowed only in `frontend_server.py`; (b) `multiprocessing.connection` allowed only in `single_instance.py`. Widening either is a one-line change to `SOCKET_ALLOWED`.
+- **Observations, not faults:** a computed-name import or `exec` is not seen; third-party code (Vosk's `requests`) is outside the scan, as the spec scopes it; `from x import *` adds a harmless `x.*` name. Lint not run (`ruff` not installed).
+- **Result:** all PASS, every requirement met → `reviewed`.
+- **Not covered by this review:** no app run (none needed for a source scan); nothing run on macOS; same model reading the code again with fresh context, which catches real mistakes but is not proof the code is correct.
+- **Commit:** the developer chose two commits: `2ba8c09` (`tests/test_guard_rails.py`) and `dc32013` (licensing gate added to `CLAUDE.md`), fast-forwarded to master, pushed, branch removed. `docs/HARDENING.md` (H6/H7 review notes) committed on its own afterwards, at the developer's request.
