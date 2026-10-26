@@ -2,7 +2,7 @@ import logging
 import math
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pymupdf
 
@@ -389,6 +389,28 @@ class PdfDocument:
             return (0.0, 0.0)
         rect = self._doc[page_index].rect
         return (rect.width, rect.height)
+
+    def as_shown(self, page_index: int, rects) -> list[pymupdf.Rect]:
+        """`rects` moved from where MuPDF reports text to where the reader sees it.
+
+        MuPDF gives text, search hits and highlight quads on the *unrotated*
+        page, and highlights are written there too, but it renders the page
+        turned by its /Rotate, and `page_size_points` is that turned size.
+        Every box the reading view lays over the page image has to be on the
+        image, so each one crossing the bridge goes through this. A page with
+        no rotation comes back as it was.
+        """
+        if not rects:  # also what a closed document's empty word list gets
+            return []
+        to_shown = self._doc[page_index].rotation_matrix
+        return [pymupdf.Rect(rect) * to_shown for rect in rects]
+
+    def words_as_shown(self, page_index: int) -> list[highlighter.Word]:
+        """`words_on_page`, each box `as_shown`, in the same order: for
+        telling which words are in a region of the page the reader sees."""
+        words = self.words_on_page(page_index)
+        shown = self.as_shown(page_index, [w.rect for w in words])
+        return [replace(word, rect=rect) for word, rect in zip(words, shown)]
 
     def highlight_char_indices(
         self, page_index: int, start_idx: int, end_idx: int, color: str = highlighter.DEFAULT_COLOR

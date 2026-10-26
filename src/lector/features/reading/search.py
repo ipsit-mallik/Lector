@@ -79,6 +79,13 @@ def _search_page(page: pymupdf.Page, needle: str) -> tuple[bool, list[list[pymup
     return True, group_fragments(fragments, needle)
 
 
+def _shown_box(rect: pymupdf.Rect, page: pymupdf.Page) -> list[float]:
+    """A hit's rect on the page as shown: MuPDF searches the unrotated page
+    but renders it turned (see `PdfDocument.as_shown`)."""
+    box = rect * page.rotation_matrix
+    return [box.x0, box.y0, box.x1, box.y1]
+
+
 def search_slice(
     doc: pymupdf.Document,
     needle: str,
@@ -95,7 +102,8 @@ def search_slice(
     the following slice should start, or None once `end` is reached.
     `text_pages` counts the pages that had any text, so the caller can tell
     "no matches" apart from "nothing here can be searched" (a scanned PDF).
-    Rects are in PDF points, in the same space as `get_page_chars`.
+    Rects are in PDF points on the page as shown (its rotation applied), the
+    same space as `get_page_chars` and the `width`/`height` beside them.
     """
     stop = doc.page_count if end is None else min(end, doc.page_count)
     pages: list[dict] = []
@@ -112,7 +120,7 @@ def search_slice(
                 "page_index": index,
                 "width": page.rect.width,
                 "height": page.rect.height,
-                "hits": [[[r.x0, r.y0, r.x1, r.y1] for r in hit] for hit in hits],
+                "hits": [[_shown_box(r, page) for r in hit] for hit in hits],
             })
         index += 1
         if clock() - began >= budget:

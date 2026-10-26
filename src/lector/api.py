@@ -451,19 +451,21 @@ class Api:
         # First, because for a scanned page read in an earlier session this
         # is what loads its cached text — and with it the chars below.
         ocr_status = self._doc.ocr_status(page_index)
+        chars = self._doc.chars_on_page(page_index)
+        shown = self._doc.as_shown(page_index, [c.rect for c in chars])
         return {
             "width": width,
             "height": height,
             "ocr": ocr_status,
             "chars": [
                 {
-                    "x0": c.rect.x0,
-                    "y0": c.rect.y0,
-                    "x1": c.rect.x1,
-                    "y1": c.rect.y1,
+                    "x0": rect.x0,
+                    "y0": rect.y0,
+                    "x1": rect.x1,
+                    "y1": rect.y1,
                     "line": f"{c.block_no}:{c.line_no}",
                 }
-                for c in self._doc.chars_on_page(page_index)
+                for c, rect in zip(chars, shown)
             ],
         }
 
@@ -585,7 +587,10 @@ class Api:
                 {
                     "id": h.xref,
                     "color": h.color,
-                    "rects": [{"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1} for r in h.rects],
+                    "rects": [
+                        {"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1}
+                        for r in self._doc.as_shown(page_index, h.rects)
+                    ],
                     "text": self._doc.text_in_rects(page_index, h.rects),
                 }
                 for h in self._doc.highlights_on_page(page_index)
@@ -632,7 +637,9 @@ class Api:
         """
         pages = []
         for region in self._voice_viewport:
-            words = self._doc.words_on_page(region["page_index"])
+            # The region is part of the page as shown; indices are the same
+            # either way, so the match below highlights the same words.
+            words = self._doc.words_as_shown(region["page_index"])
             visible = highlight_matcher.visible_word_indices(words, region["y0"], region["y1"])
             pages.append((region["page_index"], words, visible))
         match = highlight_matcher.find_word_match(pages, query)
@@ -888,7 +895,8 @@ class Api:
         auto-repeats while held.
 
         `viewport` is the reading view's currently visible page regions —
-        `[{"page_index", "y0", "y1"}, ...]` in PDF points — so a spoken
+        `[{"page_index", "y0", "y1"}, ...]` in PDF points on the page as
+        shown, like `get_page_chars`'s boxes — so a spoken
         highlight phrase can be matched later. Home has no document open and
         passes nothing, which is also what widens nothing: `set_vocabulary`
         is only called with more than the navigation grammar when a document
@@ -1016,7 +1024,7 @@ class Api:
         """
         words: set[str] = set()
         for region in viewport:
-            page_words = self._doc.words_on_page(region["page_index"])
+            page_words = self._doc.words_as_shown(region["page_index"])
             visible = highlight_matcher.visible_word_indices(
                 page_words, region["y0"], region["y1"]
             )
