@@ -63,7 +63,12 @@ def main(args: list[str] | None = None) -> None:
     # First, before anything is built: a second launch hands over and exits.
     # Lets this launch raise the running window if it turns out to be second.
     window_chrome.allow_foreground_handoff()
-    lock = single_instance.claim(single_instance.default_address(), path, on_handoff)
+    lock = single_instance.claim(
+        single_instance.default_address(),
+        path,
+        on_handoff,
+        authkey=single_instance.load_key(settings.settings_dir()),
+    )
     if lock is None:
         return
 

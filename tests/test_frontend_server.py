@@ -109,10 +109,10 @@ class _Served(unittest.TestCase):
         self.saved["theme"] = "dark"
         self.saved["page_state"] = lambda: {"data-recent-view": "list", "data-recent-count": "4"}
 
-    def get(self, path):
+    def get(self, path, host=None, method="GET"):
         conn = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=5)
         self.addCleanup(conn.close)
-        conn.request("GET", path)
+        conn.request(method, path, headers={} if host is None else {"Host": host})
         resp = conn.getresponse()
         return resp, resp.read()
 
@@ -165,6 +165,20 @@ class FrontendServerTest(_Served):
 
     def test_a_missing_file_is_404(self):
         self.assertEqual(self.get("/nope.js")[0].status, 404)
+
+    def test_requests_for_any_other_host_name_are_refused(self):
+        # DNS rebinding: a web page points its own domain at 127.0.0.1 and
+        # reads what this server sends. Its requests carry that domain's name.
+        port = self.server.port
+        for host in (f"attacker.example:{port}", "attacker.example", f"localhost:{port}", "127.0.0.1", ""):
+            for method in ("GET", "HEAD"):
+                with self.subTest(host=host, method=method):
+                    resp, body = self.get("/index.html", host=host, method=method)
+                    self.assertEqual(resp.status, 421)
+                    self.assertNotIn(b"data-theme", body)
+
+    def test_the_windows_own_requests_are_served(self):
+        self.assertEqual(self.get("/index.html", host=f"127.0.0.1:{self.server.port}")[0].status, 200)
 
     def test_url_names_a_page_on_this_server(self):
         self.assertEqual(self.server.url("index.html"), f"http://127.0.0.1:{self.server.port}/index.html")

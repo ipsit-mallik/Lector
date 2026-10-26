@@ -18,11 +18,16 @@ pages the difference in accuracy is small next to the difference in speed.
 Apache-2.0 licensed (github.com/tesseract-ocr/tessdata_fast).
 """
 import argparse
+import hashlib
 import sys
 import urllib.request
 from pathlib import Path
 
-URL = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
+# The 4.1.0 release, not the `main` branch, which can change under this
+# script. Tesseract's native code parses the file, so it is only installed if
+# it is exactly the file pinned here.
+URL = "https://github.com/tesseract-ocr/tessdata_fast/raw/4.1.0/eng.traineddata"
+SHA256 = "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
 DEST = Path(__file__).resolve().parents[1] / "assets" / "tessdata" / "eng.traineddata"
 
 
@@ -46,6 +51,8 @@ def fetch(force: bool = False) -> Path:
             buffer.extend(chunk)
             _report(len(buffer), total)
     print()
+    if hashlib.sha256(buffer).hexdigest() != SHA256:
+        raise RuntimeError("the download does not match the pinned SHA-256; nothing was installed")
 
     DEST.parent.mkdir(parents=True, exist_ok=True)
     DEST.write_bytes(bytes(buffer))

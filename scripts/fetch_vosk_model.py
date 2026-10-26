@@ -11,6 +11,7 @@ Re-running is a no-op if the model is already in place; pass --force to
 re-download.
 """
 import argparse
+import hashlib
 import shutil
 import sys
 import tempfile
@@ -19,6 +20,10 @@ import zipfile
 from pathlib import Path
 
 MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-en-us-0.22-lgraph.zip"
+# Vosk's native code parses the model, so the archive is only unpacked if it is
+# exactly the file pinned here. alphacephei.com publishes no hashes; this is
+# the SHA-256 of the archive as downloaded from it over HTTPS on 2026-10-26.
+MODEL_SHA256 = "d9838b4aaa82a75c4a17f5aca300eaca129aaab2a7cbf951bafbb500eb9c4334"
 DEST = Path(__file__).resolve().parents[1] / "assets" / "vosk_model"
 
 # vosk-model-small-en-us-0.15 (the original choice here) turned out too small
@@ -59,13 +64,17 @@ def fetch(force: bool = False) -> Path:
     print(f"Downloading {MODEL_URL}")
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / "model.zip"
+        digest = hashlib.sha256()
         with urllib.request.urlopen(MODEL_URL) as response, open(archive, "wb") as out:
             total = int(response.headers.get("Content-Length", 0))
             done = 0
             while chunk := response.read(1024 * 256):
                 out.write(chunk)
+                digest.update(chunk)
                 done += len(chunk)
                 _report(done, total)
+        if digest.hexdigest() != MODEL_SHA256:
+            raise RuntimeError("the download does not match the pinned SHA-256; nothing was installed")
         print("\nExtracting...")
 
         extracted = Path(tmp) / "unzipped"

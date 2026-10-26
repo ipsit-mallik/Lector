@@ -82,7 +82,8 @@ _DEFAULT_WAKE_PHRASE = False
 
 
 def settings_dir() -> Path:
-    """The app's per-user data folder (settings.json, the web view's storage)."""
+    """The app's per-user data folder (settings.json, the web view's storage,
+    the logs, and the single-instance hand-off key)."""
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or str(Path.home())
         return Path(base) / "Lector"

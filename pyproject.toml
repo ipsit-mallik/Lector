@@ -6,13 +6,15 @@ build-backend = "hatchling.build"
 name = "lector"
 version = "0.1.0"
 requires-python = ">=3.11"
+# Pinned to the versions the test suite runs against, so an install never
+# quietly picks up a new release. Raise a pin on purpose, then run the tests.
 dependencies = [
-    "pywebview",
-    "PyMuPDF",
-    "vosk",
-    "sounddevice",
-    "numpy",
-    "onnxruntime",
+    "pywebview==6.2.1",
+    "PyMuPDF==1.28.2",
+    "vosk==0.3.45",
+    "sounddevice==0.5.6",
+    "numpy==2.5.3",
+    "onnxruntime==1.30.0",
 ]
 
 [project.scripts]

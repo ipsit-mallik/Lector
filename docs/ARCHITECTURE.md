@@ -60,9 +60,12 @@ lector/
 │           │                    #   port per launch, saved theme stamped
 │           │                    #   into each page's <html data-theme>,
 │           │                    #   plus any <html> attributes a page
-│           │                    #   declares (Home: view + file counts)
+│           │                    #   declares (Home: view + file counts);
+│           │                    #   refuses any Host but its own address
 │           ├── single_instance.py # One Lector per user; a second launch
-│           │                    #   hands its file over and exits
+│           │                    #   hands its file over and exits, once
+│           │                    #   both prove they hold the user's key
+│           │                    #   (instance.key in the settings folder)
 │           └── settings_store.py # JSON settings read/write
 │
 ├── frontend/                    # HTML/CSS/JS side: all UI, no business logic
@@ -106,7 +109,9 @@ lector/
 │                                 #   scripts/fetch_tessdata.py, not committed —
 │                                 #   it is gitignored. Bundled at packaging time.
 │
-├── scripts/                     # Developer setup scripts, not shipped
+├── scripts/                     # Developer setup scripts, not shipped. Each
+│   │                            #   fetch_* script names one release and
+│   │                            #   installs it only if its SHA-256 matches
 │   ├── fetch_vosk_model.py      # Downloads/extracts assets/vosk_model/
 │   ├── fetch_vad_model.py       # Downloads/extracts assets/silero_vad.onnx
 │   ├── fetch_tessdata.py        # Downloads assets/tessdata/eng.traineddata

@@ -33,6 +33,7 @@ import socketserver
 import sys
 import threading
 from collections.abc import Callable
+from http import HTTPStatus
 from pathlib import Path
 
 from lector.shared.theme import THEME_ORDER
@@ -88,6 +89,12 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = _TYPES
 
     def send_head(self):
+        if self.headers.get("Host") != f"{HOST}:{self.server.server_port}":
+            # The window always asks by this exact address. Any other name is
+            # a web page that pointed its own domain at 127.0.0.1 (DNS
+            # rebinding) to read what is sent here.
+            self.send_error(HTTPStatus.MISDIRECTED_REQUEST)
+            return None
         path = Path(self.translate_path(self.path))
         if path.is_dir():
             # No folder listings, and no index pages: the window asks for files.
