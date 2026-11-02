@@ -668,7 +668,6 @@ class FrontendWiringTests(unittest.TestCase):
             "No text found on this page",
             "Text recognition isn't installed",
             "Couldn't read the text on this page",
-            "Couldn't read the text there",
         ):
             with self.subTest(message=message):
                 self.assertIn(message, READING_JS)

@@ -210,6 +210,9 @@ function paintHighlightTargets() {
 }
 
 function highlightTargetName(highlight) {
+  if (highlight.kind === "ink") {
+    return highlight.color ? `${highlightColorLabel(highlight.color)} drawing` : "Drawing";
+  }
   const color = highlight.color ? `${highlightColorLabel(highlight.color)} highlight` : "Highlight";
   let text = highlight.text || "";
   if (text.length > HIGHLIGHT_NAME_MAX_CHARS) text = `${text.slice(0, HIGHLIGHT_NAME_MAX_CHARS).trimEnd()}…`;
@@ -258,6 +261,65 @@ function layoutHighlightTarget(target, highlight, pageRect, areaRect, scale) {
   target.replaceChildren(...lines);
 }
 
+// A drawing's target is the box it paints, and inside it an SVG in PDF points
+// whose stroke-shaped path is what takes the pointer, so the paper inside a
+// circle drawn round something stays plain page. Its hover and focus rings
+// are the stroke's outline, cut out of a wider stroke with a mask, so they
+// ring the drawing as a text highlight's ring its lines.
+const INK_SVG_NS = "http://www.w3.org/2000/svg";
+
+function inkSvgElement(name, attrs) {
+  const el = document.createElementNS(INK_SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value));
+  return el;
+}
+
+function layoutInkTarget(target, highlight, key, pageRect, areaRect, scale) {
+  const box = highlight.rects[0];
+  target.style.left = `${pageRect.left - areaRect.left + box.x0 * scale}px`;
+  target.style.top = `${pageRect.top - areaRect.top + box.y0 * scale}px`;
+  target.style.width = `${(box.x1 - box.x0) * scale}px`;
+  target.style.height = `${(box.y1 - box.y0) * scale}px`;
+  // Rebuilt only when the drawing or the zoom changed, so a scroll just moves
+  // it. The path is part of it: a straightened stroke, undone, can come back
+  // under the xref it had (MuPDF reuses a freed one).
+  const d = highlight.strokes.map((stroke) => pathToSvgD(stroke)).join("");
+  const signature = `${scale.toFixed(4)}:${highlight.width}:${d}`;
+  if (target._inkSignature === signature) return;
+  target._inkSignature = signature;
+  // Ring widths are screen pixels, the same as a text highlight's.
+  const ringPt = (px) => highlight.width + (2 * px) / scale;
+  const pad = ringPt(3);
+  const maskId = `ink-ring-${key.replace(":", "-")}`;
+  const svg = inkSvgElement("svg", {
+    class: "ink-target-svg",
+    viewBox: `${box.x0} ${box.y0} ${box.x1 - box.x0} ${box.y1 - box.y0}`,
+    preserveAspectRatio: "none",
+    "aria-hidden": "true",
+  });
+  const area = {
+    x: box.x0 - pad,
+    y: box.y0 - pad,
+    width: box.x1 - box.x0 + 2 * pad,
+    height: box.y1 - box.y0 + 2 * pad,
+  };
+  const mask = inkSvgElement("mask", { id: maskId, maskUnits: "userSpaceOnUse", ...area });
+  mask.append(
+    inkSvgElement("rect", { ...area, fill: "white" }),
+    inkSvgElement("path", { d, fill: "none", stroke: "black", "stroke-width": highlight.width, "stroke-linecap": "round", "stroke-linejoin": "round" }),
+  );
+  const ring = (cls, px) => inkSvgElement("path", {
+    class: cls, d, fill: "none", mask: `url(#${maskId})`,
+    "stroke-width": ringPt(px), "stroke-linecap": "round", "stroke-linejoin": "round",
+  });
+  const hit = inkSvgElement("path", {
+    class: "ink-target-hit", d, fill: "none", stroke: "transparent",
+    "stroke-width": highlight.width, "stroke-linecap": "round", "stroke-linejoin": "round",
+  });
+  svg.append(mask, ring("ink-target-ring is-hover", 1), ring("ink-target-ring is-focus", 2), hit);
+  target.replaceChildren(svg);
+}
+
 async function drawHighlightTargets() {
   if (!highlightHooks) return;
   const pages = highlightHooks.visiblePages();
@@ -278,7 +340,13 @@ async function drawHighlightTargets() {
       target._highlight = { pageIndex: index, highlight };
       target.setAttribute("aria-label", highlightTargetName(highlight));
       target.classList.toggle("is-editing", Boolean(highlightEditing && highlightEditing.key === key));
-      layoutHighlightTarget(target, highlight, pageRect, areaRect, scale);
+      target.classList.toggle("ink-target", highlight.kind === "ink");
+      if (highlight.kind === "ink") {
+        layoutInkTarget(target, highlight, key, pageRect, areaRect, scale);
+      } else {
+        target._inkSignature = null;
+        layoutHighlightTarget(target, highlight, pageRect, areaRect, scale);
+      }
       if (target.parentNode !== highlightTargetLayer) highlightTargetLayer.append(target);
     }
   });
@@ -301,6 +369,12 @@ function highlightAtPoint(pageIndex, x, y) {
   if (!page) return null;
   for (let i = page.highlights.length - 1; i >= 0; i--) {
     const highlight = page.highlights[i];
+    if (highlight.kind === "ink") {
+      // On the stroke itself, not anywhere in the box round it.
+      const reach = highlight.width / 2 + HIGHLIGHT_HIT_PAD;
+      if (highlight.strokes.some((stroke) => distanceToPath([x, y], stroke) <= reach)) return highlight;
+      continue;
+    }
     const hit = highlight.rects.some((r) =>
       x >= r.x0 - HIGHLIGHT_HIT_PAD && x <= r.x1 + HIGHLIGHT_HIT_PAD
         && y >= r.y0 - HIGHLIGHT_HIT_PAD && y <= r.y1 + HIGHLIGHT_HIT_PAD);
@@ -345,7 +419,8 @@ function closeHighlightEditor({ returnFocus = false } = {}) {
 function positionHighlightEditor() {
   const target = highlightTargets.get(highlightEditing.key);
   if (!target) return;
-  const lines = target.querySelectorAll(".highlight-target-line");
+  // A drawing has no lines: it is placed under the box it paints.
+  const lines = target.classList.contains("ink-target") ? [target] : target.querySelectorAll(".highlight-target-line");
   if (!lines.length) return;
   const area = highlightTargetLayer.getBoundingClientRect();
   const first = lines[0].getBoundingClientRect();

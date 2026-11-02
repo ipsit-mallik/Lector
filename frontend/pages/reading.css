@@ -569,6 +569,28 @@ html, body { height: 100%; }
   mix-blend-mode: multiply;
 }
 
+/* The freehand stroke being drawn (freehand.js), clipped to the page area
+   like the wash. One opaque path in an SVG drawn at the ink opacity, the
+   layer multiplied onto the page, as the PDF draws it: the stroke darkens
+   what is under it (black text stays black), and where it crosses itself it
+   does not double up. The blend is on the layer, not the SVG: the layer's
+   z-index makes it a stacking context, and a blend inside one only reaches
+   what is inside it — measured, the SVG's own Multiply left a black glyph
+   under the stroke at (99, 89, 49), plain 40% yellow. */
+.ink-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+  mix-blend-mode: multiply;
+}
+
+.ink-preview {
+  position: absolute;
+  overflow: hidden;
+}
+
 /* The moment the mouse is released the wash becomes the highlight color, so
  * the applied highlight appears instantly under the cursor instead of after
  * the page has been re-rendered with the real annotation. The overlay is
@@ -697,6 +719,38 @@ html, body { height: 100%; }
 .highlight-target.is-editing .highlight-target-line {
   box-shadow: 0 0 0 1px var(--paper-hover-ring);
 }
+
+/* A drawing's target (highlight-colors.js): the box it paints, holding an SVG
+   in PDF points. Only the stroke-shaped path takes the pointer; the rings are
+   the stroke's outline, outside the box's edge by their own width. */
+.ink-target-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ink-target-hit {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.highlight-target-layer.is-selecting .ink-target-hit { pointer-events: none; }
+
+.ink-target-ring {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.ink-target-ring.is-hover { stroke: var(--paper-hover-ring); }
+.ink-target-ring.is-focus { stroke: var(--paper-focus-ring); }
+
+.ink-target:hover .ink-target-ring.is-hover,
+.ink-target.is-editing .ink-target-ring.is-hover,
+.ink-target:focus-visible .ink-target-ring.is-focus { opacity: 1; }
+
+.ink-target:focus-visible .ink-target-ring.is-hover { opacity: 0; }
 
 .highlight-target:focus-visible { outline: none; }
 

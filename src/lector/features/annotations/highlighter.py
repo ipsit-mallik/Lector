@@ -12,10 +12,17 @@ shape. Per docs/ARCHITECTURE.md, annotations/ owns both the matching logic
 and the PyMuPDF write layer together because a match result becomes
 annotation coordinates directly, so keeping them in one feature avoids
 indirection.
+
+A highlight is one of two shapes: a `TextShape` (a /Highlight over lines of
+text) or an `InkShape` (a /Ink marker stroke, drawn where there is no text to
+snap to: a photo, a barcode, blank paper). Both are "highlights" to the rest
+of the app — counted, listed, recoloured, removed and undone the same way.
 """
+import math
 import re
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from itertools import islice
+from typing import Iterator, Protocol, Sequence
 
 import pymupdf
 
@@ -182,6 +189,44 @@ def _set_rectangular_appearance(
 
 
 RGB = tuple[float, float, float]
+Point = tuple[float, float]
+
+# The freehand marker: a 14pt stroke, so it covers a line of body text with a
+# little to spare, in the same `HIGHLIGHT_COLORS` as a text highlight, at 60%
+# through Multiply, so what is under it stays visible and darkens the way a
+# real marker does, and a stroke reads as the same colour as a text highlight
+# beside it (a text highlight is the colour itself, multiplied; 40% looked a
+# pale tint of it). The colour is never pre-lightened: the opacity is applied
+# once, here. One stroke is one path drawn once, so where it crosses itself it
+# does not double up. Read by the frontend's preview (`api.get_ink_style`) so
+# the two cannot drift.
+INK_WIDTH_PT = 14.0
+INK_OPACITY = 0.6
+INK_BLEND_MODE = pymupdf.PDF_BM_Multiply
+
+
+@dataclass(frozen=True)
+class TextShape:
+    """A /Highlight's per-line boxes, in MuPDF's unrotated page space."""
+
+    rects: tuple[pymupdf.Rect, ...]
+
+
+@dataclass(frozen=True)
+class InkShape:
+    """An /Ink annotation's strokes (each a polyline, in MuPDF's unrotated
+    page space) and how they are drawn. Width, opacity and blend mode are
+    kept rather than assumed so another app's ink, removed and undone, comes
+    back drawn as it was; Lector's own strokes are always one stroke with the
+    `INK_*` values."""
+
+    strokes: tuple[tuple[Point, ...], ...]
+    width: float = INK_WIDTH_PT
+    opacity: float = INK_OPACITY
+    blend_mode: str | None = INK_BLEND_MODE
+
+
+Shape = TextShape | InkShape
 
 
 def _paint(page: pymupdf.Page, annot, rects: list[pymupdf.Rect], rgb: RGB) -> None:
@@ -246,9 +291,127 @@ def color_name(rgb: RGB | None) -> str | None:
     return None
 
 
+def add_ink(page: pymupdf.Page, shape: InkShape, rgb: RGB):
+    """Write `shape` as one real PDF /Ink annotation: its colour in /C, its
+    width in /BS, its opacity in /CA and its blend mode in /BM, all set
+    before `update()` so the appearance stream MuPDF generates carries them
+    (round caps and joins are MuPDF's own for ink), and another viewer draws
+    the same stroke Lector does."""
+    strokes = [[tuple(point) for point in stroke] for stroke in shape.strokes if stroke]
+    if not strokes:
+        return None
+    annot = page.add_ink_annot(strokes)
+    annot.set_colors(stroke=rgb)
+    annot.set_border(width=shape.width)
+    annot.set_opacity(shape.opacity)
+    if shape.blend_mode:
+        annot.set_blendmode(shape.blend_mode)
+    annot.update()
+    return annot
+
+
+def add_shape(page: pymupdf.Page, shape: Shape, rgb: RGB):
+    """Write `shape` as the annotation it describes; the live Annot."""
+    if isinstance(shape, InkShape):
+        return add_ink(page, shape, rgb)
+    return add_highlight_rects(page, shape.rects, rgb)
+
+
+def is_ink(annot) -> bool:
+    return annot.type[0] == pymupdf.PDF_ANNOT_INK
+
+
+# Bounds on another app's ink as the editor lists it (a target's SVG, a hit
+# test per stroke): it comes from a PDF Lector did not write, so what is
+# listed is kept to what a real drawing is. Not applied to what an undone
+# removal writes back — that is the drawing as the PDF had it, every stroke
+# of a long handwritten note included, so undo loses nothing.
+INK_MAX_STROKES = 64
+INK_MAX_STROKE_POINTS = 4096
+# Applied to both: a width, unlike a stroke, is not the reader's content, and
+# an absurd one only makes MuPDF build an appearance the size of the page.
+INK_MAX_WIDTH_PT = 100.0
+
+
+def shape_of(annot, *, bounded: bool) -> Shape:
+    """What `annot` looks like. `bounded=False` is the drawing as the PDF
+    has it (only points that are not finite numbers dropped), enough to write
+    it again exactly: an undone removal or recolour. `bounded=True` is what
+    the editor lists: kept on the page and within INK_MAX_*."""
+    if not is_ink(annot):
+        return TextShape(tuple(highlight_rects(annot)))
+    width = (annot.border or {}).get("width")
+    opacity = annot.opacity
+    return InkShape(
+        tuple(_iter_ink_strokes(annot, bounded)),
+        min(float(width), INK_MAX_WIDTH_PT) if isinstance(width, (int, float)) and width > 0 else 1.0,
+        float(opacity) if isinstance(opacity, (int, float)) and 0 <= opacity <= 1 else 1.0,
+        annot.blendmode or None,
+    )
+
+
+def _ink_point(value) -> Point | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    x, y = value
+    if not all(isinstance(c, (int, float)) and math.isfinite(c) for c in (x, y)):
+        return None
+    return (float(x), float(y))
+
+
+def _iter_ink_strokes(annot, bounded: bool) -> Iterator[tuple[Point, ...]]:
+    """An ink annotation's strokes, read defensively: each a tuple of finite
+    points, strokes with none left out. `bounded` also keeps them on the page
+    and within INK_MAX_* (see `shape_of`). Lazy, so `_is_listed` can stop at
+    the first stroke.
+
+    `annot.vertices` reads /Vertices, /L, /QuadPoints or /CL before /InkList
+    when an annotation has them, and then returns one flat list of points
+    rather than a list of strokes, which is read here as one stroke."""
+    raw = annot.vertices or []
+    if raw and all(_ink_point(item) is not None for item in raw):
+        raw = [raw]
+    page = annot.parent
+    bounds = page.rect * page.derotation_matrix if bounded and page is not None else None
+    budget = INK_MAX_STROKE_POINTS if bounded else None
+    for stroke in islice(raw, INK_MAX_STROKES if bounded else None):
+        if not isinstance(stroke, (list, tuple)):
+            continue
+        points = [p for p in map(_ink_point, islice(stroke, budget)) if p is not None]
+        if bounds is not None:
+            points = [
+                (min(max(x, bounds.x0), bounds.x1), min(max(y, bounds.y0), bounds.y1)) for x, y in points
+            ]
+        if not points:
+            continue
+        yield tuple(points)
+        if budget is not None:
+            budget -= len(points)
+            if budget <= 0:
+                return
+
+
+def ink_bounds(shape: InkShape) -> pymupdf.Rect:
+    """The box the stroke paints: its points, out by half its width. Not the
+    annotation's /Rect, which MuPDF pads further for the round caps."""
+    points = [point for stroke in shape.strokes for point in stroke]
+    if not points:
+        return pymupdf.Rect()
+    half = shape.width / 2
+    xs = [x for x, _ in points]
+    ys = [y for _, y in points]
+    return pymupdf.Rect(min(xs) - half, min(ys) - half, max(xs) + half, max(ys) + half)
+
+
 def recolor_highlight(page: pymupdf.Page, annot, rgb: RGB) -> None:
     """Repaint an existing highlight in `rgb`, keeping its shape, its /NM id
-    and anything another app attached to it (author, note)."""
+    and anything another app attached to it (author, note). An ink stroke
+    keeps its own width, opacity and blend mode: `update()` regenerates the
+    appearance from the entries already on it."""
+    if is_ink(annot):
+        annot.set_colors(stroke=rgb)
+        annot.update()
+        return
     _paint(page, annot, highlight_rects(annot), rgb)
 
 
@@ -256,20 +419,46 @@ def recolor_highlight(page: pymupdf.Page, annot, rgb: RGB) -> None:
 class Highlight:
     """One highlight annotation on a page, as the editor needs it. `xref` is
     the annotation's PDF object number: stable for the life of the open
-    document, so it is what the frontend sends back to name a highlight."""
+    document, so it is what the frontend sends back to name a highlight.
+    `rects` is a text highlight's per-line boxes, or an ink stroke's bounding
+    box (what the editor is placed under); `shape` says which it is."""
 
     xref: int
     rects: tuple[pymupdf.Rect, ...]
     color: str | None
+    shape: Shape | None = None
+
+
+# The annotation types Lector treats as highlights. Everything else on a page
+# (links, notes, another app's shapes) is left alone and not counted.
+HIGHLIGHT_TYPES = (pymupdf.PDF_ANNOT_HIGHLIGHT, pymupdf.PDF_ANNOT_INK)
+
+
+def highlight_annots(page: pymupdf.Page):
+    return page.annots(types=list(HIGHLIGHT_TYPES)) or []
+
+
+def _is_listed(annot) -> bool:
+    """Whether `highlights_on_page` lists `annot`: every text highlight, and
+    an ink annotation with something drawable in it (one with nothing has
+    nothing to click either)."""
+    return not is_ink(annot) or next(_iter_ink_strokes(annot, bounded=True), None) is not None
 
 
 def highlights_on_page(page: pymupdf.Page) -> list[Highlight]:
-    """Every highlight annotation on `page`, Lector's and other apps' alike."""
-    return [
-        Highlight(annot.xref, tuple(highlight_rects(annot)), color_name(stroke_rgb(annot)))
-        for annot in (page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]) or [])
-    ]
+    """Every highlight and ink stroke on `page`, Lector's and other apps'
+    alike, in the order they are drawn (the last is on top)."""
+    found = []
+    for annot in highlight_annots(page):
+        if not _is_listed(annot):
+            continue
+        shape = shape_of(annot, bounded=True)
+        rects = shape.rects if isinstance(shape, TextShape) else (ink_bounds(shape),)
+        found.append(Highlight(annot.xref, tuple(rects), color_name(stroke_rgb(annot)), shape))
+    return found
 
 
 def highlight_count(page: pymupdf.Page) -> int:
-    return sum(1 for a in (page.annots() or []) if a.type[0] == pymupdf.PDF_ANNOT_HIGHLIGHT)
+    """How many highlights `highlights_on_page` lists, without building them:
+    the footer's count and the editor's targets always agree."""
+    return sum(1 for annot in highlight_annots(page) if _is_listed(annot))

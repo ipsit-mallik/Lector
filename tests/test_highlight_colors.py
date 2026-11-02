@@ -351,7 +351,8 @@ class ApiTests(_SettingsIsolated):
         page = self.api.get_page_highlights(0)
         self.assertEqual((page["width"], page["height"]), (400, 300))
         (found,) = page["highlights"]
-        self.assertEqual(set(found), {"id", "color", "rects", "text"})
+        self.assertEqual(set(found), {"id", "kind", "color", "rects", "text"})
+        self.assertEqual(found["kind"], "text")
         self.assertEqual(set(found["rects"][0]), {"x0", "y0", "x1", "y1"})
 
     def test_recolor_and_remove_report_the_page_they_changed(self):

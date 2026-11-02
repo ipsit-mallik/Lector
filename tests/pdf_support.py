@@ -122,6 +122,23 @@ def already_highlighted(folder: Path, name: str = "highlighted.pdf") -> Path:
     return _save(doc, Path(folder) / name)
 
 
+FOREIGN_INK_WIDTH = 3.0
+
+
+def already_drawn(folder: Path, name: str = "drawn.pdf") -> Path:
+    """`plain_text`'s page with an ink stroke another app drew: two strokes,
+    in `FOREIGN_RGB`, `FOREIGN_INK_WIDTH` wide and opaque, with a note."""
+    doc = pymupdf.open()
+    page = _page_with(doc, PLAIN_TEXT)
+    ink = page.add_ink_annot([[(72, 150), (150, 160), (220, 150)], [(80, 180), (120, 190)]])
+    ink.set_colors(stroke=FOREIGN_RGB)
+    ink.set_border(width=FOREIGN_INK_WIDTH)
+    ink.set_info(content="a note", title="someone")
+    ink.update()
+    del ink, page  # an Annot must not outlive its Page (see highlighter.py)
+    return _save(doc, Path(folder) / name)
+
+
 def zero_byte(folder: Path, name: str = "zero.pdf") -> Path:
     """A file named .pdf with nothing in it."""
     path = Path(folder) / name
@@ -143,8 +160,9 @@ def sha256(path: Path) -> str:
 
 
 def highlights_on_disk(path: Path, password: str | None = None) -> list[list[tuple]]:
-    """Each page's highlights as the file holds them, `(stroke, text)` in page
-    order, read by a fresh PyMuPDF document rather than through Lector."""
+    """Each page's text highlights as the file holds them, `(stroke, text)`
+    in page order, read by a fresh PyMuPDF document rather than through
+    Lector. Ink strokes cover no text, so `ink_on_disk` lists those."""
     doc = pymupdf.open(path)
     try:
         if password is not None:
@@ -160,5 +178,26 @@ def highlights_on_disk(path: Path, password: str | None = None) -> list[list[tup
                 found.append((tuple(round(c, 3) for c in stroke) if stroke else None, text))
             pages.append(found)
         return pages
+    finally:
+        doc.close()
+
+
+def ink_on_disk(path: Path) -> list[list[tuple]]:
+    """Each page's ink strokes as the file holds them, `(stroke, width,
+    opacity, blend mode)` in page order, read by a fresh PyMuPDF document."""
+    doc = pymupdf.open(path)
+    try:
+        return [
+            [
+                (
+                    tuple(round(c, 3) for c in annot.colors.get("stroke") or ()) or None,
+                    annot.border.get("width"),
+                    round(annot.opacity, 3),
+                    annot.blendmode,
+                )
+                for annot in page.annots(types=[pymupdf.PDF_ANNOT_INK]) or []
+            ]
+            for page in doc
+        ]
     finally:
         doc.close()

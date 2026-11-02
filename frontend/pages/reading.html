@@ -178,6 +178,9 @@
              clipped to the page area, so it can serve whichever layout is
              active without being duplicated into each one. -->
         <div class="selection-layer" id="selectionLayer" aria-hidden="true"></div>
+        <!-- The freehand stroke being drawn (freehand.js), until the page
+             image shows the real ink annotation. Clipped like the wash. -->
+        <div class="ink-layer" id="inkLayer" aria-hidden="true"></div>
         <!-- Amber "listening here" outline shown over the page regions voice
              matching is currently scoped to (docs/DESIGN_SYSTEM.md's third
              wash state, alongside the selection and highlight colors). Filled
@@ -399,7 +402,9 @@
   <script src="password-dialog.js"></script>
   <script src="open-pdf.js"></script>
   <script src="find-bar.js"></script>
+  <script src="ink-geometry.js"></script>
   <script src="highlight-colors.js"></script>
+  <script src="freehand.js"></script>
   <script src="progress-layout.js"></script>
   <script src="progress-bar.js"></script>
   <script src="outline-panel.js"></script>

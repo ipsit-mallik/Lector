@@ -94,6 +94,15 @@ function setUndoButton(button, enabled, title, emptyTitle) {
   button.title = enabled ? title : emptyTitle;
 }
 
+// The footer's count: this page's in Book, the document's in Strip, where
+// there is no one page. Drawings are highlights here too.
+function renderHighlightCount() {
+  const [count, where] = layoutMode === "strip"
+    ? [state.highlight_count_total, "in this document"]
+    : [state.highlight_count_page, "on this page"];
+  highlightCountLbl.textContent = `${count} ${count === 1 ? "highlight" : "highlights"} ${where}`;
+}
+
 // `animate` is for a page jump the reader asked for (next, previous, go to):
 // the strip glides to the page instead of cutting. Everything else that calls
 // this is positioning a view that has just opened or been rebuilt (opening the
@@ -103,10 +112,10 @@ async function refresh({ animate = false } = {}) {
   updateChrome();
 
   if (layoutMode === "book") {
-    highlightCountLbl.textContent = `${state.highlight_count_page} ${state.highlight_count_page === 1 ? "highlight" : "highlights"} on this page`;
+    renderHighlightCount();
     await refreshBook();
   } else {
-    highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
+    renderHighlightCount();
     await refreshStrip(animate);
   }
   scheduleViewportPush();
@@ -167,6 +176,8 @@ async function buildStrip() {
     img.width = width;
     img.height = height;
     img.draggable = false;
+    // Built with the tool already on, a page still needs its cursor.
+    img.classList.toggle("selecting", highlightMode);
     bindSelection(img, () => i);
     imgs.push(img);
     fragment.appendChild(img);
@@ -307,11 +318,16 @@ function markStripDirty() {
 function setHighlightMode(on) {
   highlightMode = on;
   highlightBtn.classList.toggle("active", on);
-  document.querySelectorAll(".page-surface").forEach((el) => {
+  const surfaces = [...document.querySelectorAll(".page-surface")];
+  surfaces.forEach((el) => {
     el.classList.toggle("selecting", on);
   });
   setHighlightTargetsPassive(on);
-  if (!on) cancelSelection();
+  if (!on) {
+    cancelSelection();
+    cancelInkStroke();
+    clearInkCursors(surfaces);
+  }
 }
 
 // ------------------------------------------------------------------ //
@@ -342,12 +358,25 @@ function setHighlightMode(on) {
 // highlighting adds an annotation without moving any text. Opening another
 // document reloads this page, and with it the cache.
 const charCache = new Map();
+// The same replies once they have arrived, so a press can settle the tool's
+// mode (freehand.js) synchronously when the reader has already pointed there.
+const charData = new Map();
 
 function getPageChars(pageIndex) {
   if (!charCache.has(pageIndex)) {
-    charCache.set(pageIndex, callApi("get_page_chars", pageIndex));
+    const request = callApi("get_page_chars", pageIndex).then((page) => {
+      if (charCache.get(pageIndex) === request) charData.set(pageIndex, page);
+      return page;
+    });
+    charCache.set(pageIndex, request);
   }
   return charCache.get(pageIndex);
+}
+
+// After a scanned page has been read, its characters are new.
+function forgetPageChars(pageIndex) {
+  charCache.delete(pageIndex);
+  charData.delete(pageIndex);
 }
 
 // Index of the character nearest a point given in PDF points — 0 distance
@@ -608,17 +637,14 @@ async function endSelection(ev) {
   // rather than having this drag replayed against boxes it never saw.
   if (page.ocr && page.ocr !== "done") {
     clearSelection();
-    readPageForSelection(sel.pageIndex, page.ocr);
+    readPageForSelection(sel.pageIndex);
     return;
   }
   sel.range = selectionRange(sel, page, ev);
   if (!sel.range) {
+    // Only a press on a character is a text press (freehand.js), so this is
+    // a press that had nothing under it after all: no highlight.
     clearSelection();
-    // OCR can miss part of a page (a big heading, a line lost to noise), and
-    // a drag over text the reader can plainly see that then does nothing
-    // would look like a broken highlighter. A drag, not a click: a click in
-    // the margin is not an attempt to highlight anything.
-    if (page.ocr === "done" && sel.moved) showToast(OCR_MISSED_THERE);
     return;
   }
   // Repaint in the highlight color before the round trip, so the highlight
@@ -638,10 +664,10 @@ async function applyHighlight(pageIndex, range) {
   forgetPageThumbnails(pageIndex);
   paintHighlightTargets();
   if (layoutMode === "strip") {
-    highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
+    renderHighlightCount();
     await updateStripPageImage(pageIndex);
   } else {
-    highlightCountLbl.textContent = `${state.highlight_count_page} ${state.highlight_count_page === 1 ? "highlight" : "highlights"} on this page`;
+    renderHighlightCount();
     // Keep the strip in sync even though it isn't visible right now, by
     // patching just the one page that changed — flagging the whole strip
     // dirty (forcing a full rebuild the next time it's shown) was overkill
@@ -655,13 +681,37 @@ async function applyHighlight(pageIndex, range) {
   }
 }
 
+// A press with the tool on is a text highlight or a freehand stroke, by what
+// is under it (freehand.js), which also keeps the cursor saying which.
 function bindSelection(el, getPageIndex) {
   el.addEventListener("mousedown", (ev) => {
     if (!highlightMode || ev.button !== 0) return;
     ev.preventDefault(); // no drag-the-image ghost while selecting
-    beginSelection(el, getPageIndex(), ev);
+    pressHighlightTool(el, getPageIndex(), ev);
   });
+  el.addEventListener("mousemove", (ev) => {
+    if (highlightMode) noteInkHover(el, getPageIndex(), ev);
+  });
+  el.addEventListener("mouseleave", () => forgetInkHover(el));
 }
+
+// A stroke's commit: written, then the page brought in step with it, which
+// is when freehand.js lets its preview go. False when the bridge drew
+// nothing (it refuses a malformed stroke, or there is no document open);
+// a failed call rejects. freehand.js reports either through commitFailed.
+async function commitInkStroke(pageIndex, drawn, straight) {
+  state = await callApi("add_ink_stroke", pageIndex, drawn, straight);
+  if (state.id == null) return false;
+  try {
+    await afterAnnotationChange(state.affected_page);
+  } catch (err) {
+    // Drawn all the same: only the page image is behind, so not "Couldn't draw that".
+    console.error("Couldn't show the new stroke:", err);
+  }
+  return true;
+}
+
+const INK_NOT_DRAWN = "Couldn't draw that";
 
 // Tracked on the document, not on the page image: a drag that runs off the
 // edge of the page (or off the window) should still select up to where it
@@ -673,6 +723,7 @@ document.addEventListener("mouseup", endSelection);
 // has to be redrawn when the page moves under a drag that isn't moving.
 function repaintSelectionOnScroll() {
   if (selection && selection.range) paintSelection(selection, false);
+  repaintInkStroke();
 }
 
 bookScroll.addEventListener("scroll", repaintSelectionOnScroll);
@@ -710,7 +761,6 @@ const OCR_MESSAGES = {
 };
 const OCR_READ_FOR_MOUSE = "Text read — drag to highlight";
 const OCR_READ_FOR_VOICE = "Text read — say it again";
-const OCR_MISSED_THERE = "Couldn't read the text there";
 // How long a scanned page must stay on screen, unscrolled, before it is read
 // ahead of a voice highlight: long enough that paging past it costs nothing.
 const OCR_DWELL_MS = 1000;
@@ -732,11 +782,9 @@ function ocrMessage(status) {
   return OCR_MESSAGES[status] || OCR_MESSAGES.error;
 }
 
-async function readPageForSelection(pageIndex, status) {
-  if (status === "no_text") {
-    showToast(OCR_MESSAGES.no_text);
-    return;
-  }
+// Only a page not read yet gets here (freehand.js: once read, a press is a
+// text highlight or a drawing like on any page).
+async function readPageForSelection(pageIndex) {
   if (mouseOcrWaits.has(pageIndex)) return; // already reading; its toast is up
   let result;
   try {
@@ -751,7 +799,7 @@ async function readPageForSelection(pageIndex, status) {
     return;
   }
   // Finished between the press and now (a read ahead for voice, say).
-  charCache.delete(pageIndex);
+  forgetPageChars(pageIndex);
   showToast(result.status === "done" ? OCR_READ_FOR_MOUSE : ocrMessage(result.status));
 }
 
@@ -773,7 +821,7 @@ function showVoiceOcr({ page_index: pageIndex, status }) {
 window.addEventListener("lector:ocr", (ev) => {
   const { page_index: pageIndex, status } = ev.detail || {};
   // The boxes cached for this page were the empty pre-OCR ones.
-  charCache.delete(pageIndex);
+  forgetPageChars(pageIndex);
   const dismiss = mouseOcrWaits.get(pageIndex);
   if (dismiss) {
     mouseOcrWaits.delete(pageIndex);
@@ -810,7 +858,7 @@ async function prefetchVisiblePage() {
       const result = await callApi("ocr_page", pageIndex);
       if (result.status !== "running") {
         ocrPrefetchPage = null;
-        charCache.delete(pageIndex);
+        forgetPageChars(pageIndex);
       }
     } catch (err) {
       // Nobody asked for this read, so nothing to tell the reader; a
@@ -836,6 +884,7 @@ const pageResizeObserver = new ResizeObserver(() => {
   paintHighlightTargets();
   paintFindMarks();
   if (selection && selection.range) paintSelection(selection, false);
+  repaintInkStroke();
   updateProgressScroll(currentPageReadFraction());
 });
 [pageArea, pageCard, stripContainer].forEach((el) => pageResizeObserver.observe(el));
@@ -938,6 +987,7 @@ function applyZoomPreview() {
   if (bookFraction != null) applyPageScrollFraction(bookFraction);
   paintFindMarks();
   paintHighlightTargets();
+  repaintInkStroke();
 }
 
 let zoomRefreshTimer = null;
@@ -1124,14 +1174,14 @@ async function afterAnnotationChange(affectedPage) {
   forgetPageThumbnails(affectedPage);
   paintHighlightTargets();
   if (layoutMode === "strip") {
-    highlightCountLbl.textContent = `${state.highlight_count_total} ${state.highlight_count_total === 1 ? "highlight" : "highlights"} in this document`;
+    renderHighlightCount();
     if (stripDirty) {
       await refreshStrip();
     } else if (affectedPage != null) {
       await updateStripPageImage(affectedPage);
     }
   } else {
-    highlightCountLbl.textContent = `${state.highlight_count_page} ${state.highlight_count_page === 1 ? "highlight" : "highlights"} on this page`;
+    renderHighlightCount();
     await refreshBook();
     if (!stripDirty && affectedPage != null) {
       await updateStripPageImage(affectedPage);
@@ -1524,8 +1574,9 @@ document.addEventListener("keydown", (ev) => {
       // Abandons a selection mid-drag: the wash disappears and the release
       // that follows writes nothing, so a drag started by mistake costs
       // nothing to back out of. With no drag on, Esc closes the find bar
-      // even once focus has moved to the page.
+      // even once focus has moved to the page. A stroke mid-drag is the same.
       if (selection) cancelSelection();
+      else if (isDrawingInk()) cancelInkStroke();
       else if (isOutlinePickerActive()) endOutlinePicker();
       else if (isHighlightEditorOpen()) closeHighlightEditor({ returnFocus: true });
       else if (isColorFlyoutOpen()) closeColorFlyout({ returnFocus: true });
@@ -1603,6 +1654,28 @@ configureOutlinePanel({
   jumpTo: (index) => goToPage(index + 1),
   say: (text) => setMicHint(text),
   onToggle: (open) => progressPanelToggled(open),
+});
+
+// What freehand.js needs: this page's text, the selection to hand a text
+// press to, and the commit.
+configureFreehand({
+  loadedPage: (i) => charData.get(i) || null,
+  pageData: getPageChars,
+  isOnText: isPointOnText,
+  beginText: beginSelection,
+  moveText: onSelectionMove,
+  endText: endSelection,
+  commit: commitInkStroke,
+  commitFailed: () => showToast(INK_NOT_DRAWN),
+  clickAt: (i, x, y) => {
+    const at = highlightAtPoint(i, x, y);
+    if (at) openHighlightEditor(i, at);
+  },
+  activeColor: () => activeHighlightColor,
+  colorValue: (name) => getComputedStyle(document.documentElement).getPropertyValue(`--highlight-${name}`).trim(),
+  toolOn: () => highlightMode,
+  textDragging: () => selection !== null,
+  reducedMotion: prefersReducedMotion,
 });
 
 // What highlight-colors.js needs to know about this view's layouts.
@@ -2071,5 +2144,6 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
     maxWidth: prefs.outline_width_max,
   });
   await initHighlightColors(state.highlight_color);
+  setInkStyle(await callApi("get_ink_style"));
   await refresh();
 })();

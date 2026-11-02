@@ -30,25 +30,33 @@ class _HighlightRef:
 
 
 @dataclass(frozen=True)
+class _Look:
+    """What a highlight is at one point in its history: its colour and its
+    shape (a text highlight's boxes, or an ink stroke's path)."""
+
+    rgb: highlighter.RGB
+    shape: highlighter.Shape
+
+
+@dataclass(frozen=True)
 class _Edit:
-    """One reversible change to one highlight: its colour going from `before`
-    to `after`, where None means "no highlight". An add is None -> colour, a
-    removal colour -> None, a recolour colour -> colour, so undo and redo are
-    the same operation run in opposite directions.
+    """One reversible change to one highlight: from `before` to `after`,
+    where None means "no highlight". An add is None -> look, a removal
+    look -> None, a recolour a change of colour, and an ink stroke
+    straightened on release a change of shape, so undo and redo are the
+    same operation run in opposite directions.
 
     Colours are raw RGB rather than palette names because a highlight another
     app wrote can be recoloured or removed too, and undoing that has to put
-    back its own colour. `rects` and `info` are what a removal needs to put
-    the highlight back: its per-line boxes, and the note/author another app
-    may have attached.
+    back its own colour. `info` is the note/author another app may have
+    attached, which a re-added annotation gets back.
     """
 
     page_index: int
     ref: _HighlightRef
-    rects: tuple[pymupdf.Rect, ...]
     info: tuple[tuple[str, str], ...]
-    before: highlighter.RGB | None
-    after: highlighter.RGB | None
+    before: _Look | None
+    after: _Look | None
 
 
 # What `Annot.set_info` accepts back from `Annot.info`; the rest (id, dates)
@@ -460,9 +468,75 @@ class PdfDocument:
         annot = highlighter.add_highlight(page, selected, color)
         if annot is None:
             return None
-        rects = tuple(highlighter.merge_line_rects(selected))
-        self._record(_Edit(page_index, self._ref(annot.xref), rects, (), None, rgb))
+        shape = highlighter.TextShape(tuple(highlighter.merge_line_rects(selected)))
+        self._record(_Edit(page_index, self._ref(annot.xref), (), None, _Look(rgb, shape)))
         return annot.xref
+
+    def add_ink_stroke(
+        self,
+        page_index: int,
+        drawn,
+        final=None,
+        color: str = highlighter.DEFAULT_COLOR,
+    ) -> int | None:
+        """Draw a freehand marker stroke; returns its xref, or None when there
+        is no page or no point to draw.
+
+        `drawn` is the stroke as the reader drew it (smoothed), and `final`,
+        when given, what it became on release (straightened). Both arrive on
+        the page as shown, the space the reader drew in, and are taken back
+        to MuPDF's unrotated page space here — the inverse of `as_shown`.
+        A straightened stroke is recorded as two edits, drawing it and then
+        straightening it, so the first Undo gives back the line as drawn and
+        the second removes it.
+        """
+        if not self._doc or not 0 <= page_index < len(self._doc):
+            return None
+        drawn_path = self._from_shown(page_index, drawn)
+        if not drawn_path:
+            return None
+        if color not in highlighter.HIGHLIGHT_COLORS:
+            color = highlighter.DEFAULT_COLOR
+        rgb = highlighter.HIGHLIGHT_COLORS[color]
+        page = self._doc[page_index]  # held while `annot` is used
+        drawn_look = _Look(rgb, highlighter.InkShape((drawn_path,)))
+        annot = highlighter.add_ink(page, drawn_look.shape, rgb)
+        if annot is None:
+            return None
+        ref = self._ref(annot.xref)
+        self._record(_Edit(page_index, ref, (), None, drawn_look))
+        final_path = self._from_shown(page_index, final)
+        if final_path:
+            final_look = _Look(rgb, highlighter.InkShape((final_path,)))
+            edit = _Edit(page_index, ref, (), drawn_look, final_look)
+            self._move_highlight(edit, drawn_look, final_look)
+            self._record(edit)
+        return ref.xref
+
+    def _from_shown(self, page_index: int, points) -> tuple[highlighter.Point, ...]:
+        """`points` on the page as shown, kept on it, in unrotated page space."""
+        if not points:
+            return ()
+        page = self._doc[page_index]
+        shown = page.rect
+        to_page = page.derotation_matrix
+        path = []
+        for x, y in points:
+            point = pymupdf.Point(
+                min(max(float(x), shown.x0), shown.x1),
+                min(max(float(y), shown.y0), shown.y1),
+            ) * to_page
+            path.append((point.x, point.y))
+        return tuple(path)
+
+    def shown_strokes(self, page_index: int, shape: highlighter.InkShape) -> list[list[highlighter.Point]]:
+        """An ink shape's strokes on the page as shown, as `as_shown` does
+        for boxes."""
+        to_shown = self._doc[page_index].rotation_matrix
+        return [
+            [tuple(pymupdf.Point(x, y) * to_shown) for x, y in stroke]
+            for stroke in shape.strokes
+        ]
 
     def highlights_on_page(self, page_index: int) -> list[highlighter.Highlight]:
         if not self._doc or not 0 <= page_index < len(self._doc):
@@ -590,7 +664,7 @@ class PdfDocument:
         if not self._doc or not 0 <= page_index < len(self._doc):
             return None
         page = self._doc[page_index]
-        for annot in page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]) or []:
+        for annot in highlighter.highlight_annots(page):
             if annot.xref == xref:
                 return page, annot
         return None
@@ -606,9 +680,12 @@ class PdfDocument:
         if highlighter.color_name(before) == color:
             return False
         after = highlighter.HIGHLIGHT_COLORS[color]
-        rects = tuple(highlighter.highlight_rects(annot))
+        shape = highlighter.shape_of(annot, bounded=False)
+        # No /C of its own: an undo gives it the default colour, the nearest
+        # thing to "unset" (as an undone removal does).
+        before = before or highlighter.HIGHLIGHT_COLORS[highlighter.DEFAULT_COLOR]
         highlighter.recolor_highlight(page, annot, after)
-        self._record(_Edit(page_index, self._ref(xref), rects, (), before, after))
+        self._record(_Edit(page_index, self._ref(xref), (), _Look(before, shape), _Look(after, shape)))
         return True
 
     def remove_highlight(self, page_index: int, xref: int) -> bool:
@@ -620,13 +697,13 @@ class PdfDocument:
         # A highlight with no /C of its own (a viewer picks one) comes back
         # from an undo in the default colour, the nearest thing to "unset".
         before = highlighter.stroke_rgb(annot) or highlighter.HIGHLIGHT_COLORS[highlighter.DEFAULT_COLOR]
-        rects = tuple(highlighter.highlight_rects(annot))
+        look = _Look(before, highlighter.shape_of(annot, bounded=False))
         info = tuple((key, annot.info.get(key, "")) for key in _RESTORED_INFO_KEYS)
         page.delete_annot(annot)
         # Popped, not just looked up: MuPDF can hand a freed xref to the next
         # annotation, which is a different highlight and must get its own ref.
         ref = self._refs.pop(xref, None) or _HighlightRef(xref)
-        self._record(_Edit(page_index, ref, rects, info, before, None))
+        self._record(_Edit(page_index, ref, info, look, None))
         return True
 
     def _ref(self, xref: int) -> _HighlightRef:
@@ -637,27 +714,29 @@ class PdfDocument:
         self._redo_stack.clear()
         self._dirty = True
 
-    def _move_highlight(self, edit: _Edit, frm: highlighter.RGB | None, to: highlighter.RGB | None) -> None:
-        """Take `edit`'s highlight from colour `frm` to colour `to` (None:
-        absent), re-adding or deleting the annotation when either is None."""
-        if frm is None:
-            # A named local, not `self._doc[i]` inline: the Annot is unbound
-            # once that Page wrapper is collected, and set_info below needs it.
-            page = self._doc[edit.page_index]
-            annot = highlighter.add_highlight_rects(page, edit.rects, to)
-            if any(value for _, value in edit.info):
-                annot.set_info(dict(edit.info))
-            edit.ref.xref = annot.xref
-            self._refs[annot.xref] = edit.ref
-            return
-        # Present by construction: the stacks are the only thing that changes
-        # highlights between an edit and its undo or redo.
-        page, annot = self._load_highlight(edit.page_index, edit.ref.xref)
-        if to is None:
+    def _move_highlight(self, edit: _Edit, frm: _Look | None, to: _Look | None) -> None:
+        """Take `edit`'s highlight from look `frm` to look `to` (None:
+        absent): re-adding it, deleting it, recolouring it, or — for a change
+        of shape — writing it again in its new shape, under a new xref."""
+        if frm is not None:
+            # Present by construction: the stacks are the only thing that
+            # changes highlights between an edit and its undo or redo.
+            page, annot = self._load_highlight(edit.page_index, edit.ref.xref)
+            if to is not None and to.shape == frm.shape:
+                highlighter.recolor_highlight(page, annot, to.rgb)
+                return
             page.delete_annot(annot)
             self._refs.pop(edit.ref.xref, None)
-        else:
-            highlighter.recolor_highlight(page, annot, to)
+            if to is None:
+                return
+        # A named local, not `self._doc[i]` inline: the Annot is unbound once
+        # that Page wrapper is collected, and set_info below needs it.
+        page = self._doc[edit.page_index]
+        annot = highlighter.add_shape(page, to.shape, to.rgb)
+        if any(value for _, value in edit.info):
+            annot.set_info(dict(edit.info))
+        edit.ref.xref = annot.xref
+        self._refs[annot.xref] = edit.ref
 
     @property
     def can_undo(self) -> bool:
@@ -876,7 +955,7 @@ class PdfDocument:
         live = {
             annot.xref
             for page in self._doc
-            for annot in page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]) or []
+            for annot in highlighter.highlight_annots(page)
         }
         if not set(self._refs) <= live:
             self._clear_history()

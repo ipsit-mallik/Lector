@@ -9,6 +9,7 @@ data — no PySide6/Qt types, no live PyMuPDF objects.
 import base64
 import json
 import logging
+import math
 import os
 import threading
 from pathlib import Path
@@ -39,6 +40,11 @@ log = logging.getLogger(__name__)
 # here rather than handed to MuPDF to scan every page with.
 MAX_FIND_QUERY_CHARS = 200
 
+# Most points a freehand stroke may carry across the bridge. The frontend
+# simplifies a stroke before sending it, so a long one is a few hundred; this
+# only stops a runaway payload being written into the PDF.
+MAX_INK_POINTS = 4096
+
 # Bounds on a requested thumbnail's width in pixels: the Pages tab asks for its
 # column width times the screen's pixel ratio, the progress bar's preview for a
 # little more.
@@ -52,6 +58,40 @@ MICROPHONE_UNAVAILABLE = "microphone_unavailable"
 
 def _pixmap_to_png_b64(pix) -> str:
     return base64.b64encode(pix.tobytes("png")).decode("ascii")
+
+
+def _finite(value) -> bool:
+    """Whether `value` is a finite number (a bool is not; JSON `true` is no
+    coordinate). An integer too large for a float is not finite enough."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _page_index(value) -> int | None:
+    """`value` as a page index, or None if it is not a non-negative integer."""
+    if not _finite(value) or value != int(value) or value < 0:
+        return None
+    return int(value)
+
+
+def _ink_points(value, least: int, most: int = MAX_INK_POINTS) -> list[tuple[float, float]] | None:
+    """`value` as a list of `least`..`most` finite `(x, y)` points, or None
+    if it is anything else. What a stroke from the bridge must be before any
+    of it is written into a PDF."""
+    if not isinstance(value, (list, tuple)) or not least <= len(value) <= most:
+        return None
+    points = []
+    for point in value:
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            return None
+        if not all(_finite(c) for c in point):
+            return None
+        points.append((float(point[0]), float(point[1])))
+    return points
 
 
 class Api:
@@ -553,6 +593,37 @@ class Api:
         self._doc.highlight_char_indices(page_index, start_idx, end_idx, settings.get_highlight_color())
         return self._state()
 
+    def add_ink_stroke(self, page_index, points, straightened=None) -> dict:
+        """Draw a freehand marker stroke in the active colour. `points` is the
+        stroke as drawn (`[[x, y], ...]` in PDF points on the page as shown,
+        like `get_page_chars`'s boxes); `straightened`, when the frontend
+        straightened it on release, its two end points. Anything malformed
+        draws nothing: this is a bridge boundary. Returns the state with
+        `affected_page` (None when nothing was drawn) and the stroke's `id`."""
+        state_page, xref = None, None
+        drawn = _ink_points(points, 1)
+        final = None if straightened is None else _ink_points(straightened, 2, 2)
+        index = _page_index(page_index)
+        valid = (
+            self._doc.is_open
+            and drawn is not None
+            and (straightened is None or final is not None)
+            and index is not None
+            and index < self._doc.page_count
+        )
+        if valid:
+            xref = self._doc.add_ink_stroke(index, drawn, final, settings.get_highlight_color())
+            state_page = index if xref is not None else None
+        state = self._state()
+        state["affected_page"] = state_page
+        state["id"] = xref
+        return state
+
+    def get_ink_style(self) -> dict:
+        """How a marker stroke is drawn, so the frontend's live preview uses
+        the numbers written into the PDF: width in PDF points, opacity 0..1."""
+        return {"width": highlighter.INK_WIDTH_PT, "opacity": highlighter.INK_OPACITY}
+
     def get_highlight_palette(self) -> list[str]:
         """The five colour names, in the order the swatches show them. Names
         only: each one's colour is theme.css's `--highlight-<name>`."""
@@ -572,30 +643,41 @@ class Api:
     def get_page_highlights(self, page_index: int) -> dict:
         """Every highlight on one page, so the frontend can make each one a
         clickable, focusable target: `{"width", "height", "highlights":
-        [{"id", "color", "rects", "text"}]}`, sizes and rects in PDF points
-        like `get_page_chars`'s. `color` is None for a colour another app
-        wrote that is not in the palette; `text` is what the highlight covers,
-        for the target's accessible name."""
-        page_index = int(page_index)
-        if not self._doc.is_open:
+        [{"id", "kind", "color", "rects", "text"}]}`, sizes and rects in PDF
+        points like `get_page_chars`'s (an ink stroke's entry: see
+        `_highlight_entry`). `color` is None for a colour another app wrote
+        that is not in the palette; `text` is what the highlight covers, for
+        the target's accessible name."""
+        page_index = _page_index(page_index)
+        if not self._doc.is_open or page_index is None or page_index >= self._doc.page_count:
             return {"width": 0, "height": 0, "highlights": []}
         width, height = self._doc.page_size_points(page_index)
         return {
             "width": width,
             "height": height,
-            "highlights": [
-                {
-                    "id": h.xref,
-                    "color": h.color,
-                    "rects": [
-                        {"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1}
-                        for r in self._doc.as_shown(page_index, h.rects)
-                    ],
-                    "text": self._doc.text_in_rects(page_index, h.rects),
-                }
-                for h in self._doc.highlights_on_page(page_index)
+            "highlights": [self._highlight_entry(page_index, h) for h in self._doc.highlights_on_page(page_index)],
+        }
+
+    def _highlight_entry(self, page_index: int, h: highlighter.Highlight) -> dict:
+        """One `get_page_highlights` entry. An ink stroke also carries its
+        `strokes` (as shown) and `width`, and has no `text`; its one rect is
+        the box it paints, which the editor is placed under."""
+        entry = {
+            "id": h.xref,
+            "kind": "ink" if isinstance(h.shape, highlighter.InkShape) else "text",
+            "color": h.color,
+            "rects": [
+                {"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1}
+                for r in self._doc.as_shown(page_index, h.rects)
             ],
         }
+        if entry["kind"] == "ink":
+            entry["strokes"] = self._doc.shown_strokes(page_index, h.shape)
+            entry["width"] = h.shape.width
+            entry["text"] = None
+        else:
+            entry["text"] = self._doc.text_in_rects(page_index, h.rects)
+        return entry
 
     def recolor_highlight(self, page_index: int, highlight_id: int, color: str) -> dict:
         changed = self._doc.set_highlight_color(int(page_index), int(highlight_id), color)
