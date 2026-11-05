@@ -13,10 +13,12 @@ and the PyMuPDF write layer together because a match result becomes
 annotation coordinates directly, so keeping them in one feature avoids
 indirection.
 
-A highlight is one of two shapes: a `TextShape` (a /Highlight over lines of
-text) or an `InkShape` (a /Ink marker stroke, drawn where there is no text to
-snap to: a photo, a barcode, blank paper). Both are "highlights" to the rest
-of the app — counted, listed, recoloured, removed and undone the same way.
+A highlight is one of two shapes: a `TextShape` (a /Highlight, /Underline
+or /StrikeOut over lines of text, in the reader's chosen style) or an
+`InkShape` (a /Ink marker stroke, drawn where there is no text to snap to:
+a photo, a barcode, blank paper). All of them are "highlights" to the rest
+of the app — counted, listed, recoloured, restyled, removed and undone the
+same way.
 """
 import math
 import re
@@ -26,7 +28,7 @@ from typing import Iterator, Protocol, Sequence
 
 import pymupdf
 
-from lector.shared import theme
+from lector.shared import highlight_options, theme
 
 
 def _rgb(hex_color: str) -> tuple[float, float, float]:
@@ -50,6 +52,32 @@ HIGHLIGHT_COLORS: dict[str, tuple[float, float, float]] = {
 # either, and is shown with no swatch selected rather than mislabelled.
 _COLOR_TOLERANCE = 0.02
 
+# How far from level (as the sine of its angle) a line of text may run and
+# still be read as horizontal, with a baseline to put an underline under.
+_HORIZONTAL_TOLERANCE = 0.01
+
+# Where an underline or strike-through line goes and how thick it is, as
+# fractions of the font size — the text's own size and baseline, never the
+# freehand thickness (docs/DESIGN_SYSTEM.md, "Highlight tool").
+# The line's centre is this far below the baseline for an underline...
+UNDERLINE_OFFSET_EM = 0.11
+# ...and this far above it for a strike-through, about half the x-height.
+STRIKE_OFFSET_EM = 0.27
+LINE_THICKNESS_EM = 0.065
+MIN_LINE_THICKNESS_PT = 0.5
+# With no baseline to read, the line is placed from character boxes. An OCR
+# box runs from the cap height to the bottom of the descenders: its baseline
+# is a quarter of its height up from the bottom, and the font size about its
+# height (measured on MuPDF's OCR text layer at 12 and 20pt: 0.27/0.25 and
+# 0.94/0.95). A text layer's box is the font's whole ascent and descent:
+# the baseline about a fifth up, the size its height over about 1.37
+# (Helvetica: 1.075 + 0.299). The second is used for a line with no text
+# under it at all (another app's underline over a picture).
+OCR_BASELINE_FROM_BOTTOM = 0.25
+OCR_BOX_PER_EM = 0.95
+TEXT_BASELINE_FROM_BOTTOM = 0.22
+TEXT_BOX_PER_EM = 1.37
+
 
 class LineBounded(Protocol):
     """Whatever `merge_line_rects`/`add_highlight` need: a box plus the line
@@ -63,11 +91,18 @@ class LineBounded(Protocol):
 
 @dataclass(frozen=True)
 class Char:
+    """One character. `baseline` (a y in page space) and `size` (the font
+    size, in points) are known for a text layer's horizontal lines; OCR boxes
+    have neither, and an underline or strike-through line under them is
+    placed from the box itself (`line_metrics`)."""
+
     rect: pymupdf.Rect
     text: str
     block_no: int
     line_no: int
     char_no: int
+    baseline: float | None = None
+    size: float | None = None
 
 
 @dataclass(frozen=True)
@@ -95,10 +130,19 @@ def chars_on_page(page: pymupdf.Page) -> list[Char]:
             continue
         for line_no, line in enumerate(block.get("lines", [])):
             char_no = 0
+            # Only a left-to-right horizontal line has a baseline that is a
+            # y: on any other, an underline is placed from the boxes instead.
+            dx, dy = line.get("dir", (1, 0))
+            horizontal = dx > 0 and abs(dy) < _HORIZONTAL_TOLERANCE
             for span in line.get("spans", []):
+                size = span.get("size") if horizontal else None
                 for ch in span.get("chars", []):
                     x0, y0, x1, y1 = ch["bbox"]
-                    chars.append(Char(pymupdf.Rect(x0, y0, x1, y1), ch["c"], block_no, line_no, char_no))
+                    baseline = ch["origin"][1] if horizontal and "origin" in ch else None
+                    chars.append(Char(
+                        pymupdf.Rect(x0, y0, x1, y1), ch["c"], block_no, line_no, char_no,
+                        baseline, size if baseline is not None else None,
+                    ))
                     char_no += 1
     return chars
 
@@ -149,10 +193,56 @@ def merge_line_rects(items: Sequence[LineBounded]) -> list[pymupdf.Rect]:
     return [rect for _, rect in merged]
 
 
+@dataclass(frozen=True)
+class LineMetrics:
+    """Where one line of text sits: its baseline (a y in page space) and its
+    font size in points. What an underline or strike-through is placed by."""
+
+    baseline: float
+    size: float
+
+
+def _median(values: list[float]) -> float:
+    values = sorted(values)
+    return values[len(values) // 2]
+
+
+def line_metrics(rect: pymupdf.Rect, chars: Sequence[Char]) -> LineMetrics:
+    """The baseline and size of the line of text `rect` covers, from the
+    characters whose centres lie in it: a text layer's own baselines and
+    sizes when it has them, otherwise their boxes (OCR), otherwise `rect`
+    itself (another app's line over no text). Medians, so one odd glyph (a
+    superscript, a stray OCR box) does not move the line."""
+    inside = [c for c in chars if rect.contains((c.rect.tl + c.rect.br) / 2)]
+    known = [c for c in inside if c.baseline is not None and c.size]
+    if known:
+        return LineMetrics(_median([c.baseline for c in known]), _median([c.size for c in known]))
+    if inside:
+        height = _median([c.rect.height for c in inside])
+        bottom = _median([c.rect.y1 for c in inside])
+        return LineMetrics(bottom - OCR_BASELINE_FROM_BOTTOM * height, height / OCR_BOX_PER_EM)
+    height = rect.height
+    return LineMetrics(rect.y1 - TEXT_BASELINE_FROM_BOTTOM * height, height / TEXT_BOX_PER_EM)
+
+
+def markup_bar(rect: pymupdf.Rect, metrics: LineMetrics, style: str) -> pymupdf.Rect:
+    """The filled bar an underline or strike-through draws across `rect`,
+    kept inside it (so inside the annotation's own box)."""
+    thickness = max(LINE_THICKNESS_EM * metrics.size, MIN_LINE_THICKNESS_PT)
+    if style == highlight_options.UNDERLINE:
+        centre = metrics.baseline + UNDERLINE_OFFSET_EM * metrics.size
+    else:
+        centre = metrics.baseline - STRIKE_OFFSET_EM * metrics.size
+    thickness = min(thickness, rect.height)
+    y0 = min(max(centre - thickness / 2, rect.y0), rect.y1 - thickness)
+    return pymupdf.Rect(rect.x0, y0, rect.x1, y0 + thickness)
+
+
 def _set_rectangular_appearance(
     page: pymupdf.Page, annot, rects: list[pymupdf.Rect], rgb: tuple[float, float, float]
 ) -> None:
-    """Repaint `annot` as one plain rectangle per line, replacing MuPDF's default.
+    """Repaint `annot` as one plain filled rectangle per box, replacing
+    MuPDF's default.
 
     MuPDF draws a /Highlight annotation marker-pen style: each quad is filled
     as a path with bezier end-caps that bulge sideways by about a sixth of the
@@ -162,16 +252,20 @@ def _set_rectangular_appearance(
     characters on either side — measured at +5.8pt of overspill per side,
     independent of how much text is selected. Adobe Reader fills a tight
     rectangle instead, which is the only shape that stays inside the glyph
-    once selection is character-level.
+    once selection is character-level. An /Underline or /StrikeOut gets the
+    same treatment with a thin bar per line (`markup_bar`): MuPDF puts its
+    line at a fixed fraction of the quad, which is not where the text's
+    baseline is, and strokes it with a width taken from the quad's height.
 
     The quads themselves are already correct; only the appearance stream is
     wrong, so this rewrites that stream and leaves /Subtype, /QuadPoints and
     /C untouched — it stays a real highlight that other viewers list as one.
     """
-    # MuPDF's own stream references an ExtGState carrying /BM /Multiply, which
-    # is what keeps the glyphs readable under the fill. Reuse whatever name it
-    # generated rather than assuming one: emitting no `gs` at all would paint
-    # an opaque block over the text.
+    # MuPDF's own stream references an ExtGState carrying the opacity (/CA,
+    # /ca) and, for a highlight, /BM /Multiply, which is what keeps the glyphs
+    # readable under the fill. Reuse whatever name it generated rather than
+    # assuming one: emitting no `gs` at all would paint an opaque block over
+    # the text.
     gs_name = re.search(rb"/(\w+)\s+gs", annot._getAP() or b"")
     ops = ["q"]
     if gs_name:
@@ -191,25 +285,40 @@ def _set_rectangular_appearance(
 RGB = tuple[float, float, float]
 Point = tuple[float, float]
 
-# The freehand marker: a 14pt stroke, so it covers a line of body text with a
-# little to spare, in the same `HIGHLIGHT_COLORS` as a text highlight, at 60%
-# through Multiply, so what is under it stays visible and darkens the way a
-# real marker does, and a stroke reads as the same colour as a text highlight
-# beside it (a text highlight is the colour itself, multiplied; 40% looked a
-# pale tint of it). The colour is never pre-lightened: the opacity is applied
-# once, here. One stroke is one path drawn once, so where it crosses itself it
-# does not double up. Read by the frontend's preview (`api.get_ink_style`) so
-# the two cannot drift.
-INK_WIDTH_PT = 14.0
-INK_OPACITY = 0.6
+# The freehand marker: by default a 14pt stroke, so it covers a line of body
+# text with a little to spare, in the same `HIGHLIGHT_COLORS` as a text
+# highlight, at the Highlight style's opacity through Multiply, so what is
+# under it stays visible and darkens the way a real marker does, and a stroke
+# reads as the same colour as a text highlight beside it. Width and opacity
+# are the reader's (the highlight tool's settings card); these are the defaults. The
+# colour is never pre-lightened: the opacity is applied once, here. One
+# stroke is one path drawn once, so where it crosses itself it does not
+# double up.
+INK_WIDTH_PT = float(highlight_options.DEFAULT_INK_WIDTH_PT)
+INK_OPACITY = highlight_options.opacity_fraction(
+    highlight_options.DEFAULT_OPACITY_PCT[highlight_options.HIGHLIGHT]
+)
 INK_BLEND_MODE = pymupdf.PDF_BM_Multiply
+
+# Which annotation type each text style writes, and back.
+_STYLE_TYPES = {
+    highlight_options.HIGHLIGHT: pymupdf.PDF_ANNOT_HIGHLIGHT,
+    highlight_options.UNDERLINE: pymupdf.PDF_ANNOT_UNDERLINE,
+    highlight_options.STRIKETHROUGH: pymupdf.PDF_ANNOT_STRIKE_OUT,
+}
+_TYPE_STYLES = {annot_type: style for style, annot_type in _STYLE_TYPES.items()}
 
 
 @dataclass(frozen=True)
 class TextShape:
-    """A /Highlight's per-line boxes, in MuPDF's unrotated page space."""
+    """A text markup's per-line boxes, in MuPDF's unrotated page space, which
+    of the three it is, and its opacity (0..1). The boxes are the lines of
+    text it covers, whichever the style: an underline is drawn under them,
+    a strike-through through them."""
 
     rects: tuple[pymupdf.Rect, ...]
+    style: str = highlight_options.HIGHLIGHT
+    opacity: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -217,8 +326,8 @@ class InkShape:
     """An /Ink annotation's strokes (each a polyline, in MuPDF's unrotated
     page space) and how they are drawn. Width, opacity and blend mode are
     kept rather than assumed so another app's ink, removed and undone, comes
-    back drawn as it was; Lector's own strokes are always one stroke with the
-    `INK_*` values."""
+    back drawn as it was; Lector's own strokes are always one stroke, in the
+    reader's width and Highlight opacity, through Multiply."""
 
     strokes: tuple[tuple[Point, ...], ...]
     width: float = INK_WIDTH_PT
@@ -229,33 +338,76 @@ class InkShape:
 Shape = TextShape | InkShape
 
 
-def _paint(page: pymupdf.Page, annot, rects: list[pymupdf.Rect], rgb: RGB) -> None:
-    """Give `annot` the colour `rgb` in both places a viewer can read it from:
-    /C, which a viewer that draws its own highlights uses, and the appearance
-    stream, which every other viewer (and Lector) renders as-is. Writing only
-    one of them is how a highlight ends up a different colour in another app."""
+def same_geometry(a: Shape, b: Shape) -> bool:
+    """Whether two looks of one annotation differ only in how they are drawn
+    (opacity, width) and not in where or what they are, so one can become
+    the other in place, keeping its xref."""
+    if isinstance(a, TextShape) and isinstance(b, TextShape):
+        return a.rects == b.rects and a.style == b.style
+    if isinstance(a, InkShape) and isinstance(b, InkShape):
+        return a.strokes == b.strokes and a.blend_mode == b.blend_mode
+    return False
+
+
+def needs_text(shape: Shape) -> bool:
+    """Whether writing `shape` needs the page's text: an underline or a
+    strike-through is placed on its lines' baselines."""
+    return isinstance(shape, TextShape) and shape.style != highlight_options.HIGHLIGHT
+
+
+def _markup_boxes(shape: TextShape, chars: Sequence[Char]) -> list[pymupdf.Rect]:
+    """What a text markup's appearance fills: its line boxes for a
+    highlight, a bar per line for an underline or strike-through."""
+    rects = [pymupdf.Rect(rect) for rect in shape.rects]
+    if shape.style == highlight_options.HIGHLIGHT:
+        return rects
+    return [markup_bar(rect, line_metrics(rect, chars), shape.style) for rect in rects]
+
+
+def _paint(page: pymupdf.Page, annot, shape: TextShape, rgb: RGB, chars: Sequence[Char]) -> None:
+    """Give `annot` the colour `rgb` and the shape's opacity in both places a
+    viewer can read them from: /C and /CA, which a viewer that draws its own
+    markup uses, and the appearance stream, which every other viewer (and
+    Lector) renders as-is. Writing only one of them is how a highlight ends
+    up a different colour in another app."""
     annot.set_colors(stroke=rgb)
+    annot.set_opacity(shape.opacity)
     # Must precede the appearance rewrite: update() is what generates the
-    # stream, so overwriting it any earlier would simply be undone here.
+    # stream (and its ExtGState), so overwriting it any earlier would simply
+    # be undone here.
     annot.update()
-    _set_rectangular_appearance(page, annot, rects, rgb)
+    _set_rectangular_appearance(page, annot, _markup_boxes(shape, chars), rgb)
 
 
-def add_highlight_rects(page: pymupdf.Page, rects: Sequence[pymupdf.Rect], rgb: RGB):
-    """Write one real PDF highlight annotation covering `rects`, one per line.
+def add_text_markup(page: pymupdf.Page, shape: TextShape, rgb: RGB, chars: Sequence[Char] = ()):
+    """Write `shape` as one real PDF /Highlight, /Underline or /StrikeOut
+    covering its line boxes. `chars` is the page's text, which places an
+    underline or strike-through on its lines (`line_metrics`); a highlight
+    does not need it.
 
     Takes a raw colour rather than a palette name because undoing the removal
     of another app's highlight has to put back that app's own colour."""
-    if not rects:
+    if not shape.rects:
         return None
-    rects = [pymupdf.Rect(rect) for rect in rects]
-    annot = page.add_highlight_annot(quads=[rect.quad for rect in rects])
-    _paint(page, annot, rects, rgb)
+    quads = [pymupdf.Rect(rect).quad for rect in shape.rects]
+    if shape.style == highlight_options.UNDERLINE:
+        annot = page.add_underline_annot(quads=quads)
+    elif shape.style == highlight_options.STRIKETHROUGH:
+        annot = page.add_strikeout_annot(quads=quads)
+    else:
+        annot = page.add_highlight_annot(quads=quads)
+    _paint(page, annot, shape, rgb, chars)
     return annot
 
 
+def add_highlight_rects(page: pymupdf.Page, rects: Sequence[pymupdf.Rect], rgb: RGB):
+    """Write one solid PDF highlight annotation covering `rects`, one per line."""
+    return add_text_markup(page, TextShape(tuple(rects)), rgb)
+
+
 def add_highlight(page: pymupdf.Page, items: Sequence[LineBounded], color: str = DEFAULT_COLOR):
-    """Write `items` as one real PDF highlight annotation (not a UI overlay).
+    """Write `items` as one solid, real PDF highlight annotation (not a UI
+    overlay).
 
     One quad per line of the selection (see `merge_line_rects`) so a selection
     spanning multiple lines highlights correctly, the same way desktop PDF
@@ -267,9 +419,10 @@ def add_highlight(page: pymupdf.Page, items: Sequence[LineBounded], color: str =
 
 
 def highlight_rects(annot) -> list[pymupdf.Rect]:
-    """The per-line boxes a highlight covers, read back from its /QuadPoints
-    (four vertices per line, in the same page space `add_highlight_rects`
-    was given) — what a recolour repaints and an undone removal re-adds."""
+    """The per-line boxes a text markup covers, read back from its
+    /QuadPoints (four vertices per line, in the same page space
+    `add_text_markup` was given) — what a recolour repaints and an undone
+    removal re-adds."""
     points = annot.vertices or []
     return [pymupdf.Quad(points[i:i + 4]).rect for i in range(0, len(points) - 3, 4)]
 
@@ -310,11 +463,11 @@ def add_ink(page: pymupdf.Page, shape: InkShape, rgb: RGB):
     return annot
 
 
-def add_shape(page: pymupdf.Page, shape: Shape, rgb: RGB):
+def add_shape(page: pymupdf.Page, shape: Shape, rgb: RGB, chars: Sequence[Char] = ()):
     """Write `shape` as the annotation it describes; the live Annot."""
     if isinstance(shape, InkShape):
         return add_ink(page, shape, rgb)
-    return add_highlight_rects(page, shape.rects, rgb)
+    return add_text_markup(page, shape, rgb, chars)
 
 
 def is_ink(annot) -> bool:
@@ -333,19 +486,25 @@ INK_MAX_STROKE_POINTS = 4096
 INK_MAX_WIDTH_PT = 100.0
 
 
+def _opacity(annot) -> float:
+    """`annot`'s /CA, or 1.0 when it has none (PyMuPDF reads that as -1)."""
+    opacity = annot.opacity
+    return float(opacity) if isinstance(opacity, (int, float)) and 0 <= opacity <= 1 else 1.0
+
+
 def shape_of(annot, *, bounded: bool) -> Shape:
     """What `annot` looks like. `bounded=False` is the drawing as the PDF
     has it (only points that are not finite numbers dropped), enough to write
     it again exactly: an undone removal or recolour. `bounded=True` is what
     the editor lists: kept on the page and within INK_MAX_*."""
     if not is_ink(annot):
-        return TextShape(tuple(highlight_rects(annot)))
+        style = _TYPE_STYLES.get(annot.type[0], highlight_options.HIGHLIGHT)
+        return TextShape(tuple(highlight_rects(annot)), style, _opacity(annot))
     width = (annot.border or {}).get("width")
-    opacity = annot.opacity
     return InkShape(
         tuple(_iter_ink_strokes(annot, bounded)),
         min(float(width), INK_MAX_WIDTH_PT) if isinstance(width, (int, float)) and width > 0 else 1.0,
-        float(opacity) if isinstance(opacity, (int, float)) and 0 <= opacity <= 1 else 1.0,
+        _opacity(annot),
         annot.blendmode or None,
     )
 
@@ -403,16 +562,26 @@ def ink_bounds(shape: InkShape) -> pymupdf.Rect:
     return pymupdf.Rect(min(xs) - half, min(ys) - half, max(xs) + half, max(ys) + half)
 
 
-def recolor_highlight(page: pymupdf.Page, annot, rgb: RGB) -> None:
-    """Repaint an existing highlight in `rgb`, keeping its shape, its /NM id
-    and anything another app attached to it (author, note). An ink stroke
-    keeps its own width, opacity and blend mode: `update()` regenerates the
-    appearance from the entries already on it."""
-    if is_ink(annot):
+def restyle_highlight(page: pymupdf.Page, annot, rgb: RGB, shape: Shape, chars: Sequence[Char] = ()) -> None:
+    """Repaint an existing highlight in `rgb` with `shape`'s opacity (and,
+    for ink, its width), in place: its geometry, its /NM id and anything
+    another app attached to it (author, note) are kept. `shape` has the same
+    geometry as the annotation (`same_geometry`): only how it is drawn
+    changes. An ink stroke's appearance is regenerated by `update()` from the
+    entries set on it; a text markup's is rewritten as when it was added."""
+    if isinstance(shape, InkShape):
         annot.set_colors(stroke=rgb)
+        annot.set_border(width=shape.width)
+        annot.set_opacity(shape.opacity)
         annot.update()
         return
-    _paint(page, annot, highlight_rects(annot), rgb)
+    _paint(page, annot, shape, rgb, chars)
+
+
+def recolor_highlight(page: pymupdf.Page, annot, rgb: RGB, chars: Sequence[Char] = ()) -> None:
+    """Repaint an existing highlight in `rgb`, keeping everything else about
+    it (`restyle_highlight` with the shape it already has)."""
+    restyle_highlight(page, annot, rgb, shape_of(annot, bounded=False), chars)
 
 
 @dataclass(frozen=True)
@@ -420,8 +589,9 @@ class Highlight:
     """One highlight annotation on a page, as the editor needs it. `xref` is
     the annotation's PDF object number: stable for the life of the open
     document, so it is what the frontend sends back to name a highlight.
-    `rects` is a text highlight's per-line boxes, or an ink stroke's bounding
-    box (what the editor is placed under); `shape` says which it is."""
+    `rects` is a text markup's per-line boxes, or an ink stroke's bounding
+    box (what the editor is placed under); `shape` says which it is, and
+    carries its style and opacity."""
 
     xref: int
     rects: tuple[pymupdf.Rect, ...]
@@ -429,9 +599,15 @@ class Highlight:
     shape: Shape | None = None
 
 
-# The annotation types Lector treats as highlights. Everything else on a page
-# (links, notes, another app's shapes) is left alone and not counted.
-HIGHLIGHT_TYPES = (pymupdf.PDF_ANNOT_HIGHLIGHT, pymupdf.PDF_ANNOT_INK)
+# The annotation types Lector treats as highlights: the three text markups
+# the tool writes, and ink. Everything else on a page (links, notes, another
+# app's shapes, squiggly underlines) is left alone and not counted.
+HIGHLIGHT_TYPES = (
+    pymupdf.PDF_ANNOT_HIGHLIGHT,
+    pymupdf.PDF_ANNOT_UNDERLINE,
+    pymupdf.PDF_ANNOT_STRIKE_OUT,
+    pymupdf.PDF_ANNOT_INK,
+)
 
 
 def highlight_annots(page: pymupdf.Page):
@@ -439,15 +615,16 @@ def highlight_annots(page: pymupdf.Page):
 
 
 def _is_listed(annot) -> bool:
-    """Whether `highlights_on_page` lists `annot`: every text highlight, and
-    an ink annotation with something drawable in it (one with nothing has
+    """Whether `highlights_on_page` lists `annot`: every text markup, and an
+    ink annotation with something drawable in it (one with nothing has
     nothing to click either)."""
     return not is_ink(annot) or next(_iter_ink_strokes(annot, bounded=True), None) is not None
 
 
 def highlights_on_page(page: pymupdf.Page) -> list[Highlight]:
-    """Every highlight and ink stroke on `page`, Lector's and other apps'
-    alike, in the order they are drawn (the last is on top)."""
+    """Every highlight, underline, strike-through and ink stroke on `page`,
+    Lector's and other apps' alike, in the order they are drawn (the last is
+    on top)."""
     found = []
     for annot in highlight_annots(page):
         if not _is_listed(annot):

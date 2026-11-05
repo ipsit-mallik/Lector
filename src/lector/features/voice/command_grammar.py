@@ -33,7 +33,7 @@ Three things live here, and they are connected:
   closed-set problem instead of open transcription.
 """
 from lector.features.voice import fuzzy
-from lector.shared import theme
+from lector.shared import highlight_options, theme
 
 # Intent names cross the bridge to JS as plain strings, so they are part of
 # the frontend contract (see `frontend/pages/reading.js`), not private
@@ -46,7 +46,22 @@ SCROLL_DOWN = "SCROLL_DOWN"
 SAVE = "SAVE"
 HIGHLIGHT = "HIGHLIGHT"
 HIGHLIGHT_SENTENCE = "HIGHLIGHT_SENTENCE"
+# "underline <words>" and "strike through <words>": the same matching as a
+# highlight, written as the other two text styles (the highlight tool's style card).
+UNDERLINE = "UNDERLINE"
+UNDERLINE_SENTENCE = "UNDERLINE_SENTENCE"
+STRIKETHROUGH = "STRIKETHROUGH"
+STRIKETHROUGH_SENTENCE = "STRIKETHROUGH_SENTENCE"
 SET_HIGHLIGHT_COLOR = "SET_HIGHLIGHT_COLOR"
+# The highlight tool's settings: the current style's opacity ("opacity
+# forty", exactly the slider's tick values), the freehand thickness one
+# preset up or down, and a style chosen with the tool turned on.
+SET_OPACITY = "SET_OPACITY"
+THICKER = "THICKER"
+THINNER = "THINNER"
+HIGHLIGHT_MODE = "HIGHLIGHT_MODE"
+UNDERLINE_MODE = "UNDERLINE_MODE"
+STRIKETHROUGH_MODE = "STRIKETHROUGH_MODE"
 # The reader's side panel and progress bar. "show outline" and "show pages"
 # open the panel on that tab and number its entries (the numbered-overlay
 # picker), so a spoken number jumps to one.
@@ -117,7 +132,38 @@ PHRASES: dict[str, tuple[str, ...]] = {
     FIT_WIDTH: ("fit width", "fit to width"),
     FIT_PAGE: ("fit page", "fit to page"),
     ACTUAL_SIZE: ("actual size",),
+    # "thicker" and "thinner" score 0.71 to each other, just under the match
+    # threshold, and the recognizer hears each as itself.
+    THICKER: ("thicker",),
+    THINNER: ("thinner",),
+    # Only when "mode" itself is heard (`_MODE_WORD`): "highlight more" scores
+    # 0.93 against "highlight mode", and is a highlight of the word "more".
+    HIGHLIGHT_MODE: ("highlight mode",),
+    UNDERLINE_MODE: ("underline mode",),
+    STRIKETHROUGH_MODE: ("strike through mode",),
 }
+
+# The style each "… mode" command chooses (the highlight tool's styles).
+STYLE_MODE_INTENTS: dict[str, str] = {
+    HIGHLIGHT_MODE: "highlight",
+    UNDERLINE_MODE: "underline",
+    STRIKETHROUGH_MODE: "strikethrough",
+}
+_MODE_WORD = "mode"
+
+# "opacity <number>": the lead, an optional "percent" after the number, and
+# the values it may take — the opacity slider's ticks, 10 to 100 in tens, so
+# a half-heard number never sets an opacity nobody chose. `highlight_options`
+# owns the range; the grammar repeats only that it is the ticks.
+OPACITY_PREFIX = "opacity"
+OPACITY_SUFFIX = "percent"
+OPACITY_VALUES: tuple[int, ...] = tuple(
+    range(
+        highlight_options.OPACITY_MIN_PCT,
+        highlight_options.OPACITY_MAX_PCT + 1,
+        highlight_options.OPACITY_TICK_STEP_PCT,
+    )
+)
 
 # Leading trigger phrases for HIGHLIGHT_SENTENCE, tried before HIGHLIGHT's —
 # "highlight the sentence about foxes" must not be parsed as HIGHLIGHT with
@@ -138,6 +184,39 @@ HIGHLIGHT_TRIGGERS: tuple[str, ...] = (
     # query's first word. A single, short trigger has no such window.
     "highlight",
 )
+# The same two shapes for the other text styles. "strike out" is the
+# everyday synonym of "strike through"; a two-word trigger is safe where
+# "highlight the word" was not, because no query word can stand in for
+# "through" or "out" at the 0.72 threshold.
+UNDERLINE_SENTENCE_TRIGGERS: tuple[str, ...] = (
+    "underline the sentence",
+    "underline this sentence",
+    "underline sentence",
+)
+UNDERLINE_TRIGGERS: tuple[str, ...] = ("underline",)
+STRIKETHROUGH_SENTENCE_TRIGGERS: tuple[str, ...] = (
+    "strike through the sentence",
+    "strike through this sentence",
+    "strike through sentence",
+)
+STRIKETHROUGH_TRIGGERS: tuple[str, ...] = ("strike through", "strike out")
+
+# What a sentence trigger must contain, exactly, to be one. The recognizer
+# only returns words it knows, so this word is either heard or not; without
+# the rule "strike through the quick" scores 0.74 against "strike through the
+# sentence" and would mark the wrong words.
+_SENTENCE_WORD = "sentence"
+
+# Which text style each of these intents writes, and whether it extends to
+# the sentence (`api.highlight_by_voice`'s `style` and `sentence`).
+MARKUP_INTENTS: dict[str, tuple[str, bool]] = {
+    HIGHLIGHT: ("highlight", False),
+    HIGHLIGHT_SENTENCE: ("highlight", True),
+    UNDERLINE: ("underline", False),
+    UNDERLINE_SENTENCE: ("underline", True),
+    STRIKETHROUGH: ("strikethrough", False),
+    STRIKETHROUGH_SENTENCE: ("strikethrough", True),
+}
 
 # The palette's colour names, said as themselves ("green"). Both colour
 # commands end in one, the same way GOTO_PAGE ends in a number.
@@ -269,14 +348,23 @@ def _parse_goto(words: list[str]) -> dict | None:
     }
 
 
-# (intent, trigger) pairs in priority order. HIGHLIGHT_SENTENCE's triggers
-# come first because they are strict extensions of HIGHLIGHT's — "highlight
-# the sentence" must not be cut short at "highlight" with "the sentence"
-# left stranded in the query.
+# (intent, trigger) pairs in priority order. Each style's sentence triggers
+# come before its own plain ones because they are strict extensions of them —
+# "highlight the sentence" must not be cut short at "highlight" with "the
+# sentence" left stranded in the query. The three styles' triggers are far
+# enough apart that none reaches the threshold against another's
+# (`tests/test_command_grammar.py` pins it).
 _HIGHLIGHT_TRIGGERS: tuple[tuple[str, str], ...] = tuple(
-    (HIGHLIGHT_SENTENCE, trigger) for trigger in HIGHLIGHT_SENTENCE_TRIGGERS
-) + tuple(
-    (HIGHLIGHT, trigger) for trigger in HIGHLIGHT_TRIGGERS
+    (intent, trigger)
+    for sentence_intent, sentence_triggers, plain_intent, plain_triggers in (
+        (HIGHLIGHT_SENTENCE, HIGHLIGHT_SENTENCE_TRIGGERS, HIGHLIGHT, HIGHLIGHT_TRIGGERS),
+        (UNDERLINE_SENTENCE, UNDERLINE_SENTENCE_TRIGGERS, UNDERLINE, UNDERLINE_TRIGGERS),
+        (STRIKETHROUGH_SENTENCE, STRIKETHROUGH_SENTENCE_TRIGGERS, STRIKETHROUGH, STRIKETHROUGH_TRIGGERS),
+    )
+    for intent, trigger in (
+        *((sentence_intent, t) for t in sentence_triggers),
+        *((plain_intent, t) for t in plain_triggers),
+    )
 )
 
 
@@ -296,6 +384,8 @@ def _parse_highlight(words: list[str]) -> dict | None:
         n = len(trigger_words)
         if len(words) <= n:
             continue  # nothing left over to be a query
+        if _SENTENCE_WORD in trigger_words and _SENTENCE_WORD not in words[:n]:
+            continue
         lead = " ".join(words[:n])
         score = fuzzy.similarity(lead, trigger)
         if score < fuzzy.DEFAULT_THRESHOLD:
@@ -351,6 +441,35 @@ def _split_color(query_words: list[str]) -> tuple[list[str], str | None]:
     return query_words, None
 
 
+def _parse_opacity(words: list[str]) -> dict | None:
+    """"opacity forty" (or "opacity forty percent") -> SET_OPACITY 40.
+
+    `_parse_goto`'s shape with an exact lead: the recognizer returns
+    "opacity" as itself or not at all, and only the slider's tick values are
+    accepted, so "opacity forty five" sets nothing rather than a value the
+    reader may not have said.
+    """
+    if words and words[-1] == OPACITY_SUFFIX:
+        words = words[:-1]
+    if len(words) < 2 or words[0] != OPACITY_PREFIX:
+        return None
+    value = _words_to_number(words[1:])
+    if value not in OPACITY_VALUES:
+        return None
+    return {
+        "intent": SET_OPACITY,
+        "opacity": value,
+        "matched": f"{OPACITY_PREFIX} <number>",
+        "score": 1.0,
+    }
+
+
+def _fixed_phrases(words: list[str]) -> tuple[str, ...]:
+    """The fixed phrasings an utterance may match: the "… mode" ones only
+    when "mode" was heard (see PHRASES)."""
+    return _ORDERED_PHRASES if _MODE_WORD in words else _PHRASES_WITHOUT_MODE
+
+
 def _parse_highlight_color(words: list[str]) -> dict | None:
     """"highlight color green" -> SET_HIGHLIGHT_COLOR green.
 
@@ -386,7 +505,8 @@ def parse(text: str) -> dict | None:
     reader never gave.
 
     The returned dict is `{"intent", "phrase", "matched", "score"}`, plus
-    `"page"` for `GOTO_PAGE`, `"color"` for `SET_HIGHLIGHT_COLOR`, or
+    `"page"` for `GOTO_PAGE`, `"color"` for `SET_HIGHLIGHT_COLOR`,
+    `"opacity"` (a percentage) for `SET_OPACITY`, or
     `"query"` for `HIGHLIGHT`/`HIGHLIGHT_SENTENCE` (with `"color"` too when
     one was said after it).
     """
@@ -401,7 +521,11 @@ def parse(text: str) -> dict | None:
     if goto is not None:
         return {**goto, "phrase": phrase}
 
-    match = fuzzy.best_match(phrase, _ORDERED_PHRASES)
+    opacity = _parse_opacity(words)
+    if opacity is not None:
+        return {**opacity, "phrase": phrase}
+
+    match = fuzzy.best_match(phrase, _fixed_phrases(words))
     if match is not None:
         matched, score = match
         return {
@@ -470,7 +594,7 @@ def resolve(text: str, alternatives: list[str] | None = None) -> dict:
         words = _normalize(candidate_text)
         if not words:
             continue
-        near = fuzzy.best_near_miss(" ".join(words), _ORDERED_PHRASES)
+        near = fuzzy.best_near_miss(" ".join(words), _fixed_phrases(words))
         if near is not None and (best is None or near[1] > best[1]):
             best = near
     if best is None:
@@ -497,12 +621,13 @@ def vocabulary() -> list[str]:
             words.update(phrasing.split())
     for prefix in GOTO_PREFIXES:
         words.update(prefix.split())
-    for trigger in HIGHLIGHT_SENTENCE_TRIGGERS + HIGHLIGHT_TRIGGERS:
+    for _, trigger in _HIGHLIGHT_TRIGGERS:
         words.update(trigger.split())
     for prefix in HIGHLIGHT_COLOR_PREFIXES:
         words.update(prefix.split())
     words.update(HIGHLIGHT_COLORS)
     words.add(HIGHLIGHT_COLOR_JOINER)
+    words.update((OPACITY_PREFIX, OPACITY_SUFFIX))
     words.update(_UNITS)
     words.update(_TENS)
     words.add(_HUNDRED)
@@ -514,6 +639,12 @@ def vocabulary() -> list[str]:
 # candidate list each time would be wasted work.
 _ORDERED_PHRASES: tuple[str, ...] = tuple(
     phrasing for phrasings in PHRASES.values() for phrasing in phrasings
+)
+_PHRASES_WITHOUT_MODE: tuple[str, ...] = tuple(
+    phrasing
+    for intent, phrasings in PHRASES.items()
+    if intent not in STYLE_MODE_INTENTS
+    for phrasing in phrasings
 )
 _PHRASE_TO_INTENT: dict[str, str] = {
     phrasing: intent

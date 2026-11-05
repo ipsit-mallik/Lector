@@ -429,7 +429,7 @@ class ReaderMarkupTests(unittest.TestCase):
 
     def test_entering_closes_the_popovers_in_the_hidden_chrome(self):
         body = self.js[self.js.index("function enterFocusMode()"):self.js.index("let dialogOpenAtKey")]
-        self.assertIn("closeColorFlyout();", body)
+        self.assertIn("closeHighlightOptions();", body)
         self.assertIn("closeZoomPopover();", body)
 
     def test_the_focus_button_sits_right_of_the_zoom_control_in_the_topbar(self):

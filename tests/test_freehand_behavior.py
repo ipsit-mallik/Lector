@@ -30,6 +30,7 @@ READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
 READING_HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 READING_CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
 COLORS_JS = (PAGES / "highlight-colors.js").read_text(encoding="utf-8")
+OPTIONS_JS = (PAGES / "highlight-options.js").read_text(encoding="utf-8")
 NODE = shutil.which("node")
 
 HARNESS = r"""
@@ -462,7 +463,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("if (state.id == null) return false;", READING_JS)
         self.assertIn("commitFailed: () => showToast(INK_NOT_DRAWN)", READING_JS)
         self.assertIn("const INK_NOT_DRAWN = \"Couldn't draw that\";", READING_JS)
-        self.assertIn('setInkStyle(await callApi("get_ink_style"))', READING_JS)
+        self.assertIn('setInkStyle({ width: highlightOptionsState.ink_width, opacity: inkOpacity })', OPTIONS_JS)
         self.assertRegex(READING_JS, r"else if \(isDrawingInk\(\)\) cancelInkStroke\(\);")
         self.assertIn('img.classList.toggle("selecting", highlightMode)', READING_JS)
 

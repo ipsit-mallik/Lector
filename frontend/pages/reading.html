@@ -49,15 +49,15 @@
               <!-- The ticks mark 50%, 100% and 200% under the track and jump
                    there when clicked; out of the Tab order, which goes from the
                    slider to the chips (Home and End reach the ends). -->
-              <div class="zoom-slider-wrap">
-                <input class="zoom-slider" id="zoomSlider" type="range" min="0" max="100" step="1" value="50"
+              <div class="range-slider-wrap">
+                <input class="range-slider" id="zoomSlider" type="range" min="0" max="100" step="1" value="50"
                        aria-label="Zoom" aria-valuetext="100%">
-                <div class="zoom-ticks" id="zoomTicks">
-                  <button class="zoom-tick" type="button" tabindex="-1" data-zoom="50"
+                <div class="range-ticks" id="zoomTicks">
+                  <button class="range-tick" type="button" tabindex="-1" data-value="50"
                           data-tooltip="50%" aria-label="Zoom to 50%"></button>
-                  <button class="zoom-tick zoom-tick--major" type="button" tabindex="-1" data-zoom="100"
+                  <button class="range-tick range-tick--major" type="button" tabindex="-1" data-value="100"
                           data-tooltip="Reset to 100%" aria-label="Reset to 100%"></button>
-                  <button class="zoom-tick" type="button" tabindex="-1" data-zoom="200"
+                  <button class="range-tick" type="button" tabindex="-1" data-value="200"
                           data-tooltip="200%" aria-label="Zoom to 200%"></button>
                 </div>
               </div>
@@ -167,11 +167,21 @@
              (highlight-colors.js). Under the selection wash. -->
         <div class="highlight-target-layer" id="highlightTargetLayer"></div>
         <div class="highlight-editor" id="highlightEditor" role="dialog" aria-label="Highlight" hidden>
-          <div class="swatch-row" id="highlightEditorSwatches" aria-label="Highlight color"></div>
-          <div class="highlight-editor-sep"></div>
-          <button class="btn-secondary highlight-editor-remove" id="highlightEditorRemoveBtn" type="button">
-            <span data-icon="remove"></span>Remove
-          </button>
+          <div class="highlight-editor-top">
+            <div class="swatch-row" id="highlightEditorSwatches" aria-label="Highlight color"></div>
+            <div class="highlight-editor-sep"></div>
+            <button class="btn-secondary highlight-editor-remove" id="highlightEditorRemoveBtn" type="button">
+              <span data-icon="remove"></span>Remove
+            </button>
+          </div>
+          <!-- The same opacity slider and thickness presets as Highlight
+               options (highlight-options.js builds them); thickness for a
+               drawing only. -->
+          <div class="hl-options-row opacity-control" id="highlightEditorOpacity"></div>
+          <div class="hl-options-row" id="highlightEditorThickness" hidden>
+            <span class="hl-options-label" id="highlightEditorThicknessLabel">Thickness</span>
+            <div class="thickness-row" id="highlightEditorThicknessGroup" aria-labelledby="highlightEditorThicknessLabel"></div>
+          </div>
         </div>
         <!-- Live selection wash painted while a highlight is being dragged
              out (see reading.js). Sits outside both scrollers, as a sibling
@@ -218,17 +228,51 @@
            grab area, shared/scrollbars.css) and a clear gap between the two.
            Its groups sit in the middle of the rail's height. -->
       <div class="rail focus-chrome">
-        <!-- The highlight tool and, attached under it, the color it draws in.
-             The color button opens the five swatches beside the rail, over
-             the page (highlight-colors.js); the dot shows the active color. -->
+        <!-- The highlight tool, a split button: the button toggles the tool in
+             the chosen style (its icon: highlighter, underline or
+             strikethrough), and the badge on its corner (or a right-click on
+             it) opens the style card. Under it, the preview of what the tool
+             draws (a line in the color, at the opacity), which opens the
+             settings card. One card at a time, beside the rail, over the page
+             (highlight-options.js). -->
         <div class="rail-highlight">
-          <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight tool  (H)" aria-label="Highlight tool"></button>
-          <button class="color-btn" id="highlightColorBtn" type="button" title="Highlight color"
-                  aria-label="Highlight color" aria-haspopup="true" aria-expanded="false" aria-controls="highlightColorFlyout">
-            <span class="color-btn-dot"></span>
-            <span class="color-btn-chevron" data-icon="chevron_left"></span>
+          <div class="tool-split">
+            <button class="icon-btn" id="highlightBtn" data-icon="highlight" title="Highlight  (H)"
+                    aria-label="Highlight" aria-pressed="false"></button>
+            <button class="style-badge" id="highlightStyleBtn" type="button" title="Choose style"
+                    aria-label="Choose style" aria-haspopup="menu" aria-expanded="false" aria-controls="highlightStyleCard">
+              <span class="style-badge-face" data-icon="chevron_left"></span>
+            </button>
+          </div>
+          <button class="preview-btn" id="highlightColorBtn" type="button" title="Color, opacity, thickness"
+                  aria-label="Color, opacity, thickness" aria-haspopup="dialog" aria-expanded="false" aria-controls="highlightOptions">
+            <span class="preview-line" id="highlightPreviewLine"></span>
           </button>
-          <div class="color-flyout" id="highlightColorFlyout" aria-label="Highlight color" hidden></div>
+          <div class="rail-card style-card" id="highlightStyleCard" role="menu" aria-label="Highlight style" hidden>
+            <button class="style-item" type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-style="highlight">
+              <span class="style-item-icon" data-icon="highlight"></span><span class="style-item-name">Highlight</span><kbd class="key-badge">H</kbd><span class="style-item-check" data-icon="check"></span>
+            </button>
+            <button class="style-item" type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-style="underline">
+              <span class="style-item-icon" data-icon="underline"></span><span class="style-item-name">Underline</span><kbd class="key-badge">U</kbd><span class="style-item-check" data-icon="check"></span>
+            </button>
+            <button class="style-item" type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-style="strikethrough">
+              <span class="style-item-icon" data-icon="strikethrough"></span><span class="style-item-name">Strikethrough</span><kbd class="key-badge">S</kbd><span class="style-item-check" data-icon="check"></span>
+            </button>
+          </div>
+          <div class="rail-card highlight-options" id="highlightOptions" role="dialog" aria-label="Color, opacity, thickness" hidden>
+            <div class="swatch-row" id="highlightOptionsSwatches" aria-label="Color"></div>
+            <div class="hl-options-divider"></div>
+            <!-- Built by highlight-options.js: "Opacity" and the value over the
+                 slider, with a tick every 10%. -->
+            <div class="hl-options-row opacity-control" id="highlightOpacityControl"></div>
+            <div class="hl-options-row">
+              <div class="hl-options-head">
+                <span class="hl-options-label" id="highlightThicknessLabel">Thickness</span>
+                <span class="hl-options-note">drawing only</span>
+              </div>
+              <div class="thickness-row" id="highlightThicknessGroup" aria-labelledby="highlightThicknessLabel"></div>
+            </div>
+          </div>
         </div>
         <!-- Always shown. With nothing on the undo stack they are dimmed and
              aria-disabled rather than disabled, so they keep their tooltip
@@ -403,7 +447,9 @@
   <script src="open-pdf.js"></script>
   <script src="find-bar.js"></script>
   <script src="ink-geometry.js"></script>
+  <script src="range-slider.js"></script>
   <script src="highlight-colors.js"></script>
+  <script src="highlight-options.js"></script>
   <script src="freehand.js"></script>
   <script src="progress-layout.js"></script>
   <script src="progress-bar.js"></script>

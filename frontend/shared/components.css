@@ -791,7 +791,7 @@ kbd,
 /* Highlight colour swatches                                           */
 /* ------------------------------------------------------------------ */
 
-/* The reader's colour flyout and highlight editor (highlight-colors.js) and
+/* The reader's highlight settings card and highlight editor (highlight-colors.js) and
    Settings > Reading show the same swatches, so they live here. Each sets
    --swatch to its --highlight-<name> token. */
 .swatch-row {

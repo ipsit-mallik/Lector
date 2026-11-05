@@ -26,7 +26,8 @@ FRONTEND = ROOT / "frontend"
 COMPONENT = FRONTEND / "pages" / "command-reference.js"
 SCREENS = (router.HOME, router.SETTINGS, router.READING)
 # What a variable is filled with to say a phrase for real.
-SAMPLE = {"{page}": "12", "{number}": "3", "{words}": "the quick brown fox", "{color}": "green"}
+SAMPLE = {"{page}": "12", "{number}": "3", "{words}": "the quick brown fox", "{color}": "green",
+          "{opacity}": "forty"}
 
 
 def sayable(phrase: str) -> str:
@@ -62,6 +63,7 @@ def registry_patterns() -> list[tuple[str, tuple[str, ...], str]]:
             for t in grammar.HIGHLIGHT_TRIGGERS + grammar.HIGHLIGHT_SENTENCE_TRIGGERS
         ), reference.COLOR),
         ("set the highlight color", grammar.HIGHLIGHT_COLOR_PREFIXES, reference.COLOR),
+        ("set the opacity", (grammar.OPACITY_PREFIX,), reference.OPACITY),
         ("open a numbered file", router.OPEN_NUMBER_PREFIXES, reference.NUMBER),
     ]
 
@@ -125,6 +127,15 @@ class NothingListedThatDoesNotWorkTests(unittest.TestCase):
 
     def test_the_color_placeholder_lists_the_grammars_own_colors(self):
         self.assertEqual(reference.panel()["highlight_colors"], list(grammar.HIGHLIGHT_COLORS))
+
+    def test_an_opacity_pattern_sets_that_opacity(self):
+        cards = [c for c in all_commands() if any(reference.OPACITY in p for p in c["phrases"])]
+        self.assertEqual(len(cards), 1)
+        for phrase in cards[0]["phrases"]:
+            with self.subTest(phrase=phrase):
+                parsed = grammar.parse(sayable(phrase))
+                self.assertEqual((parsed["intent"], parsed["opacity"]), (grammar.SET_OPACITY, 40))
+        self.assertEqual(reference.panel()["opacity_values"], list(grammar.OPACITY_VALUES))
 
     def test_every_phrase_is_a_pattern_not_one_invented_example(self):
         # A variable is a placeholder the page fills with the real range. A

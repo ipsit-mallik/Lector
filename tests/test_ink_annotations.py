@@ -416,7 +416,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(state["highlighted_pages"], [0])
         self.assertEqual(state["highlight_count_total"], 1)
         (found,) = self.api.get_page_highlights(0)["highlights"]
-        self.assertEqual(set(found), {"id", "kind", "color", "rects", "strokes", "width", "text"})
+        self.assertEqual(set(found), {"id", "kind", "style", "opacity", "color", "rects", "strokes", "width", "text"})
         self.assertEqual(found["kind"], "ink")
         self.assertEqual(found["color"], "green")
         self.assertIsNone(found["text"])
@@ -436,7 +436,11 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(self.api.get_page_highlights(page)["highlights"], [])
 
     def test_the_ink_style_is_what_the_pdf_gets(self):
-        self.assertEqual(self.api.get_ink_style(), {"width": 14.0, "opacity": 0.6})
+        # The preview reads width and opacity from the options the popover
+        # starts from; the PDF's defaults are the same numbers.
+        options = self.api.get_highlight_options()
+        self.assertEqual(options["ink_width"], highlighter.INK_WIDTH_PT)
+        self.assertEqual(options["opacity"]["highlight"] / 100, highlighter.INK_OPACITY)
 
     def test_a_malformed_stroke_draws_nothing(self):
         bad = {

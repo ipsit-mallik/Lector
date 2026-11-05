@@ -122,12 +122,16 @@ class EntranceTests(unittest.TestCase):
 
     def test_reader_popovers_grow_from_their_trigger_at_the_fast_duration(self):
         self.assertRegex(self.READING_CSS,
-                         r"\.color-flyout,\s*\.highlight-editor \{\s*"
+                         r"\.highlight-editor \{\s*"
                          r"animation: pop-in var\(--dur-fast\) var\(--ease-out\);")
         # The zoom popover fades and drops 4px instead, over its own 140ms
-        # (tests/test_zoom_control.py), zeroed under reduced motion.
+        # (tests/test_zoom_control.py), zeroed under reduced motion; the
+        # rail's cards fade and slide the same 4px sideways, from the rail.
         self.assertRegex(self.READING_CSS, r"\.zoom-popover \{[^}]*animation: popover-drop var\(--dur-quick\)")
-        self.assertRegex(self.READING_CSS, r"\.color-flyout \{[^}]*transform-origin: right top;")
+        self.assertRegex(self.READING_CSS, r"\.rail-card \{[^}]*animation: rail-card-in var\(--dur-quick\)")
+        self.assertRegex(self.READING_CSS,
+                         r"@keyframes rail-card-in \{\s*from \{ opacity: 0; "
+                         r"transform: translateX\(calc\(-1 \* var\(--drop-distance\)\)\); \}")
         self.assertRegex(self.READING_CSS, r"\.highlight-editor \{[^}]*transform-origin: left top;")
         self.assertIn(".highlight-editor.is-above { transform-origin: left bottom; }", self.READING_CSS)
         self.assertIn('highlightEditor.classList.toggle("is-above", above)', self.HIGHLIGHT_JS)

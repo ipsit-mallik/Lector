@@ -24,10 +24,6 @@ const zoomActualBtn = document.getElementById("zoomActualBtn");
 const zoomTicks = document.getElementById("zoomTicks");
 
 const ZOOM_ACTUAL_PCT = 100;
-// How near the thumb's centre a double-click has to land to reset to 100%:
-// half the 20px hit area, wider than the 12px thumb (reading.css).
-const ZOOM_THUMB_HIT_PX = 10;
-const ZOOM_THUMB_PX = 12;
 
 let zoomHooks = {
   setZoomPct: async () => {},
@@ -40,9 +36,6 @@ let zoomPct = 100; // to 0.01%: a fit is rarely a whole percent
 // Bumped by every fit and every change of mode, so a fit still waiting on its
 // measurements is dropped once something newer has happened.
 let zoomFitSeq = 0;
-// A pointer is down on the slider: only a drag snaps to 100%, so the arrow
-// keys can still step across it.
-let zoomDragging = false;
 
 function configureZoomControl(hooks) {
   zoomHooks = { ...zoomHooks, ...hooks };
@@ -56,9 +49,7 @@ function getZoomMode() {
 function updateZoomControl(state) {
   zoomRange = { min: state.zoom_min_pct, max: state.zoom_max_pct };
   zoomPct = Math.round(state.zoom * 10000) / 100;
-  for (const tick of zoomTicks.querySelectorAll(".zoom-tick")) {
-    tick.style.setProperty("--at", String(zoomTrackFraction(Number(tick.dataset.zoom), zoomRange.min, zoomRange.max)));
-  }
+  placeRangeTicks(zoomTicks, (pct) => zoomTrackFraction(pct, zoomRange.min, zoomRange.max));
   renderZoomControl();
 }
 
@@ -73,7 +64,7 @@ function renderZoomControl() {
   if (zoomPctFromSlider(Number(zoomSlider.value), zoomRange.min, zoomRange.max) !== shown) {
     zoomSlider.value = sliderFromZoomPct(zoomPct, zoomRange.min, zoomRange.max);
   }
-  zoomSlider.style.setProperty("--zoom-fill", String(Number(zoomSlider.value) / ZOOM_SLIDER_STEPS));
+  paintRangeFill(zoomSlider);
   zoomSlider.setAttribute("aria-valuetext", `${shown}%`);
   zoomFitWidthBtn.setAttribute("aria-pressed", String(zoomMode === ZOOM_FIT_WIDTH));
   zoomFitPageBtn.setAttribute("aria-pressed", String(zoomMode === ZOOM_FIT_PAGE));
@@ -153,39 +144,18 @@ zoomLabel.addEventListener("click", () => {
   else openZoomPopover();
 });
 
-function endZoomDrag() {
-  zoomDragging = false;
-  zoomSlider.classList.remove("is-dragging");
-}
-
-zoomSlider.addEventListener("pointerdown", (ev) => {
-  if (ev.button !== 0) return;
-  zoomDragging = true;
-  zoomSlider.classList.add("is-dragging");
+// The shared slider (range-slider.js). The top-bar value follows the thumb at
+// once; the page follows as fast as the backend answers. Only a drag snaps to
+// 100%; a double-click on the thumb puts it back there; a tick (placed where
+// its zoom falls on the track, updateZoomControl) jumps to its zoom.
+bindRangeSlider(zoomSlider, zoomTicks, {
+  onInput: (position, dragging) => {
+    const pct = zoomPctFromSlider(position, zoomRange.min, zoomRange.max);
+    chooseZoomPct(dragging ? snapZoomPct(pct) : pct);
+  },
+  onReset: () => chooseActualSize(),
+  onTick: (pct) => chooseZoomPct(pct),
 });
-document.addEventListener("pointerup", endZoomDrag);
-document.addEventListener("pointercancel", endZoomDrag);
-
-// The top-bar value follows the thumb at once; the page follows as fast as
-// the backend answers.
-zoomSlider.addEventListener("input", () => {
-  const pct = zoomPctFromSlider(Number(zoomSlider.value), zoomRange.min, zoomRange.max);
-  chooseZoomPct(zoomDragging ? snapZoomPct(pct) : pct);
-});
-
-// A double-click on the thumb puts it back to 100%.
-zoomSlider.addEventListener("dblclick", (ev) => {
-  const rect = zoomSlider.getBoundingClientRect();
-  const fraction = Number(zoomSlider.value) / ZOOM_SLIDER_STEPS;
-  const thumbX = rect.left + ZOOM_THUMB_PX / 2 + fraction * (rect.width - ZOOM_THUMB_PX);
-  if (Math.abs(ev.clientX - thumbX) <= ZOOM_THUMB_HIT_PX) chooseActualSize();
-});
-
-// A tick (placed where its zoom falls on the track, updateZoomControl) jumps
-// there.
-for (const tick of zoomTicks.querySelectorAll(".zoom-tick")) {
-  tick.addEventListener("click", () => chooseZoomPct(Number(tick.dataset.zoom)));
-}
 
 zoomFitWidthBtn.addEventListener("click", () => chooseZoomFit(ZOOM_FIT_WIDTH));
 zoomFitPageBtn.addEventListener("click", () => chooseZoomFit(ZOOM_FIT_PAGE));

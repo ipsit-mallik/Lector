@@ -49,7 +49,7 @@ const INK_CURSOR_MIN_PX = 6;
 const INK_CURSOR_MAX_PX = 128;
 
 let inkHooks = null;
-let inkStyle = { width: 14, opacity: 0.6 }; // api.get_ink_style() replaces it
+let inkStyle = { width: 14, opacity: 0.6 }; // highlight-options.js sets the reader's (setInkStyle)
 let inkStroke = null; // the stroke being drawn, from press to release
 // Strokes on screen, until the page shows each for real: a second can be
 // drawn while the first is still being written.

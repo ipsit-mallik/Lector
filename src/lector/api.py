@@ -31,7 +31,7 @@ from lector.features.settings import store as settings
 from lector.features.voice import command_grammar, reference, router
 from lector.features.voice import engine as engine_module
 from lector.features.voice.engine import VoiceEngine
-from lector.shared import window_chrome
+from lector.shared import highlight_options, window_chrome
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +44,11 @@ MAX_FIND_QUERY_CHARS = 200
 # simplifies a stroke before sending it, so a long one is a few hundred; this
 # only stops a runaway payload being written into the PDF.
 MAX_INK_POINTS = 4096
+
+# Longest gesture name `set_highlight_appearance` takes: the editor sends a
+# short counter-based id per slider drag; this only bounds what is held on
+# the undo stack.
+MAX_GESTURE_CHARS = 64
 
 # Bounds on a requested thumbnail's width in pixels: the Pages tab asks for its
 # column width times the screen's pixel ratio, the progress bar's preview for a
@@ -590,11 +595,23 @@ class Api:
         return {**self._doc.search(needle, start, end), "page_count": page_count}
 
     def highlight_chars(self, page_index: int, start_idx: int, end_idx: int) -> dict:
-        self._doc.highlight_char_indices(page_index, start_idx, end_idx, settings.get_highlight_color())
+        """Mark a dragged run of characters in the active colour and style
+        (highlight, underline or strike-through) at that style's opacity."""
+        style = settings.get_highlight_style()
+        self._doc.highlight_char_indices(
+            page_index, start_idx, end_idx, settings.get_highlight_color(),
+            style=style, opacity=self._opacity_for(style),
+        )
         return self._state()
 
+    @staticmethod
+    def _opacity_for(style: str) -> float:
+        return highlight_options.opacity_fraction(settings.get_highlight_opacity(style))
+
     def add_ink_stroke(self, page_index, points, straightened=None) -> dict:
-        """Draw a freehand marker stroke in the active colour. `points` is the
+        """Draw a freehand marker stroke in the active colour, the reader's
+        width and the Highlight style's opacity (so a stroke beside a text
+        highlight is the same colour), whichever style is chosen. `points` is the
         stroke as drawn (`[[x, y], ...]` in PDF points on the page as shown,
         like `get_page_chars`'s boxes); `straightened`, when the frontend
         straightened it on release, its two end points. Anything malformed
@@ -612,17 +629,54 @@ class Api:
             and index < self._doc.page_count
         )
         if valid:
-            xref = self._doc.add_ink_stroke(index, drawn, final, settings.get_highlight_color())
+            xref = self._doc.add_ink_stroke(
+                index, drawn, final, settings.get_highlight_color(),
+                width=float(settings.get_ink_width()),
+                opacity=self._opacity_for(highlight_options.HIGHLIGHT),
+            )
             state_page = index if xref is not None else None
         state = self._state()
         state["affected_page"] = state_page
         state["id"] = xref
         return state
 
-    def get_ink_style(self) -> dict:
-        """How a marker stroke is drawn, so the frontend's live preview uses
-        the numbers written into the PDF: width in PDF points, opacity 0..1."""
-        return {"width": highlighter.INK_WIDTH_PT, "opacity": highlighter.INK_OPACITY}
+    def get_highlight_options(self) -> dict:
+        """Everything the highlight tool's cards show, and the numbers
+        it works with, from `highlight_options` so they are the ones written
+        into the PDF: the active style, each style's opacity and default (in
+        whole percent), the slider's range, snap and tick step, and the
+        freehand width (PDF points) with its presets."""
+        return {
+            "style": settings.get_highlight_style(),
+            "styles": list(highlight_options.STYLES),
+            "opacity": settings.get_highlight_opacities(),
+            "default_opacity": dict(highlight_options.DEFAULT_OPACITY_PCT),
+            "opacity_min": highlight_options.OPACITY_MIN_PCT,
+            "opacity_max": highlight_options.OPACITY_MAX_PCT,
+            "opacity_snap": highlight_options.OPACITY_SNAP_PCT,
+            "opacity_tick_step": highlight_options.OPACITY_TICK_STEP_PCT,
+            "ink_width": settings.get_ink_width(),
+            "ink_widths": list(highlight_options.INK_WIDTH_PRESETS_PT),
+        }
+
+    # The setters below ignore a value the popover does not offer rather
+    # than raising, as `set_highlight_color` does: this is a bridge boundary.
+    # Each returns the options as now stored.
+
+    def set_highlight_style(self, style) -> dict:
+        if highlight_options.is_style(style):
+            settings.set_highlight_style(style)
+        return self.get_highlight_options()
+
+    def set_highlight_opacity(self, style, pct) -> dict:
+        if highlight_options.is_style(style) and highlight_options.is_opacity_pct(pct):
+            settings.set_highlight_opacity(style, pct)
+        return self.get_highlight_options()
+
+    def set_ink_width(self, width) -> dict:
+        if highlight_options.is_ink_width(width):
+            settings.set_ink_width(int(width))
+        return self.get_highlight_options()
 
     def get_highlight_palette(self) -> list[str]:
         """The five colour names, in the order the swatches show them. Names
@@ -662,9 +716,13 @@ class Api:
         """One `get_page_highlights` entry. An ink stroke also carries its
         `strokes` (as shown) and `width`, and has no `text`; its one rect is
         the box it paints, which the editor is placed under."""
+        ink = isinstance(h.shape, highlighter.InkShape)
         entry = {
             "id": h.xref,
-            "kind": "ink" if isinstance(h.shape, highlighter.InkShape) else "text",
+            "kind": "ink" if ink else "text",
+            # "highlight", "underline" or "strikethrough"; "ink" for a stroke.
+            "style": "ink" if ink else h.shape.style,
+            "opacity": round(h.shape.opacity, 4),
             "color": h.color,
             "rects": [
                 {"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1}
@@ -685,6 +743,34 @@ class Api:
         state["affected_page"] = int(page_index) if changed else None
         return state
 
+    def set_highlight_appearance(self, page_index, highlight_id, opacity_pct=None, width=None, gesture=None) -> dict:
+        """Change how an existing highlight is drawn, from its editor: its
+        opacity (whole percent, as the slider gives it) and, for a stroke,
+        its width (one of the presets). `gesture` names the slider drag or
+        click it came from, so one gesture is one undo step. A value the
+        editor does not offer changes nothing (`affected_page` None)."""
+        index = _page_index(page_index)
+        xref = _page_index(highlight_id)
+        valid = (
+            self._doc.is_open
+            and index is not None
+            and xref is not None
+            and index < self._doc.page_count
+            and (opacity_pct is None or highlight_options.is_opacity_pct(opacity_pct))
+            and (width is None or highlight_options.is_ink_width(width))
+            and (gesture is None or (isinstance(gesture, str) and len(gesture) <= MAX_GESTURE_CHARS))
+        )
+        changed = valid and self._doc.set_highlight_appearance(
+            index,
+            xref,
+            opacity=None if opacity_pct is None else highlight_options.opacity_fraction(opacity_pct),
+            width=None if width is None else float(width),
+            gesture=gesture,
+        )
+        state = self._state()
+        state["affected_page"] = index if changed else None
+        return state
+
     def remove_highlight(self, page_index: int, highlight_id: int) -> dict:
         removed = self._doc.remove_highlight(int(page_index), int(highlight_id))
         state = self._state()
@@ -703,12 +789,16 @@ class Api:
         state["affected_page"] = affected_page
         return state
 
-    def highlight_by_voice(self, query: str, sentence: bool = False, color: str | None = None) -> dict:
+    def highlight_by_voice(
+        self, query: str, sentence: bool = False, color: str | None = None, style: str | None = None
+    ) -> dict:
         """Matches a spoken phrase against the viewport `start_listening` was
         last called with, and writes the highlight if one is found.
 
         `color` is a one-off ("highlight <words> in green"): it colours this
-        highlight only and leaves the active colour as it was.
+        highlight only and leaves the active colour as it was. `style` is the
+        command's own ("underline <words>" is an underline whichever style
+        the popover has), at that style's opacity; None is a highlight.
 
         `query` is already normalized (lowercase, no punctuation) by
         `command_grammar.parse` — the same treatment `highlight_matcher`
@@ -740,13 +830,18 @@ class Api:
             start_idx, end_idx = highlight_matcher.extend_to_sentence(words, start_idx, end_idx)
         if color not in highlighter.COLOR_NAMES:
             color = settings.get_highlight_color()
-        self._doc.highlight_word_indices(match.page_index, start_idx, end_idx, color)
+        if not highlight_options.is_style(style):
+            style = highlight_options.HIGHLIGHT
+        self._doc.highlight_word_indices(
+            match.page_index, start_idx, end_idx, color, style=style, opacity=self._opacity_for(style)
+        )
 
         state = self._state()
         state["voice_highlight"] = {
             "matched": True,
             "query": query,
             "color": color,
+            "style": style,
             "affected_page": match.page_index,
             "text": " ".join(w.text for w in words_between(words, start_idx, end_idx)),
         }

@@ -13,7 +13,7 @@ and it is built from those tables rather than retyped beside them.
   typed here, and `tests/test_command_reference.py` resolves each one through
   `router.resolve` in the contexts the card names. A phrase with a variable
   (a page number, a row number, the words to highlight, a colour) is a pattern
-  with a placeholder (`{page}`, `{number}`, `{words}`, `{color}`) that the page
+  with a placeholder (`{page}`, `{number}`, `{words}`, `{color}`, `{opacity}`) that the page
   fills with the real range when it knows it, so the list shows "open number
   1–12", not one invented example.
 * **One list for the whole app.** Every screen shows the same sections from the
@@ -45,6 +45,7 @@ PAGE = "{page}"
 NUMBER = "{number}"
 WORDS = "{words}"
 COLOR = "{color}"
+OPACITY = "{opacity}"
 
 _HOME = (router.HOME,)
 _SETTINGS = (router.SETTINGS,)
@@ -284,20 +285,57 @@ def _reading_sections() -> list[dict]:
                      "Say a few words you can see on screen and they are highlighted. "
                      "Only what is actually visible is searched, so the same phrase "
                      "elsewhere in the document is never what gets marked.",
-                     "Press H, or drag across the text", _READING),
+                     "Press H, then drag across the text", _READING),
             _command(_then(grammar.HIGHLIGHT_SENTENCE_TRIGGERS, WORDS),
                      "The same, extended out to the sentence those words sit in.",
                      "Drag across the whole sentence", _READING),
+            _command(_then(grammar.UNDERLINE_TRIGGERS + grammar.UNDERLINE_SENTENCE_TRIGGERS, WORDS),
+                     "The same words found the same way, underlined instead of "
+                     "highlighted.",
+                     "Press U, then drag across the text", _READING),
+            _command(_then(grammar.STRIKETHROUGH_TRIGGERS + grammar.STRIKETHROUGH_SENTENCE_TRIGGERS,
+                           WORDS),
+                     "The same words found the same way, with a line through them.",
+                     "Press S, then drag across the text", _READING),
             _command([f"{lead} {grammar.HIGHLIGHT_COLOR_JOINER} {COLOR}"
-                      for lead in _then(grammar.HIGHLIGHT_TRIGGERS + grammar.HIGHLIGHT_SENTENCE_TRIGGERS,
+                      for lead in _then(tuple(trigger for _, trigger in grammar._HIGHLIGHT_TRIGGERS),
                                         WORDS)],
-                     "Either of the above in that color, this once. The color new "
+                     "Any of the above in that color, this once. The color new "
                      "highlights use stays as it was.",
-                     "Pick the color under the highlight tool, then drag", _READING),
+                     "Pick the color from the line under the highlight tool, then drag",
+                     _READING),
             _command(_then(grammar.HIGHLIGHT_COLOR_PREFIXES, COLOR),
-                     "Makes that the color every new highlight is drawn in, until you "
-                     "change it again — it is remembered next time you open Lector.",
-                     "Click the color under the highlight tool and pick one", _READING),
+                     "Makes that the color every new highlight, underline and "
+                     "strikethrough is drawn in, until you change it again — it is "
+                     "remembered next time you open Lector.",
+                     "Click the line under the highlight tool and pick one", _READING),
+            _command(_all(p, grammar.HIGHLIGHT_MODE),
+                     "Turns the highlight tool on, highlighting.",
+                     "Press H, or choose Highlight from the badge on the highlight tool",
+                     _READING),
+            _command(_all(p, grammar.UNDERLINE_MODE),
+                     "Turns the highlight tool on, underlining.",
+                     "Press U, or choose Underline from the badge on the highlight tool",
+                     _READING),
+            _command(_all(p, grammar.STRIKETHROUGH_MODE),
+                     "Turns the highlight tool on, striking through.",
+                     "Press S, or choose Strikethrough from the badge on the highlight tool",
+                     _READING),
+            _command([f"{grammar.OPACITY_PREFIX} {OPACITY}",
+                      f"{grammar.OPACITY_PREFIX} {OPACITY} {grammar.OPACITY_SUFFIX}"],
+                     "Sets how strong the style you are using is drawn, in tens from "
+                     "10 to 100. Each style keeps its own; drawings use the "
+                     "highlight's.",
+                     "Click the line under the highlight tool, then the Opacity slider",
+                     _READING),
+            _command(_all(p, grammar.THICKER),
+                     "Draws on pictures and blank paper one thickness wider.",
+                     "Click the line under the highlight tool, then a thickness",
+                     _READING),
+            _command(_all(p, grammar.THINNER),
+                     "One thickness narrower.",
+                     "Click the line under the highlight tool, then a thickness",
+                     _READING),
         ]),
         _section("undo_redo", "Undo and redo", scope, [
             _command(_all(g, router.UNDO), "Takes back the last highlight change.",
@@ -462,6 +500,8 @@ def panel(context: str = router.READING) -> dict:
         "try_saying": try_saying(context),
         # What `{color}` stands for, from the grammar's own list.
         "highlight_colors": list(grammar.HIGHLIGHT_COLORS),
+        # What `{opacity}` stands for: the opacity slider's tick values.
+        "opacity_values": list(grammar.OPACITY_VALUES),
         "wake_phrase": wake.WAKE_PHRASE,
         "wake_phrase_display": wake.WAKE_PHRASE_DISPLAY,
         "push_to_talk_key": "Space",

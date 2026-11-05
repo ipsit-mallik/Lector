@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import ParamSpec, TypeVar
 
 from lector.features.reading import safe_write
+from lector.shared import highlight_options
 from lector.shared.theme import DEFAULT_HIGHLIGHT_COLOR, HIGHLIGHT_COLOR_NAMES, THEME_ORDER
 
 log = logging.getLogger(__name__)
@@ -369,6 +370,73 @@ def set_highlight_color(name: str) -> None:
         raise ValueError(f"invalid highlight color: {name!r}")
     data = _load()
     data[_HIGHLIGHT_COLOR_KEY] = name
+    _save(data)
+
+
+# The rest of the highlight tool's options (the highlight tool's cards): the
+# style a drag over text writes, the opacity of each style, and the width of
+# a freehand stroke. Each read is validated, so a hand-edited value falls
+# back to the default rather than reaching the annotation writer.
+_HIGHLIGHT_STYLE_KEY = "highlight_style"
+_HIGHLIGHT_OPACITY_KEY = "highlight_opacity"
+_INK_WIDTH_KEY = "ink_width"
+
+
+def get_highlight_style() -> str:
+    value = _load().get(_HIGHLIGHT_STYLE_KEY, highlight_options.DEFAULT_STYLE)
+    return value if highlight_options.is_style(value) else highlight_options.DEFAULT_STYLE
+
+
+@_serialized
+def set_highlight_style(style: str) -> None:
+    if not highlight_options.is_style(style):
+        raise ValueError(f"invalid highlight style: {style!r}")
+    data = _load()
+    data[_HIGHLIGHT_STYLE_KEY] = style
+    _save(data)
+
+
+def get_highlight_opacities() -> dict[str, int]:
+    """Every style's opacity in whole percent; a missing or bad one is its
+    style's default."""
+    stored = _load().get(_HIGHLIGHT_OPACITY_KEY)
+    stored = stored if isinstance(stored, dict) else {}
+    return {
+        style: stored[style] if highlight_options.is_opacity_pct(stored.get(style)) else default
+        for style, default in highlight_options.DEFAULT_OPACITY_PCT.items()
+    }
+
+
+def get_highlight_opacity(style: str) -> int:
+    if not highlight_options.is_style(style):
+        raise ValueError(f"invalid highlight style: {style!r}")
+    return get_highlight_opacities()[style]
+
+
+@_serialized
+def set_highlight_opacity(style: str, pct: int) -> None:
+    if not highlight_options.is_style(style):
+        raise ValueError(f"invalid highlight style: {style!r}")
+    if not highlight_options.is_opacity_pct(pct):
+        raise ValueError(f"invalid highlight opacity: {pct!r}")
+    data = _load()
+    # A new dict, not the stored one changed in place: anything there that
+    # is not a valid style's percent is dropped on the way.
+    data[_HIGHLIGHT_OPACITY_KEY] = {**get_highlight_opacities(), style: pct}
+    _save(data)
+
+
+def get_ink_width() -> int:
+    value = _load().get(_INK_WIDTH_KEY, highlight_options.DEFAULT_INK_WIDTH_PT)
+    return int(value) if highlight_options.is_ink_width(value) else highlight_options.DEFAULT_INK_WIDTH_PT
+
+
+@_serialized
+def set_ink_width(width: int) -> None:
+    if not highlight_options.is_ink_width(width):
+        raise ValueError(f"invalid freehand width: {width!r}")
+    data = _load()
+    data[_INK_WIDTH_KEY] = int(width)
     _save(data)
 
 

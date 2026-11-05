@@ -277,8 +277,8 @@ function markHighlightSwatch(name) {
 
 // The reader's own active colour (api.set_highlight_color), not a separate
 // default: changing it here changes the dot under the reader's highlight
-// tool, and the other way round. Swatches as the reader's flyout builds them
-// (highlight-colors.js): the token colour, a check as well as the ring.
+// tool, and the other way round. Swatches as the reader's highlight settings card builds
+// them (highlight-colors.js): the token colour, a check as well as the ring.
 async function chooseHighlightColor(name) {
   const previous = highlightColorSwatches.querySelector(".swatch.selected");
   markHighlightSwatch(name);

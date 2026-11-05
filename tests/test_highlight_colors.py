@@ -211,8 +211,10 @@ class PdfAnnotationTests(unittest.TestCase):
         # What a viewer that honours the appearance stream draws: a fresh
         # reader of the saved file. Inside the highlight's line box the glyphs
         # are the minority of pixels; everything else is the fill multiplied
-        # onto white, i.e. the color itself.
-        self.doc.highlight_word_indices(0, 0, 3, "blue")
+        # onto white, i.e. the color itself. At 100% opacity, so the colour is
+        # the palette's exactly (the default 60% is pinned in
+        # tests/test_highlight_styles.py).
+        self.doc.highlight_word_indices(0, 0, 3, "blue", opacity=1.0)
         page = self._saved_copy()[0]
         (box,) = highlighter.highlight_rects(next(page.annots()))
         pix = page.get_pixmap(matrix=pymupdf.Matrix(3, 3), clip=box)
@@ -351,7 +353,7 @@ class ApiTests(_SettingsIsolated):
         page = self.api.get_page_highlights(0)
         self.assertEqual((page["width"], page["height"]), (400, 300))
         (found,) = page["highlights"]
-        self.assertEqual(set(found), {"id", "kind", "color", "rects", "text"})
+        self.assertEqual(set(found), {"id", "kind", "style", "opacity", "color", "rects", "text"})
         self.assertEqual(found["kind"], "text")
         self.assertEqual(set(found["rects"][0]), {"x0", "y0", "x1", "y1"})
 
@@ -436,7 +438,7 @@ class FrontendWiringTests(unittest.TestCase):
         block = group.group(1)
         self.assertIn('id="highlightBtn"', block)
         self.assertIn('id="highlightColorBtn"', block)
-        for attr in ('aria-haspopup="true"', 'aria-expanded="false"', 'aria-controls="highlightColorFlyout"'):
+        for attr in ('aria-haspopup="dialog"', 'aria-expanded="false"', 'aria-controls="highlightOptions"'):
             self.assertIn(attr, block)
 
     def test_the_editor_is_a_labelled_dialog_with_a_remove_button(self):

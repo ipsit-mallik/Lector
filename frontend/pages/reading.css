@@ -229,24 +229,26 @@ html, body { height: 100%; }
 }
 
 /* --- The slider ---------------------------------------------------------- */
-/* A 4px rounded track, filled in the accent up to the thumb's centre
-   (--zoom-fill, 0 to 1, set by zoom-control.js), and a 12px thumb in the
+/* The reader's slider (range-slider.js): the zoom popover's, and the opacity
+   slider in the highlight settings card and the highlight editor. A 4px rounded track,
+   filled in the accent up to the thumb's centre (--range-fill, 0 to 1), and
+   a 12px thumb in the
    popover's own colour with an accent ring, so the thumb never merges into
    the filled track. The thumb's centre runs from 6px in at either end, so the
    fill and the ticks are placed along that same span. The input is 20px tall,
    the thumb's hit area, and stacked over the ticks: its thumb is opaque and
    nothing under it shows through. */
-.zoom-slider-wrap {
-  --zoom-thumb: 12px;
-  --zoom-span-start: calc(var(--zoom-thumb) / 2);
-  --zoom-halo: 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent);
-  --zoom-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+.range-slider-wrap {
+  --range-thumb: 12px;
+  --range-span-start: calc(var(--range-thumb) / 2);
+  --range-halo: 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent);
+  --range-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   position: relative;
   isolation: isolate;
   height: 26px;
 }
 
-.zoom-slider {
+.range-slider {
   -webkit-appearance: none;
   appearance: none;
   position: relative;
@@ -260,47 +262,48 @@ html, body { height: 100%; }
 }
 
 /* The thumb's halo shows keyboard focus instead of the ring. */
-.zoom-slider:focus-visible { outline: none; }
+.range-slider:focus-visible { outline: none; }
 
-.zoom-slider::-webkit-slider-runnable-track {
+.range-slider::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
-  --zoom-fill-at: calc(var(--zoom-span-start) + var(--zoom-fill, 0.5) * (100% - var(--zoom-thumb)));
+  --range-fill-at: calc(var(--range-span-start) + var(--range-fill, 0.5) * (100% - var(--range-thumb)));
   background: linear-gradient(to right,
-    var(--accent) 0 var(--zoom-fill-at),
-    var(--border-strong) var(--zoom-fill-at) 100%);
+    var(--accent) 0 var(--range-fill-at),
+    var(--border-strong) var(--range-fill-at) 100%);
 }
 
-.zoom-slider::-webkit-slider-thumb {
+.range-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   box-sizing: border-box;
-  width: var(--zoom-thumb);
-  height: var(--zoom-thumb);
-  margin-top: calc((4px - var(--zoom-thumb)) / 2);
+  width: var(--range-thumb);
+  height: var(--range-thumb);
+  margin-top: calc((4px - var(--range-thumb)) / 2);
   border-radius: 50%;
   background-color: var(--popover-surface);
   border: 2px solid var(--accent);
-  box-shadow: var(--zoom-thumb-shadow);
+  box-shadow: var(--range-thumb-shadow);
   transition: transform var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
 }
 
-.zoom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.range-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
 
-.zoom-slider:focus-visible::-webkit-slider-thumb {
-  box-shadow: var(--zoom-thumb-shadow), var(--zoom-halo);
+.range-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--range-thumb-shadow), var(--range-halo);
 }
 
-.zoom-slider.is-dragging::-webkit-slider-thumb {
+.range-slider.is-dragging::-webkit-slider-thumb {
   transform: scale(1.25);
-  box-shadow: var(--zoom-thumb-shadow), var(--zoom-halo);
+  box-shadow: var(--range-thumb-shadow), var(--range-halo);
 }
 
-/* Ticks at 50%, 100% and 200%, just under the track: a 2px line in a 14×12px
-   button. 100% is longer and in ink, the other two short and muted. Under the
-   slider in the stack, so the thumb covers a tick it sits on. */
-.zoom-ticks {
+/* Ticks just under the track (zoom: 50%, 100% and 200%; opacity: every 10%):
+   a 2px line in a 14×12px button. The one that matters (100% zoom, the
+   style's default opacity) is longer and in ink, the rest short and muted.
+   Under the slider in the stack, so the thumb covers a tick it sits on. */
+.range-ticks {
   position: absolute;
   z-index: 0;
   left: 0;
@@ -309,10 +312,10 @@ html, body { height: 100%; }
   height: 12px;
 }
 
-.zoom-tick {
+.range-tick {
   position: absolute;
   top: 0;
-  left: calc(var(--zoom-span-start) + var(--at, 0.5) * (100% - var(--zoom-thumb)));
+  left: calc(var(--range-span-start) + var(--at, 0.5) * (100% - var(--range-thumb)));
   width: 14px;
   height: 12px;
   padding: 0;
@@ -322,7 +325,7 @@ html, body { height: 100%; }
   cursor: pointer;
 }
 
-.zoom-tick::before {
+.range-tick::before {
   content: "";
   position: absolute;
   top: 1px;
@@ -331,13 +334,13 @@ html, body { height: 100%; }
   height: 5px;
   border-radius: 1px;
   background-color: var(--text-muted);
-  opacity: 0.45;
+  opacity: 0.5;
 }
 
-.zoom-tick--major::before {
+.range-tick--major::before {
   height: 8px;
   background-color: var(--text-primary);
-  opacity: 0.7;
+  opacity: 0.75;
 }
 
 /* --- The chips ----------------------------------------------------------- */
@@ -371,9 +374,8 @@ html, body { height: 100%; }
   font-weight: 600;
 }
 
-/* The reader's other two popovers grow in from the corner nearest what
-   opened them (pop-in, components.css), as fast as the Recent row menu. */
-.color-flyout,
+/* The highlight editor grows in from the corner nearest the highlight it
+   edits (pop-in, components.css), as fast as the Recent row menu. */
 .highlight-editor {
   animation: pop-in var(--dur-fast) var(--ease-out);
 }
@@ -601,84 +603,341 @@ html, body { height: 100%; }
    * the paper, so the unthemed --highlight-<name>, never the themed
    * --highlight, which in dark is a fill for dark chrome. */
   background-color: var(--applied-highlight, var(--highlight-yellow));
+  /* At the chosen style's opacity (highlight-options.js), as the PDF has it. */
+  opacity: var(--applied-opacity, 1);
 }
+
+/* An underline or a strikethrough lands as its line, not a fill: a bar in the
+   box, where highlighter.py puts it for a text layer's line box (the font's
+   ascent and descent, about 1.37em, the baseline 22% up): an underline's
+   centre 13.8% up from the bottom, a strikethrough's 41.5%, 4.7% thick. Drawn
+   plainly, as the PDF draws it, not multiplied. The real line replaces it as
+   soon as the page is drawn again. */
+.selection-layer[data-style="underline"] .selection-rect.applied,
+.selection-layer[data-style="strikethrough"] .selection-rect.applied {
+  background-color: transparent;
+  mix-blend-mode: normal;
+}
+
+.selection-layer[data-style="underline"] .selection-rect.applied::after,
+.selection-layer[data-style="strikethrough"] .selection-rect.applied::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: max(4.7%, 1px);
+  background-color: var(--applied-highlight, var(--highlight-yellow));
+}
+
+.selection-layer[data-style="underline"] .selection-rect.applied::after { bottom: 11.5%; }
+.selection-layer[data-style="strikethrough"] .selection-rect.applied::after { bottom: 39.1%; }
 
 /* ------------------------------------------------------------------ */
 /* Highlight colors (highlight-colors.js)                              */
 /* ------------------------------------------------------------------ */
 
-/* The highlight tool with its color button attached underneath: the pair is
-   one rail item, so the rail's 8px gap separates it from Undo, not the two
-   halves from each other. Positioned so the flyout can sit beside it. */
+/* The highlight tool, a split button, with its preview button under it: one
+   rail item, so the rail's 8px gap separates it from Undo. The preview sits
+   10px under the tool, clear of the style badge's hit area (6px below the
+   tool). Positioned so the cards can sit beside it. */
 .rail-highlight {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-hair);
+  gap: 10px;
 }
 
-.color-btn {
+/* The tool and its badge as one control: one wrapper with the button's
+   corners, and one hover — anywhere on it, the badge included, gives the
+   button its hover (the plain wash when off, the deeper tint when on). */
+.tool-split {
+  position: relative;
+  display: flex;
+  border-radius: var(--radius-md);
+}
+
+.tool-split:hover .icon-btn:not(.active) {
+  background-color: var(--state-hover);
+  color: var(--text-primary);
+}
+
+.tool-split:hover .icon-btn.active::before {
+  background-color: color-mix(in srgb, var(--tool-tint), var(--text-primary) 4%);
+}
+
+/* The style badge: an 18px round chip on the tool's bottom-right corner,
+   overlapping the button's edge by 3px (its right and bottom edges 3px past
+   the button's), so it reads as part of the button. Its hit area is 24×24,
+   centred on the chip (6px past the button's edges): inside the rail's 8px
+   padding, clear of the icon's strokes and of the preview under it. Its own
+   tab stop. */
+.style-badge {
+  --badge-face: 18px;
+  --badge-overlap: 3px;
+  --badge-hit: 24px;
+  position: absolute;
+  z-index: 1;
+  right: calc(-1 * var(--badge-overlap) - (var(--badge-hit) - var(--badge-face)) / 2);
+  bottom: calc(-1 * var(--badge-overlap) - (var(--badge-hit) - var(--badge-face)) / 2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--badge-hit);
+  height: var(--badge-hit);
+  padding: 0;
+  border: none;
+  /* Square (nearly): a round box would hit-test as a circle, smaller than
+     the 24×24 the badge promises. */
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.style-badge-face {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-hair);
+  width: var(--badge-face);
+  height: var(--badge-face);
+  border-radius: 50%;
+  border: 1px solid var(--badge-border);
+  background-color: var(--popover-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  transition: transform var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.style-badge-face svg { width: 12px; height: 12px; }
+
+/* The badge's own cue, over the shared hover: the chip grows and its border
+   turns the accent, so it reads as opening something else. */
+.style-badge:hover .style-badge-face,
+.style-badge[aria-expanded="true"] .style-badge-face {
+  transform: scale(1.12);
+  border-color: var(--accent);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.24);
+}
+
+/* The ring goes round the face, not the larger hit area. */
+.style-badge:focus-visible { outline: none; }
+.style-badge:focus-visible .style-badge-face {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* The preview: what the tool draws, a 26px line in the color at the style's
+   opacity, as thick as highlight-options.js says (--preview-height). */
+.preview-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
   height: 24px;
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);
   background-color: transparent;
-  color: var(--text-secondary);
-  transition: background-color var(--dur-fast) var(--ease-out),
-              color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 
-.color-btn:hover,
-.color-btn[aria-expanded="true"] {
-  background-color: var(--state-hover);
+.preview-btn:hover,
+.preview-btn[aria-expanded="true"] { background-color: var(--state-hover); }
+.preview-btn:active { background-color: var(--state-pressed); }
+
+.preview-line {
+  width: 26px;
+  height: var(--preview-height, 3px);
+  border-radius: 999px;
+  background-color: var(--swatch);
+  opacity: var(--preview-opacity, 1);
+}
+
+/* The rail's two cards (highlight-options.js) and the highlight editor
+   (highlight-colors.js) are the zoom popover's surface: its colour, border,
+   corners and shadow, the same declarations as .zoom-popover
+   (tests/test_highlight_options_behavior.py keeps them equal). Each sets its
+   own padding. */
+.rail-card,
+.highlight-editor {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background-color: var(--popover-surface);
+  box-shadow: var(--popover-shadow);
+  border: 1px solid var(--border);
+}
+
+/* Beside the rail (to its left), over the page area, its top level with the
+   tool's: past the rail's own padding and the 1px divider beside it. A fade
+   and a 4px slide in from the rail, over the zoom popover's 140ms. */
+.rail-card {
+  position: absolute;
+  top: 0;
+  right: calc(100% + var(--space-2) + var(--space-2));
+  z-index: 10;
+  animation: rail-card-in var(--dur-quick) var(--ease-out);
+}
+
+/* The slide is the zoom popover's drop distance turned sideways, so reduced
+   motion zeroes it the same way (theme.css). */
+@keyframes rail-card-in {
+  from { opacity: 0; transform: translateX(calc(-1 * var(--drop-distance))); }
+}
+
+/* The zoom popover's 10px caret, turned to point right, at the middle of the
+   button the card belongs to (--caret-y, set by highlight-options.js). */
+.rail-card::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--caret-y, 20px) - 5px);
+  right: -6px;
+  width: 10px;
+  height: 10px;
+  background-color: var(--popover-surface);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.rail-card[hidden],
+.highlight-editor[hidden] { display: none; }
+
+/* The style card: a menu of three rows. */
+.style-card {
+  width: 210px;
+  padding: 6px;
+  gap: var(--space-hair);
+}
+
+.style-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.style-item:hover { background-color: var(--state-hover); }
+.style-item:active { background-color: var(--state-pressed); }
+.style-item:focus-visible { outline-offset: -2px; }
+
+.style-item-icon,
+.style-item-check { display: inline-flex; flex: none; width: 18px; height: 18px; }
+.style-item-icon svg,
+.style-item-check svg { width: 100%; height: 100%; }
+.style-item-name { flex: 1; }
+.style-item-check { color: var(--accent-strong); visibility: hidden; }
+.style-item[aria-checked="true"] .style-item-check { visibility: visible; }
+
+/* The key that chooses the style: a small outlined label, muted. */
+.style-item .key-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-1);
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* The settings card: colors, a divider, opacity, thickness; no titles but the
+   two sliders'. */
+.highlight-options {
+  width: 252px;
+  padding: 14px;
+  gap: 14px;
+}
+
+.highlight-options .swatch-row { justify-content: space-between; }
+.highlight-options .swatch { width: 26px; height: 26px; }
+.highlight-options .swatch-check svg { width: 14px; height: 14px; }
+
+.hl-options-divider {
+  height: 1px;
+  background-color: var(--border);
+}
+
+/* A row: its label line over its control. */
+.hl-options-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.hl-options-row[hidden] { display: none; }
+
+/* The label at the left; the value (or a note) at the right. */
+.hl-options-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.hl-options-label,
+.hl-options-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.opacity-value {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
-.color-btn:active { background-color: var(--state-pressed); }
-
-.color-btn-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background-color: var(--swatch);
-  box-shadow: inset 0 0 0 1px var(--swatch-edge);
-}
-
-.color-btn-chevron { display: inline-flex; }
-.color-btn-chevron svg { width: 12px; height: 12px; }
-
-/* Beside the rail (to its left), level with the highlight tool, over the page area. Looks
-   like the zoom popover, the reader's other small popover. */
-.color-flyout,
-.highlight-editor {
+/* Thickness: five presets, each a 26px round-capped line in the active colour
+   at the Highlight opacity (--preset-color, --preset-opacity), as tall as its
+   width in points scaled so 36pt is 16px (and 4pt 2px). The chosen one has a
+   2px accent ring inside its edge. */
+.thickness-row {
   display: flex;
+  gap: var(--space-1);
+}
+
+.thickness-preset {
+  flex: 1;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--border-elevated);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-2);
-  box-shadow: var(--shadow-2), var(--dialog-edge);
+  justify-content: center;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
 
-.color-flyout {
-  position: absolute;
-  top: 0;
-  /* To the rail's left, over the page: past the rail's own padding and the
-     1px divider beside it. */
-  right: calc(100% + var(--space-2) + var(--space-2));
-  z-index: 10;
-  transform-origin: right top;
-}
+.thickness-preset:hover { background-color: var(--state-hover); }
+.thickness-preset:active { background-color: var(--state-pressed); }
+.thickness-preset.selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.thickness-preset:focus-visible { outline-offset: 2px; }
 
-.color-flyout[hidden],
-.highlight-editor[hidden] { display: none; }
+.thickness-line {
+  width: 26px;
+  border-radius: 999px;
+  background-color: var(--preset-color, var(--highlight-yellow));
+  opacity: var(--preset-opacity, 1);
+}
 
 
 /* A clear, unclipped overlay like the selection layer, beneath it. Only the
@@ -759,11 +1018,22 @@ html, body { height: 100%; }
 }
 
 /* Grows from the highlight it edits: down from under its last line, or up
-   from over its first when highlight-colors.js has to flip it (.is-above). */
+   from over its first when highlight-colors.js has to flip it (.is-above).
+   As wide as its top row (the swatches and Remove); the opacity slider and
+   a drawing's thickness presets fill that width under it. The zoom
+   popover's padding and row gap. */
 .highlight-editor {
   position: absolute;
   z-index: 6;
+  gap: 10px;
+  padding: var(--space-3);
   transform-origin: left top;
+}
+
+.highlight-editor-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .highlight-editor.is-above { transform-origin: left bottom; }

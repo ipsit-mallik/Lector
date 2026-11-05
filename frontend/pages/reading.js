@@ -318,6 +318,7 @@ function markStripDirty() {
 function setHighlightMode(on) {
   highlightMode = on;
   highlightBtn.classList.toggle("active", on);
+  highlightBtn.setAttribute("aria-pressed", String(on));
   const surfaces = [...document.querySelectorAll(".page-surface")];
   surfaces.forEach((el) => {
     el.classList.toggle("selecting", on);
@@ -513,6 +514,9 @@ function paintSelection(sel, applied) {
   const rect = sel.el.getBoundingClientRect();
   const areaRect = pageArea.getBoundingClientRect();
   const fragment = document.createDocumentFragment();
+  // On release the wash takes the look of what is about to be written: a
+  // highlight's fill, or an underline's or strikethrough's line (reading.css).
+  selectionLayer.dataset.style = applied ? activeHighlightStyle : "";
   for (const box of mergeLineBoxes(page.chars, sel.range)) {
     const div = document.createElement("div");
     div.className = applied ? "selection-rect applied" : "selection-rect";
@@ -1469,6 +1473,8 @@ themeBtn.addEventListener("click", cycleTheme);
 undoBtn.addEventListener("click", undo);
 redoBtn.addEventListener("click", redo);
 highlightBtn.addEventListener("click", () => setHighlightMode(!highlightMode));
+// What the style card, H/U/S and "… mode" turn on and off (highlight-options.js).
+configureHighlightTool({ isOn: () => highlightMode, setOn: setHighlightMode });
 // The footer button is the reader's one button for the list: it sits next to
 // the mic pill, which is where the question "what can I say?" occurs, and it
 // says what it is. "?" and the spoken "what can I say" reach the same panel.
@@ -1481,7 +1487,7 @@ referenceFooterBtn.addEventListener("click", openCommandReference);
 // left open, the next Esc would go on closing something no longer visible.
 function enterFocusMode() {
   if (isFocusMode()) return;
-  closeColorFlyout();
+  closeHighlightOptions();
   closeZoomPopover();
   setFocusMode(true);
 }
@@ -1541,6 +1547,17 @@ document.addEventListener("keydown", (ev) => {
     closeZoomPopover({ returnFocus: true });
     return;
   }
+  // H, U and S: the highlight tool in that style, or off when it already is
+  // (highlight-options.js). Never while typing (command-reference.js's
+  // isTypingTarget: the page number, the find box, any dialog's field), behind
+  // a dialog, or with a modifier — Ctrl+S is Save.
+  const toolStyle = !ev.ctrlKey && !ev.metaKey && !ev.altKey && highlightStyleForKey(ev.key);
+  if (toolStyle) {
+    if (ev.repeat || dialogOpenAtKey || isTypingTarget(ev.target)) return;
+    ev.preventDefault();
+    pressHighlightStyleKey(toolStyle);
+    return;
+  }
   if (ev.target.tagName === "INPUT") return;
   switch (ev.key) {
     case "ArrowRight":
@@ -1566,10 +1583,6 @@ document.addEventListener("keydown", (ev) => {
     case "-":
       zoomOut();
       break;
-    case "h":
-    case "H":
-      setHighlightMode(!highlightMode);
-      break;
     case "Escape":
       // Abandons a selection mid-drag: the wash disappears and the release
       // that follows writes nothing, so a drag started by mistake costs
@@ -1579,7 +1592,7 @@ document.addEventListener("keydown", (ev) => {
       else if (isDrawingInk()) cancelInkStroke();
       else if (isOutlinePickerActive()) endOutlinePicker();
       else if (isHighlightEditorOpen()) closeHighlightEditor({ returnFocus: true });
-      else if (isColorFlyoutOpen()) closeColorFlyout({ returnFocus: true });
+      else if (isHighlightOptionsOpen()) closeHighlightOptions({ returnFocus: true });
       else if (isFindBarOpen()) closeFindBar();
       else if (isFocusMode() && !dialogOpenAtKey) setFocusMode(false);
       break;
@@ -1841,14 +1854,18 @@ async function voiceScroll(delta) {
 // through the mic pill, the same way "heard" already does for navigation —
 // a highlight that silently fails to match would otherwise look identical to
 // a dropped command.
-async function voiceHighlight(query, sentence, color = null) {
-  state = await callApi("highlight_by_voice", query, sentence, color);
+// What the mic pill says a voice markup did, by style.
+const VOICE_MARKUP_VERBS = { highlight: "Highlighted", underline: "Underlined", strikethrough: "Struck through" };
+
+async function voiceHighlight(query, sentence, color = null, style = "highlight") {
+  state = await callApi("highlight_by_voice", query, sentence, color, style);
   const result = state.voice_highlight || { matched: false, query };
   if (result.matched) {
     await afterAnnotationChange(result.affected_page);
     // The color is named only when it was a one-off, since that is the case
-    // where it differs from what the color button shows.
-    setMicHint(color ? `Highlighted “${result.text}” in ${result.color}` : `Highlighted “${result.text}”`);
+    // where it differs from what the preview under the tool shows.
+    const verb = VOICE_MARKUP_VERBS[result.style] || VOICE_MARKUP_VERBS.highlight;
+    setMicHint(color ? `${verb} “${result.text}” in ${result.color}` : `${verb} “${result.text}”`);
   } else if (result.ocr) {
     updateChrome();
     showVoiceOcr(result.ocr);
@@ -1856,6 +1873,19 @@ async function voiceHighlight(query, sentence, color = null) {
     updateChrome();
     setMicHint(`Couldn't find “${result.query}” on this page`);
   }
+}
+
+// "thicker" / "thinner": the freehand thickness one preset along.
+async function voiceThickness(direction) {
+  const { width, moved } = await stepInkWidth(direction);
+  if (moved) setMicHint(`Thickness ${width} pt`);
+  else setMicHint(`Thickness ${width} pt — already the ${direction > 0 ? "thickest" : "thinnest"}`);
+}
+
+// "underline mode" and the other two: that style, with the tool on.
+async function voiceStyleMode(style) {
+  await chooseHighlightStyle(style);
+  setMicHint(`${highlightStyleLabel(style)} mode`);
 }
 
 const VOICE_ACTIONS = {
@@ -1866,6 +1896,12 @@ const VOICE_ACTIONS = {
   SCROLL_UP: () => voiceScroll(-1),
   HIGHLIGHT: (command) => voiceHighlight(command.query, false, command.color),
   HIGHLIGHT_SENTENCE: (command) => voiceHighlight(command.query, true, command.color),
+  // The same matching, written as the other two text styles whichever one
+  // the highlight tool has chosen (the command names its own).
+  UNDERLINE: (command) => voiceHighlight(command.query, false, command.color, "underline"),
+  UNDERLINE_SENTENCE: (command) => voiceHighlight(command.query, true, command.color, "underline"),
+  STRIKETHROUGH: (command) => voiceHighlight(command.query, false, command.color, "strikethrough"),
+  STRIKETHROUGH_SENTENCE: (command) => voiceHighlight(command.query, true, command.color, "strikethrough"),
   // The outline panel (outline-panel.js). "show outline" and "show pages"
   // number the entries, so the next thing said can be a number.
   SHOW_OUTLINE: () => startOutlinePicker("outline"),
@@ -1881,6 +1917,17 @@ const VOICE_ACTIONS = {
     await setActiveHighlightColor(command.color);
     setMicHint(`Highlight color: ${command.color}`);
   },
+  // The highlight tool's settings (highlight-options.js), confirmed in the
+  // mic pill since the cards that show them are usually closed.
+  SET_OPACITY: async (command) => {
+    await setHighlightOpacityNow(command.opacity);
+    setMicHint(`Opacity ${command.opacity}%`);
+  },
+  THICKER: () => voiceThickness(1),
+  THINNER: () => voiceThickness(-1),
+  HIGHLIGHT_MODE: () => voiceStyleMode("highlight"),
+  UNDERLINE_MODE: () => voiceStyleMode("underline"),
+  STRIKETHROUGH_MODE: () => voiceStyleMode("strikethrough"),
   // Voice must never save as a side effect of anything else (docs/PRD.md):
   // this reaches the exact same prompt-or-save flow Ctrl+S does, rather than
   // a shortcut that skips the dialog.
@@ -2143,7 +2190,8 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
     minWidth: prefs.outline_width_min,
     maxWidth: prefs.outline_width_max,
   });
-  await initHighlightColors(state.highlight_color);
-  setInkStyle(await callApi("get_ink_style"));
+  // The palette first: the highlight tool's settings card builds its swatches from it.
+  await initHighlightColors();
+  await initHighlightOptions(await callApi("get_highlight_options"), state.highlight_color);
   await refresh();
 })();

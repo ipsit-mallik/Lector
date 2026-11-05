@@ -94,7 +94,8 @@ function configureCommandReference(hooks) {
 
 // A phrase is a pattern when it has a variable: "{page}" and "{number}" are
 // numbers (shown as a range), "{words}" is whatever is on the page, "{color}"
-// one of the highlight colours (listed, "yellow, green … or orange").
+// one of the highlight colours (listed, "yellow, green … or orange"), and
+// "{opacity}" one of the opacity slider's tick values ("10, 20 … 100").
 const REFERENCE_WORDS_LABEL = "the words you see";
 const REFERENCE_COLOR_LABEL = "a color";
 const REFERENCE_UNKNOWN_MAX = "N";
@@ -105,6 +106,11 @@ function placeholderText(name, ranges) {
     const colors = ranges.color || [];
     if (colors.length < 2) return colors[0] || REFERENCE_COLOR_LABEL;
     return `${colors.slice(0, -1).join(", ")} or ${colors[colors.length - 1]}`;
+  }
+  if (name === "opacity") {
+    const values = ranges.opacity || [];
+    if (values.length < 3) return values.join(" or ") || REFERENCE_UNKNOWN_MAX;
+    return `${values[0]}, ${values[1]} … ${values[values.length - 1]}`;
   }
   const max = Number(ranges[name]);
   return `1–${max > 0 ? max : REFERENCE_UNKNOWN_MAX}`;
@@ -213,8 +219,13 @@ function orderedSections(panel) {
 }
 
 function renderReference(panel) {
-  // The colours "{color}" stands for come with the payload, from the grammar.
-  const ranges = { ...(referenceHooks.ranges() || {}), color: panel.highlight_colors };
+  // The colours "{color}" and the values "{opacity}" stand for come with the
+  // payload, from the grammar.
+  const ranges = {
+    ...(referenceHooks.ranges() || {}),
+    color: panel.highlight_colors,
+    opacity: panel.opacity_values,
+  };
   referenceSections.replaceChildren(
     ...orderedSections(panel).map((section) => sectionElement(section, ranges)),
   );

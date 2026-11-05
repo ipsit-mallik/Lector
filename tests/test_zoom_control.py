@@ -46,6 +46,7 @@ from lector.features.voice import reference, router  # noqa: E402
 PAGES = ROOT / "frontend" / "pages"
 FIT_JS = PAGES / "zoom-fit.js"
 CONTROL_JS = PAGES / "zoom-control.js"
+SLIDER_JS = PAGES / "range-slider.js"
 READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
 READING_HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 READING_CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
@@ -121,7 +122,7 @@ const popover = fakeElement("zoomPopover");
 popover.hidden = true;
 const slider = fakeElement("zoomSlider", popover);
 const ticks = fakeElement("zoomTicks", popover);
-ticks.children = [50, 100, 200].map((z) => { const t = fakeElement(`tick${z}`, ticks); t.dataset.zoom = String(z); return t; });
+ticks.children = [50, 100, 200].map((z) => { const t = fakeElement(`tick${z}`, ticks); t.dataset.value = String(z); return t; });
 const widthBtn = fakeElement("zoomFitWidthBtn", popover);
 const pageBtn = fakeElement("zoomFitPageBtn", popover);
 const actualBtn = fakeElement("zoomActualBtn", popover);
@@ -156,7 +157,7 @@ const tick = () => new Promise((r) => setImmediate(r));
 const ui = () => ({
   label: label.textContent, aria: label.getAttribute("aria-label"),
   open: api.isZoomPopoverOpen(), expanded: label.getAttribute("aria-expanded"),
-  slider: Number(slider.value), fill: slider.style.getPropertyValue("--zoom-fill"),
+  slider: Number(slider.value), fill: slider.style.getPropertyValue("--range-fill"),
   valuetext: slider.getAttribute("aria-valuetext"),
   pressed: [widthBtn, pageBtn, actualBtn].map((b) => b.getAttribute("aria-pressed")),
   mode: api.getZoomMode(), focus: document.activeElement && document.activeElement.id,
@@ -343,7 +344,7 @@ class ZoomControlTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         result = subprocess.run(
-            [NODE, "-e", CONTROL_HARNESS, str(FIT_JS), str(CONTROL_JS)],
+            [NODE, "-e", CONTROL_HARNESS, str(FIT_JS), str(SLIDER_JS), str(CONTROL_JS)],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
@@ -598,11 +599,11 @@ class ZoomWiringTests(unittest.TestCase):
     def test_the_ticks_and_their_tooltips(self):
         ticks = READING_HTML[READING_HTML.index('id="zoomTicks"'):READING_HTML.index('<div class="zoom-chips"')]
         for zoom, tip in (("50", "50%"), ("100", "Reset to 100%"), ("200", "200%")):
-            self.assertRegex(ticks, rf'tabindex="-1" data-zoom="{zoom}"\s+data-tooltip="{tip}"')
-        self.assertIn('class="zoom-tick zoom-tick--major"', ticks)
+            self.assertRegex(ticks, rf'tabindex="-1" data-value="{zoom}"\s+data-tooltip="{tip}"')
+        self.assertIn('class="range-tick range-tick--major"', ticks)
 
     def test_the_scripts_load_before_reading_js(self):
-        order = [READING_HTML.index(f'<script src="{name}"></script>') for name in ("zoom-fit.js", "zoom-control.js", "reading.js")]
+        order = [READING_HTML.index(f'<script src="{name}"></script>') for name in ("range-slider.js", "zoom-fit.js", "zoom-control.js", "reading.js")]
         self.assertEqual(order, sorted(order))
 
 
@@ -639,44 +640,44 @@ class ZoomLookTests(unittest.TestCase):
         self.assertIn("--popover-shadow: var(--shadow-2);", light)
 
     def test_the_track_is_filled_up_to_the_thumb(self):
-        track = self.rule(".zoom-slider::-webkit-slider-runnable-track")
+        track = self.rule(".range-slider::-webkit-slider-runnable-track")
         self.assertIn("height: 4px;", track)
-        self.assertIn("var(--accent) 0 var(--zoom-fill-at)", track)
-        self.assertIn("var(--border-strong) var(--zoom-fill-at) 100%", track)
+        self.assertIn("var(--accent) 0 var(--range-fill-at)", track)
+        self.assertIn("var(--border-strong) var(--range-fill-at) 100%", track)
 
     def test_the_thumb_sits_over_the_ticks_with_a_20px_hit_area(self):
-        self.assertIn("z-index: 1;", self.rule(".zoom-slider"))
-        self.assertIn("height: 20px;", self.rule(".zoom-slider"))
-        self.assertIn("z-index: 0;", self.rule(".zoom-ticks"))
-        self.assertIn("isolation: isolate;", self.rule(".zoom-slider-wrap"))
-        self.assertIn("margin-top: calc((4px - var(--zoom-thumb)) / 2);", self.rule(".zoom-slider::-webkit-slider-thumb"))
+        self.assertIn("z-index: 1;", self.rule(".range-slider"))
+        self.assertIn("height: 20px;", self.rule(".range-slider"))
+        self.assertIn("z-index: 0;", self.rule(".range-ticks"))
+        self.assertIn("isolation: isolate;", self.rule(".range-slider-wrap"))
+        self.assertIn("margin-top: calc((4px - var(--range-thumb)) / 2);", self.rule(".range-slider::-webkit-slider-thumb"))
 
     def test_the_thumb_is_the_popovers_colour_with_an_accent_ring(self):
-        thumb = self.rule(".zoom-slider::-webkit-slider-thumb")
-        for decl in ("width: var(--zoom-thumb);", "border-radius: 50%;",
+        thumb = self.rule(".range-slider::-webkit-slider-thumb")
+        for decl in ("width: var(--range-thumb);", "border-radius: 50%;",
                      "background-color: var(--popover-surface);", "border: 2px solid var(--accent);",
-                     "box-shadow: var(--zoom-thumb-shadow);"):
+                     "box-shadow: var(--range-thumb-shadow);"):
             self.assertIn(decl, thumb)
-        self.assertIn("--zoom-thumb: 12px;", self.rule(".zoom-slider-wrap"))
-        self.assertIn("--zoom-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);", self.rule(".zoom-slider-wrap"))
-        self.assertIn("--zoom-halo: 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent);", self.rule(".zoom-slider-wrap"))
+        self.assertIn("--range-thumb: 12px;", self.rule(".range-slider-wrap"))
+        self.assertIn("--range-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);", self.rule(".range-slider-wrap"))
+        self.assertIn("--range-halo: 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent);", self.rule(".range-slider-wrap"))
 
     def test_hover_drag_and_focus(self):
-        self.assertIn("transform: scale(1.15);", self.rule(".zoom-slider::-webkit-slider-thumb:hover"))
-        drag = self.rule(".zoom-slider.is-dragging::-webkit-slider-thumb")
+        self.assertIn("transform: scale(1.15);", self.rule(".range-slider::-webkit-slider-thumb:hover"))
+        drag = self.rule(".range-slider.is-dragging::-webkit-slider-thumb")
         self.assertIn("transform: scale(1.25);", drag)
-        self.assertIn("var(--zoom-halo)", drag)
-        self.assertIn("var(--zoom-halo)", self.rule(".zoom-slider:focus-visible::-webkit-slider-thumb"))
+        self.assertIn("var(--range-halo)", drag)
+        self.assertIn("var(--range-halo)", self.rule(".range-slider:focus-visible::-webkit-slider-thumb"))
 
     def test_the_tick_lines(self):
-        tick = self.rule(".zoom-tick")
+        tick = self.rule(".range-tick")
         self.assertIn("width: 14px;", tick)
         self.assertIn("height: 12px;", tick)
-        minor = self.rule(".zoom-tick::before")
-        for decl in ("width: 2px;", "height: 5px;", "background-color: var(--text-muted);", "opacity: 0.45;"):
+        minor = self.rule(".range-tick::before")
+        for decl in ("width: 2px;", "height: 5px;", "background-color: var(--text-muted);", "opacity: 0.5;"):
             self.assertIn(decl, minor)
-        major = self.rule(".zoom-tick--major::before")
-        for decl in ("height: 8px;", "background-color: var(--text-primary);", "opacity: 0.7;"):
+        major = self.rule(".range-tick--major::before")
+        for decl in ("height: 8px;", "background-color: var(--text-primary);", "opacity: 0.75;"):
             self.assertIn(decl, major)
 
     def test_the_chips(self):

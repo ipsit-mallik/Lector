@@ -204,6 +204,6 @@
   color: var(--text-muted);
 }
 
-/* The five highlight colours, the same swatches as the reader's flyout
+/* The five highlight colours, the same swatches as the reader's highlight settings card
    (shared/components.css), with room for the chosen one's ring. */
 .settings-swatches { padding: var(--space-1); }

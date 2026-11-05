@@ -11,6 +11,7 @@ from lector.features.reading import ocr, ocr_cache, open_errors, safe_write, sea
 from lector.features.reading.open_errors import OpenError
 from lector.features.reading.outline import OutlineEntry, outline_tree
 from lector.features.reading.safe_write import SaveError
+from lector.shared import highlight_options
 
 log = logging.getLogger(__name__)
 
@@ -57,11 +58,35 @@ class _Edit:
     info: tuple[tuple[str, str], ...]
     before: _Look | None
     after: _Look | None
+    # Which reader gesture made it (one drag of the opacity slider), so the
+    # changes one gesture makes are one undo step (`set_highlight_appearance`).
+    gesture: str | None = None
 
 
 # What `Annot.set_info` accepts back from `Annot.info`; the rest (id, dates)
 # is regenerated for a re-added annotation.
 _RESTORED_INFO_KEYS = ("content", "title", "subject")
+
+# Opacities closer than this are the same: a PDF stores /CA as a real and
+# PyMuPDF reads it back through float32 (0.6 as 0.6000000238).
+_OPACITY_TOLERANCE = 0.002
+
+
+def _valid_opacity(opacity, style: str) -> float:
+    """`opacity` (0..1) when it is one the popover offers, else `style`'s
+    default."""
+    low = highlight_options.OPACITY_MIN_PCT / 100
+    if isinstance(opacity, (int, float)) and not isinstance(opacity, bool) and low <= opacity <= 1:
+        return float(opacity)
+    return highlight_options.opacity_fraction(highlight_options.DEFAULT_OPACITY_PCT[style])
+
+
+def _same_look(a: highlighter.Shape, b: highlighter.Shape) -> bool:
+    """Whether two shapes draw the same: the same geometry, opacity and (for
+    ink) width."""
+    if not highlighter.same_geometry(a, b) or abs(a.opacity - b.opacity) > _OPACITY_TOLERANCE:
+        return False
+    return not isinstance(a, highlighter.InkShape) or abs(a.width - b.width) < 1e-6
 
 
 def _open_checked(path: str, password: str | None) -> tuple["pymupdf.Document", bool]:
@@ -421,9 +446,18 @@ class PdfDocument:
         return [replace(word, rect=rect) for word, rect in zip(words, shown)]
 
     def highlight_char_indices(
-        self, page_index: int, start_idx: int, end_idx: int, color: str = highlighter.DEFAULT_COLOR
+        self,
+        page_index: int,
+        start_idx: int,
+        end_idx: int,
+        color: str = highlighter.DEFAULT_COLOR,
+        *,
+        style: str = highlight_options.DEFAULT_STYLE,
+        opacity: float | None = None,
     ):
-        """Highlight the reading-order run between two character indices.
+        """Highlight (or underline, or strike through: `style`) the
+        reading-order run between two character indices, at `opacity` (0..1;
+        None is the style's default).
 
         Indices are into this page's `chars_on_page` list — the same list the
         frontend was handed to draw its live selection, so what gets written
@@ -436,12 +470,21 @@ class PdfDocument:
         start_idx = max(0, min(int(start_idx), last))
         end_idx = max(0, min(int(end_idx), last))
         selected = highlighter.chars_between(chars, start_idx, end_idx)
-        return self._commit_highlight(page_index, selected, color)
+        return self._commit_highlight(page_index, selected, color, style, opacity)
 
     def highlight_word_indices(
-        self, page_index: int, start_idx: int, end_idx: int, color: str = highlighter.DEFAULT_COLOR
+        self,
+        page_index: int,
+        start_idx: int,
+        end_idx: int,
+        color: str = highlighter.DEFAULT_COLOR,
+        *,
+        style: str = highlight_options.DEFAULT_STYLE,
+        opacity: float | None = None,
     ):
-        """Highlight the reading-order run between two word indices.
+        """Highlight (or underline, or strike through) the reading-order run
+        between two word indices; `style` and `opacity` as for
+        `highlight_char_indices`.
 
         Indices are into this page's `words_on_page` list — the same list the
         frontend was handed to draw its live selection, so what gets written
@@ -454,23 +497,39 @@ class PdfDocument:
         start_idx = max(0, min(int(start_idx), last))
         end_idx = max(0, min(int(end_idx), last))
         selected = highlighter.words_between(words, start_idx, end_idx)
-        return self._commit_highlight(page_index, selected, color)
+        return self._commit_highlight(page_index, selected, color, style, opacity)
 
     def _commit_highlight(
-        self, page_index: int, selected: list[highlighter.LineBounded], color: str
+        self,
+        page_index: int,
+        selected: list[highlighter.LineBounded],
+        color: str,
+        style: str,
+        opacity: float | None,
     ) -> int | None:
-        """Write the highlight and record it; returns its xref, or None when
-        there was nothing to highlight."""
+        """Write the markup and record it; returns its xref, or None when
+        there was nothing to mark. An unknown colour or style is the default
+        one, and an opacity out of range the style's default: what reaches
+        the PDF is always something the popover offers."""
         if color not in highlighter.HIGHLIGHT_COLORS:
             color = highlighter.DEFAULT_COLOR
+        if not highlight_options.is_style(style):
+            style = highlight_options.DEFAULT_STYLE
         rgb = highlighter.HIGHLIGHT_COLORS[color]
+        shape = highlighter.TextShape(
+            tuple(highlighter.merge_line_rects(selected)), style, _valid_opacity(opacity, style)
+        )
         page = self._doc[page_index]  # held while `annot` is used (see _move_highlight)
-        annot = highlighter.add_highlight(page, selected, color)
+        annot = highlighter.add_text_markup(page, shape, rgb, self._chars_for(page_index, shape))
         if annot is None:
             return None
-        shape = highlighter.TextShape(tuple(highlighter.merge_line_rects(selected)))
         self._record(_Edit(page_index, self._ref(annot.xref), (), None, _Look(rgb, shape)))
         return annot.xref
+
+    def _chars_for(self, page_index: int, shape: highlighter.Shape) -> list[highlighter.Char]:
+        """The page's text when writing `shape` needs it (an underline or a
+        strike-through is placed on the lines' baselines), else nothing."""
+        return self.chars_on_page(page_index) if highlighter.needs_text(shape) else []
 
     def add_ink_stroke(
         self,
@@ -478,6 +537,9 @@ class PdfDocument:
         drawn,
         final=None,
         color: str = highlighter.DEFAULT_COLOR,
+        *,
+        width: float = highlighter.INK_WIDTH_PT,
+        opacity: float = highlighter.INK_OPACITY,
     ) -> int | None:
         """Draw a freehand marker stroke; returns its xref, or None when there
         is no page or no point to draw.
@@ -498,8 +560,11 @@ class PdfDocument:
         if color not in highlighter.HIGHLIGHT_COLORS:
             color = highlighter.DEFAULT_COLOR
         rgb = highlighter.HIGHLIGHT_COLORS[color]
+        if not (isinstance(width, (int, float)) and 0 < width <= highlighter.INK_MAX_WIDTH_PT):
+            width = highlighter.INK_WIDTH_PT
+        opacity = _valid_opacity(opacity, highlight_options.HIGHLIGHT)
         page = self._doc[page_index]  # held while `annot` is used
-        drawn_look = _Look(rgb, highlighter.InkShape((drawn_path,)))
+        drawn_look = _Look(rgb, highlighter.InkShape((drawn_path,), float(width), opacity))
         annot = highlighter.add_ink(page, drawn_look.shape, rgb)
         if annot is None:
             return None
@@ -507,7 +572,7 @@ class PdfDocument:
         self._record(_Edit(page_index, ref, (), None, drawn_look))
         final_path = self._from_shown(page_index, final)
         if final_path:
-            final_look = _Look(rgb, highlighter.InkShape((final_path,)))
+            final_look = _Look(rgb, replace(drawn_look.shape, strokes=(final_path,)))
             edit = _Edit(page_index, ref, (), drawn_look, final_look)
             self._move_highlight(edit, drawn_look, final_look)
             self._record(edit)
@@ -684,8 +749,58 @@ class PdfDocument:
         # No /C of its own: an undo gives it the default colour, the nearest
         # thing to "unset" (as an undone removal does).
         before = before or highlighter.HIGHLIGHT_COLORS[highlighter.DEFAULT_COLOR]
-        highlighter.recolor_highlight(page, annot, after)
+        highlighter.restyle_highlight(page, annot, after, shape, self._chars_for(page_index, shape))
         self._record(_Edit(page_index, self._ref(xref), (), _Look(before, shape), _Look(after, shape)))
+        return True
+
+    def set_highlight_appearance(
+        self,
+        page_index: int,
+        xref: int,
+        *,
+        opacity: float | None = None,
+        width: float | None = None,
+        gesture: str | None = None,
+    ) -> bool:
+        """Change how an existing highlight is drawn — its opacity (0..1),
+        and a stroke's width in points — in place and undoably. False if
+        there is no such highlight, a value is out of range, a width is asked
+        of a text markup, or nothing would change.
+
+        Every change made under one `gesture` (a drag of the opacity slider,
+        sending a value per step) is one undo step: the step on top of the
+        undo stack is replaced by one from the gesture's first look to its
+        latest, and dropped if the gesture ends where it began."""
+        found = self._load_highlight(page_index, xref)
+        if found is None:
+            return False
+        page, annot = found
+        shape = highlighter.shape_of(annot, bounded=False)
+        new = shape
+        if opacity is not None:
+            if not (isinstance(opacity, (int, float)) and 0 < opacity <= 1):
+                return False
+            new = replace(new, opacity=float(opacity))
+        if width is not None:
+            valid = isinstance(width, (int, float)) and 0 < width <= highlighter.INK_MAX_WIDTH_PT
+            if not valid or not isinstance(new, highlighter.InkShape):
+                return False
+            new = replace(new, width=float(width))
+        if _same_look(new, shape):
+            return False
+        rgb = highlighter.stroke_rgb(annot) or highlighter.HIGHLIGHT_COLORS[highlighter.DEFAULT_COLOR]
+        highlighter.restyle_highlight(page, annot, rgb, new, self._chars_for(page_index, new))
+        ref = self._ref(xref)
+        top = self._undo_stack[-1] if self._undo_stack else None
+        if gesture is not None and top is not None and top.gesture == gesture and top.ref is ref:
+            self._undo_stack.pop()
+            self._redo_stack.clear()
+            self._dirty = True
+            if top.before is not None and _same_look(new, top.before.shape) and top.before.rgb == rgb:
+                return True
+            self._undo_stack.append(replace(top, after=_Look(rgb, new)))
+            return True
+        self._record(_Edit(page_index, ref, (), _Look(rgb, shape), _Look(rgb, new), gesture))
         return True
 
     def remove_highlight(self, page_index: int, xref: int) -> bool:
@@ -716,14 +831,17 @@ class PdfDocument:
 
     def _move_highlight(self, edit: _Edit, frm: _Look | None, to: _Look | None) -> None:
         """Take `edit`'s highlight from look `frm` to look `to` (None:
-        absent): re-adding it, deleting it, recolouring it, or — for a change
-        of shape — writing it again in its new shape, under a new xref."""
+        absent): re-adding it, deleting it, restyling it in place (colour,
+        opacity, width), or — for a change of shape — writing it again in its
+        new shape, under a new xref."""
         if frm is not None:
             # Present by construction: the stacks are the only thing that
             # changes highlights between an edit and its undo or redo.
             page, annot = self._load_highlight(edit.page_index, edit.ref.xref)
-            if to is not None and to.shape == frm.shape:
-                highlighter.recolor_highlight(page, annot, to.rgb)
+            if to is not None and highlighter.same_geometry(to.shape, frm.shape):
+                highlighter.restyle_highlight(
+                    page, annot, to.rgb, to.shape, self._chars_for(edit.page_index, to.shape)
+                )
                 return
             page.delete_annot(annot)
             self._refs.pop(edit.ref.xref, None)
@@ -732,7 +850,7 @@ class PdfDocument:
         # A named local, not `self._doc[i]` inline: the Annot is unbound once
         # that Page wrapper is collected, and set_info below needs it.
         page = self._doc[edit.page_index]
-        annot = highlighter.add_shape(page, to.shape, to.rgb)
+        annot = highlighter.add_shape(page, to.shape, to.rgb, self._chars_for(edit.page_index, to.shape))
         if any(value for _, value in edit.info):
             annot.set_info(dict(edit.info))
         edit.ref.xref = annot.xref

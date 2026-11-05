@@ -1,12 +1,14 @@
 // Highlight colors: five, fixed (docs/PRD.md — no free picker). Two places
 // choose one:
 //
-// * The rail's color button, under the highlight tool, and its flyout of
-//   swatches. That choice is the *active* color every new highlight is drawn
-//   in, by mouse or by voice, and it is an app-wide setting (api.py's
-//   set_highlight_color), so it is still the reader's color in the next PDF.
-// * The editor an existing highlight opens, which recolors it or removes it.
-//   Both are undoable, the same as adding one (features/reading/document.py).
+// * The settings card the rail's preview button opens (highlight-options.js). That choice is the *active* color every new
+//   highlight is drawn in, by mouse or by voice, and it is an app-wide setting
+//   (api.py's set_highlight_color), so it is still the reader's color in the
+//   next PDF.
+// * The editor an existing highlight, underline, strikethrough or drawing
+//   opens, which recolors it, changes its opacity (and a drawing's
+//   thickness) or removes it. Every change is undoable, the same as adding
+//   one (features/reading/document.py); one slider drag is one undo step.
 //
 // Every highlight on a visible page gets a transparent <button> laid exactly
 // over it (a "target"). That one element is what makes a highlight both
@@ -22,12 +24,13 @@
 // reading.js tells it, through configureHighlightColors(), which page elements
 // are on screen and what to do once a highlight has changed.
 
-const highlightColorBtn = document.getElementById("highlightColorBtn");
-const highlightColorFlyout = document.getElementById("highlightColorFlyout");
 const highlightTargetLayer = document.getElementById("highlightTargetLayer");
 const highlightEditor = document.getElementById("highlightEditor");
 const highlightEditorSwatches = document.getElementById("highlightEditorSwatches");
 const highlightEditorRemoveBtn = document.getElementById("highlightEditorRemoveBtn");
+const highlightEditorOpacity = document.getElementById("highlightEditorOpacity");
+const highlightEditorThickness = document.getElementById("highlightEditorThickness");
+const highlightEditorThicknessGroup = document.getElementById("highlightEditorThicknessGroup");
 
 // The longest stretch of highlighted text read out in a target's name; the
 // rest is cut with an ellipsis, so a highlighted paragraph is not read in full
@@ -41,7 +44,6 @@ const HIGHLIGHT_HIT_PAD = 1.5;
 const HIGHLIGHT_EDITOR_GAP_PX = 8;
 
 let highlightPalette = []; // color names, in swatch order
-let activeHighlightColor = null;
 let highlightHooks = null;
 // get_page_highlights' reply per page index, as the promise (so a repaint while
 // a fetch is in flight joins it) and, once it has arrived, the value (so
@@ -56,6 +58,17 @@ const highlightData = new Map();
 const highlightTargets = new Map();
 let highlightPaintQueued = false;
 let highlightEditing = null; // { pageIndex, highlight, key } while the editor is open
+// The editor's opacity and thickness controls (highlight-options.js).
+let editorOpacity = null;
+let editorThickness = null;
+// The gesture the editor's next change belongs to (a slider drag, a key
+// press, a tick, a preset): api.set_highlight_appearance makes each one undo
+// step. At most one change is in flight; the newest waiting one replaces any
+// other waiting.
+let editorGesture = null;
+let editorGestureSeq = 0;
+let appearanceInFlight = false;
+let appearancePending = null;
 
 // hooks: {
 //   visiblePages()     [{ index, el }] for every page image on screen now,
@@ -114,59 +127,6 @@ function focusChosenSwatch(group) {
   if (swatch) swatch.focus();
 }
 
-// --- The active color (rail button + flyout) -------------------------------- //
-
-function showActiveHighlightColor(name) {
-  if (!highlightPalette.includes(name)) return;
-  activeHighlightColor = name;
-  highlightColorBtn.style.setProperty("--swatch", swatchColor(name));
-  const label = `Highlight color: ${highlightColorLabel(name)}`;
-  highlightColorBtn.title = label;
-  highlightColorBtn.setAttribute("aria-label", label);
-  markSwatch(highlightColorFlyout, name);
-  // The wash a drag turns into on release (reading.css, .selection-rect.applied)
-  // shows the highlight before the re-rendered page does, so it has to be
-  // drawn in the color that page is about to show.
-  document.documentElement.style.setProperty("--applied-highlight", swatchColor(name));
-}
-
-// Also what the voice "highlight color <color>" command calls.
-async function setActiveHighlightColor(name) {
-  const state = await callApi("set_highlight_color", name);
-  showActiveHighlightColor((state && state.highlight_color) || name);
-  return state;
-}
-
-function isColorFlyoutOpen() {
-  return !highlightColorFlyout.hidden;
-}
-
-function openColorFlyout() {
-  closeHighlightEditor();
-  highlightColorFlyout.hidden = false;
-  highlightColorBtn.setAttribute("aria-expanded", "true");
-  focusChosenSwatch(highlightColorFlyout);
-}
-
-function closeColorFlyout({ returnFocus = false } = {}) {
-  if (!isColorFlyoutOpen()) return;
-  highlightColorFlyout.hidden = true;
-  highlightColorBtn.setAttribute("aria-expanded", "false");
-  if (returnFocus) highlightColorBtn.focus();
-}
-
-highlightColorBtn.addEventListener("click", () => {
-  if (isColorFlyoutOpen()) closeColorFlyout();
-  else openColorFlyout();
-});
-
-highlightColorFlyout.addEventListener("keydown", (ev) => {
-  if (ev.key !== "Escape") return;
-  // Esc belongs to the flyout here: reading.js's own Esc closes the find bar.
-  ev.stopPropagation();
-  closeColorFlyout({ returnFocus: true });
-});
-
 // --- Targets over existing highlights -------------------------------------- //
 
 function pageHighlights(pageIndex) {
@@ -209,11 +169,16 @@ function paintHighlightTargets() {
   });
 }
 
+// What each kind of markup is called in a target's name: "Green underline:
+// “quick brown fox”".
+const HIGHLIGHT_KIND_NAMES = { highlight: "highlight", underline: "underline", strikethrough: "strikethrough" };
+
 function highlightTargetName(highlight) {
   if (highlight.kind === "ink") {
     return highlight.color ? `${highlightColorLabel(highlight.color)} drawing` : "Drawing";
   }
-  const color = highlight.color ? `${highlightColorLabel(highlight.color)} highlight` : "Highlight";
+  const kind = HIGHLIGHT_KIND_NAMES[highlight.style] || HIGHLIGHT_KIND_NAMES.highlight;
+  const color = highlight.color ? `${highlightColorLabel(highlight.color)} ${kind}` : highlightColorLabel(kind);
   let text = highlight.text || "";
   if (text.length > HIGHLIGHT_NAME_MAX_CHARS) text = `${text.slice(0, HIGHLIGHT_NAME_MAX_CHARS).trimEnd()}…`;
   return text ? `${color}: “${text}”` : color;
@@ -338,6 +303,9 @@ async function drawHighlightTargets() {
       seen.add(key);
       const target = highlightTargets.get(key) || createHighlightTarget(key);
       target._highlight = { pageIndex: index, highlight };
+      // The editor works on the newest reply, so a change it made itself
+      // (an opacity drag) is what it shows and starts from.
+      if (highlightEditing && highlightEditing.key === key) highlightEditing.highlight = highlight;
       target.setAttribute("aria-label", highlightTargetName(highlight));
       target.classList.toggle("is-editing", Boolean(highlightEditing && highlightEditing.key === key));
       target.classList.toggle("ink-target", highlight.kind === "ink");
@@ -390,12 +358,13 @@ function isHighlightEditorOpen() {
 }
 
 function openHighlightEditor(pageIndex, highlight) {
-  closeColorFlyout();
+  closeHighlightOptions();
   const key = `${pageIndex}:${highlight.id}`;
   highlightEditing = { pageIndex, highlight, key };
   highlightTargets.forEach((target, k) => target.classList.toggle("is-editing", k === key));
   // A color another app wrote is none of the five, so no swatch is chosen.
   markSwatch(highlightEditorSwatches, highlight.color);
+  showEditedAppearance(highlight);
   highlightEditor.setAttribute("aria-label", highlightTargetName(highlight));
   highlightEditor.hidden = false;
   positionHighlightEditor();
@@ -440,6 +409,49 @@ function positionHighlightEditor() {
   highlightEditor.style.top = `${top}px`;
 }
 
+// The editor's opacity slider and (for a drawing) its thickness presets, set
+// to the highlight's own. The emphasised tick is its style's default; a
+// drawing's is the Highlight default, as new strokes use.
+function showEditedAppearance(highlight) {
+  if (!editorOpacity) return;
+  const ink = highlight.kind === "ink";
+  const style = ink ? "highlight" : highlight.style || "highlight";
+  const pct = Math.round((highlight.opacity == null ? 1 : highlight.opacity) * 100);
+  editorOpacity.set(Math.min(100, Math.max(10, pct)), defaultOpacityPct(style));
+  highlightEditorThickness.hidden = !ink;
+  if (ink) {
+    editorThickness.set(highlight.width);
+    editorThickness.paint(swatchColor(highlight.color || activeHighlightColor), highlight.opacity);
+  }
+}
+
+function newEditorGesture() {
+  editorGestureSeq += 1;
+  editorGesture = `edit-${editorGestureSeq}`;
+}
+
+// A live change to the edited highlight's opacity (whole percent) or width.
+async function changeEditedAppearance(change) {
+  if (!highlightEditing) return;
+  const { pageIndex, highlight } = highlightEditing;
+  appearancePending = { ...(appearancePending || {}), pageIndex, id: highlight.id, gesture: editorGesture, ...change };
+  if (appearanceInFlight) return;
+  appearanceInFlight = true;
+  try {
+    while (appearancePending) {
+      const next = appearancePending;
+      appearancePending = null;
+      const state = await callApi(
+        "set_highlight_appearance", next.pageIndex, next.id,
+        next.opacity == null ? null : next.opacity, next.width == null ? null : next.width, next.gesture,
+      );
+      if (state && state.affected_page != null) await highlightHooks.afterChange(state);
+    }
+  } finally {
+    appearanceInFlight = false;
+  }
+}
+
 async function recolorEditedHighlight(name) {
   if (!highlightEditing) return;
   const { pageIndex, highlight } = highlightEditing;
@@ -468,27 +480,34 @@ highlightEditor.addEventListener("keydown", (ev) => {
   closeHighlightEditor({ returnFocus: true });
 });
 
-// A press anywhere else closes whichever of the two is open, the way a menu
-// does. A press on a target is left to the target's own click, which opens
-// that highlight's editor (or closes this one, if it is the same highlight).
+// A press anywhere else closes the editor, the way a menu does. A press on a
+// target is left to the target's own click, which opens that highlight's
+// editor (or closes this one, if it is the same highlight).
 document.addEventListener("pointerdown", (ev) => {
-  if (isColorFlyoutOpen() && !highlightColorFlyout.contains(ev.target) && !highlightColorBtn.contains(ev.target)) {
-    closeColorFlyout();
-  }
   if (highlightEditing && !highlightEditor.contains(ev.target) && !ev.target.closest(".highlight-target")) {
     closeHighlightEditor();
   }
 });
 
-// Called once by reading.js, with the active color from its first state.
-async function initHighlightColors(activeColor) {
+// Called once by reading.js, before initHighlightOptions (which builds the
+// popover's own swatches from the palette fetched here).
+async function initHighlightColors() {
   highlightPalette = await callApi("get_highlight_palette");
-  await Promise.all([
-    buildSwatches(highlightColorFlyout, async (name) => {
-      closeColorFlyout({ returnFocus: true });
-      await setActiveHighlightColor(name);
-    }),
-    buildSwatches(highlightEditorSwatches, recolorEditedHighlight),
-  ]);
-  showActiveHighlightColor(activeColor);
+  await buildSwatches(highlightEditorSwatches, recolorEditedHighlight);
+}
+
+// Called by initHighlightOptions once the options (the slider's range, the
+// presets) have arrived.
+function initHighlightEditorControls() {
+  editorOpacity = createOpacityControl(highlightEditorOpacity, {
+    onGesture: newEditorGesture,
+    onChange: (pct) => changeEditedAppearance({ opacity: pct }),
+  });
+  editorThickness = createThicknessControl(highlightEditorThicknessGroup, { selectOnArrow: false }, {
+    onPick: (width) => {
+      newEditorGesture();
+      editorThickness.set(width);
+      changeEditedAppearance({ width });
+    },
+  });
 }

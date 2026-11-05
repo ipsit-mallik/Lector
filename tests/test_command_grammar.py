@@ -261,6 +261,7 @@ class IntentContractTests(unittest.TestCase):
             cg.NEXT_PAGE, cg.PREV_PAGE, cg.SCROLL_UP, cg.SCROLL_DOWN, cg.SAVE,
             cg.SHOW_OUTLINE, cg.SHOW_PAGES, cg.HIDE_OUTLINE, cg.TOGGLE_PROGRESS_BAR,
             cg.FOCUS_MODE, cg.EXIT_FOCUS_MODE, cg.FIT_WIDTH, cg.FIT_PAGE, cg.ACTUAL_SIZE,
+            cg.THICKER, cg.THINNER, cg.HIGHLIGHT_MODE, cg.UNDERLINE_MODE, cg.STRIKETHROUGH_MODE,
         }
         self.assertEqual(set(cg.PHRASES), declared)
 
@@ -335,6 +336,81 @@ class HighlightTests(unittest.TestCase):
         self.assertEqual(result["intent"], cg.HIGHLIGHT)
 
 
+class UnderlineStrikethroughTests(unittest.TestCase):
+    """"underline <words>" and "strike through <words>": the same shape as
+    "highlight <words>", including its sentence form and "in <colour>"."""
+
+    def test_underline_leaves_the_rest_as_the_query(self):
+        result = cg.parse("underline the quick brown fox")
+        self.assertEqual((result["intent"], result["query"]), (cg.UNDERLINE, "the quick brown fox"))
+
+    def test_strike_through_and_strike_out(self):
+        for said in ("strike through brown fox", "strike out brown fox"):
+            with self.subTest(said=said):
+                result = cg.parse(said)
+                self.assertEqual((result["intent"], result["query"]), (cg.STRIKETHROUGH, "brown fox"))
+
+    def test_a_one_off_colour_works_as_for_highlight(self):
+        result = cg.parse("underline the quick fox in green")
+        self.assertEqual((result["query"], result["color"]), ("the quick fox", "green"))
+        result = cg.parse("strike through lazy dog in blue")
+        self.assertEqual((result["intent"], result["color"]), (cg.STRIKETHROUGH, "blue"))
+
+    def test_sentence_forms(self):
+        cases = {
+            "underline the sentence about foxes": (cg.UNDERLINE_SENTENCE, "about foxes"),
+            "strike through this sentence right here": (cg.STRIKETHROUGH_SENTENCE, "right here"),
+        }
+        for said, expected in cases.items():
+            with self.subTest(said=said):
+                result = cg.parse(said)
+                self.assertEqual((result["intent"], result["query"]), expected)
+
+    def test_a_query_starting_like_a_sentence_trigger_is_not_one(self):
+        # "strike through the quick" scores 0.74 against "strike through the
+        # sentence": without hearing "sentence" it is a plain strike-through.
+        result = cg.parse("strike through the quick brown fox")
+        self.assertEqual((result["intent"], result["query"]), (cg.STRIKETHROUGH, "the quick brown fox"))
+
+    def test_highlight_is_unchanged(self):
+        self.assertEqual(cg.parse("highlight the quick fox")["intent"], cg.HIGHLIGHT)
+        self.assertEqual(cg.parse("highlight the sentence about it")["intent"], cg.HIGHLIGHT_SENTENCE)
+
+    def test_a_bare_trigger_is_recognised_but_not_a_command(self):
+        for said in ("underline", "strike through"):
+            with self.subTest(said=said):
+                self.assertIsNone(cg.parse(said))
+                self.assertTrue(cg.is_bare_highlight(said))
+
+    def test_no_style_s_trigger_reaches_another_s(self):
+        # The loop takes the first trigger over the threshold, so the three
+        # styles must stay apart: a misheard word must not change the style.
+        families = (
+            cg.HIGHLIGHT_SENTENCE_TRIGGERS + cg.HIGHLIGHT_TRIGGERS,
+            cg.UNDERLINE_SENTENCE_TRIGGERS + cg.UNDERLINE_TRIGGERS,
+            cg.STRIKETHROUGH_SENTENCE_TRIGGERS + cg.STRIKETHROUGH_TRIGGERS,
+        )
+        for i, own in enumerate(families):
+            for j, other in enumerate(families):
+                if i == j:
+                    continue
+                for a in own:
+                    for b in other:
+                        with self.subTest(a=a, b=b):
+                            self.assertLess(fuzzy.similarity(a, b), fuzzy.DEFAULT_THRESHOLD)
+
+    def test_every_markup_intent_names_its_style(self):
+        self.assertEqual(
+            {intent for intent, _ in cg._HIGHLIGHT_TRIGGERS}, set(cg.MARKUP_INTENTS),
+        )
+        self.assertEqual({style for style, _ in cg.MARKUP_INTENTS.values()},
+                         {"highlight", "underline", "strikethrough"})
+
+    def test_the_recognizer_can_hear_the_new_triggers(self):
+        for word in ("underline", "strike", "through", "out"):
+            self.assertIn(word, cg.VOCABULARY)
+
+
 class ResolveTests(unittest.TestCase):
     """`resolve` is Milestone 8.3's clarification loop: it never falls silent
     on a phrase that was close to a real command, checking n-best
@@ -384,6 +460,61 @@ class ResolveTests(unittest.TestCase):
         result = cg.resolve("")
         self.assertIsNone(result["command"])
         self.assertIsNone(result["clarify"])
+
+
+class HighlightToolSettingTests(unittest.TestCase):
+    """The tool's settings by voice: "opacity <n>" (the slider's ticks only),
+    "thicker"/"thinner", and "<style> mode"."""
+
+    def test_opacity_takes_exactly_the_tick_values(self):
+        for spoken, value in (("opacity forty", 40), ("opacity 40", 40), ("opacity ten", 10),
+                              ("opacity one hundred", 100), ("opacity seventy percent", 70)):
+            with self.subTest(spoken=spoken):
+                result = cg.parse(spoken)
+                self.assertEqual((result["intent"], result["opacity"]), (cg.SET_OPACITY, value))
+        self.assertEqual(cg.OPACITY_VALUES, tuple(range(10, 101, 10)))
+
+    def test_opacity_off_the_ticks_or_out_of_range_sets_nothing(self):
+        for spoken in ("opacity forty five", "opacity five", "opacity zero", "opacity two hundred",
+                       "opacity", "opacity percent"):
+            with self.subTest(spoken=spoken):
+                result = cg.parse(spoken)
+                self.assertTrue(result is None or result["intent"] != cg.SET_OPACITY, result)
+
+    def test_thicker_and_thinner_are_each_themselves(self):
+        self.assertEqual(cg.parse("thicker")["intent"], cg.THICKER)
+        self.assertEqual(cg.parse("thinner")["intent"], cg.THINNER)
+        # Under the threshold to each other, so the best match is never the other.
+        self.assertLess(fuzzy.similarity("thicker", "thinner"), fuzzy.DEFAULT_THRESHOLD)
+
+    def test_a_style_mode_chooses_that_style(self):
+        for spoken, intent, style in (("highlight mode", cg.HIGHLIGHT_MODE, "highlight"),
+                                      ("underline mode", cg.UNDERLINE_MODE, "underline"),
+                                      ("strike through mode", cg.STRIKETHROUGH_MODE, "strikethrough"),
+                                      ("strikethrough mode", cg.STRIKETHROUGH_MODE, "strikethrough")):
+            with self.subTest(spoken=spoken):
+                result = cg.parse(spoken)
+                self.assertEqual(result["intent"], intent)
+                self.assertEqual(cg.STYLE_MODE_INTENTS[intent], style)
+
+    def test_a_mode_needs_the_word_mode(self):
+        # "highlight more" is 0.93 from "highlight mode": without "mode" it
+        # stays a highlight of the word heard.
+        for spoken, intent, query in (("highlight more", cg.HIGHLIGHT, "more"),
+                                      ("underline node", cg.UNDERLINE, "node"),
+                                      ("strike through code", cg.STRIKETHROUGH, "code")):
+            with self.subTest(spoken=spoken):
+                result = cg.parse(spoken)
+                self.assertEqual((result["intent"], result["query"]), (intent, query))
+
+    def test_focus_mode_is_still_focus_mode(self):
+        self.assertEqual(cg.parse("focus mode")["intent"], cg.FOCUS_MODE)
+        self.assertEqual(cg.parse("exit focus mode")["intent"], cg.EXIT_FOCUS_MODE)
+
+    def test_the_recognizer_can_hear_every_new_word(self):
+        for word in ("opacity", "percent", "thicker", "thinner", "mode", "strike", "through"):
+            with self.subTest(word=word):
+                self.assertIn(word, cg.VOCABULARY)
 
 
 if __name__ == "__main__":
