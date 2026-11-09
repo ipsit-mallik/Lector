@@ -78,7 +78,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <span style="font-size: 12.5px; color: var(--ts); padding: 0 8px;">‹ Library</span>
 <span style="font-family: Charter, Georgia, serif; font-size: 15px;">Annual Report 2025</span>
 <span style="flex: 1;"></span>
-<span style="color: var(--tm); font-size: 13px;">Page 4 of 12</span>
+<span style="color: var(--tm); font-size: 13px;">{{pageOf}}</span>
 <span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
 <span style="font-size: 13px; color: var(--tp); width: 76px; text-align: center;">100%</span>
 <span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
@@ -163,6 +163,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </div>
 
 <div style="height: 44px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--s1); border-top: 1px solid var(--border);">
+<span style="display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--input); font-size: 12.5px; color: var(--ts);"><span style="width: 7px; height: 7px; border-radius: 50%; background: var(--tt);"></span>Mic idle</span>
 <span style="font-size: 12.5px; color: var(--tm);">Drag to reorder · Ctrl+←/→ moves the selection · Ctrl+A selects all</span>
 <span style="flex: 1;"></span>
 <span style="font-size: 12.5px; color: var(--ts); font-variant-numeric: tabular-nums;">{{footText}}</span>
@@ -350,6 +351,7 @@ class Component extends DCLogic {
       ...dv,
       vars,
       reading: s.mode === 'reading', organising: s.mode === 'organise',
+      pageOf: 'Page ' + Math.min(4, s.pages.length) + ' of ' + s.pages.length,
       menu: s.menu, moreCls: s.menu ? 'on' : '', toggleMenu: () => this.setState({ menu: !s.menu }),
       enter: () => this.setState({ mode: 'organise', menu: false }),
       exit: () => this.setState({ mode: 'reading', menu: false, toast: s.changes ? 'Page changes are unsaved — Ctrl+S saves them with your highlights' : null, toastUndo: false }),

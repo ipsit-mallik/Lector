@@ -39,8 +39,8 @@ Example: `reader-tier1.html?theme=dark&signedPdf=true`.
 |---|---|---|
 | `reader-tier1.html` | The reader's new ⋯ More menu (open on load) and the Compress, Make searchable and Export as images dialogs, each through Set up → Working → Result | Pick a tool and run it; "Keep reading" during a job shows the footer pill, then the finished toast; Export's "Pages" range updates the count on the button |
 | `home-tier1.html` | Home's new Tools page; the Choose-a-PDF step; Convert to PDF; the Recent row ⋯ menu with the tools added | Click a tool card; "Add files…" in Convert adds an e-book and shows its note; Recent in the sidebar, then a row's ⋯ |
-| `home-tier2.html` | The same Tools page with the Tier 2 "Pages" section: Organise pages, Combine files, Split | Combine (reorder, add, remove files); Split (every N pages or ranges, with a preview of the files it will make) |
-| `organise-tier2.html` | The reader's ⋯ menu with Organise pages, and the Organise pages view | Click, Ctrl+click and Shift+click to select; drag to reorder; Rotate, Delete (confirmation dialog), Extract, Insert; Undo and Redo |
+| `home-tier2.html` | The same Tools page with the Tier 2 "Pages" section: Organise pages, Combine files, Split; the Recent row ⋯ menu gains Organise pages… and Split… | Combine: reorder, add and remove files, and the note for a password-protected input. Split: "Every N pages" or "Page ranges", the live preview of the files it will make, the warning for pages left out (try `1–10, 41–120`), and the error that disables the button (try `1-200`, or `0` pages) |
+| `organise-tier2.html` | The reader's ⋯ menu with Organise pages, and the Organise pages view | Click, Ctrl+click and Shift+click to select; drag to reorder; Rotate; Delete (the confirmation dialog, then the toast with Undo); Select all then Delete (refused: a PDF needs a page); Extract (with "Save in"); Insert (position choices); Undo and Redo; Done, then the reader's page count has changed |
 
 ## What is placeholder
 
@@ -48,6 +48,7 @@ Example: `reader-tier1.html?theme=dark&signedPdf=true`.
 - Progress is simulated on a timer; results are canned (the real numbers come from the engine).
 - Buttons that only lead somewhere already built (Save, Show in folder, Change…, Browse…) do nothing here.
 - Window chrome is simplified: only the parts each tool touches are drawn faithfully.
+- Keyboard shortcuts named in the prompts (Esc, Delete, Ctrl+A, Ctrl+←/→, arrow-key focus in the grid) aren't wired up here; the prompts define them.
 
 ## Files
 

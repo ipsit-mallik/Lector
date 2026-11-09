@@ -248,6 +248,9 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <sc-if value="{{hasEbook}}" hint-placeholder-val="{{false}}">
 <div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>An e-book is laid out on A4 pages. It comes out plainer than in an e-book reader.</span></div>
 </sc-if>
+<sc-if value="{{hasLocked}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>{{lockedNote}}</span></div>
+</sc-if>
 </div>
 </sc-if>
 
@@ -263,6 +266,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <button role="radio" aria-checked="{{spRange}}" onClick="{{pickRanges}}" style="display: flex; align-items: center; gap: 12px; flex: 1; height: 32px; border: 0; padding: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer;"><span style="{{spRangeDot}}"></span><span style="font-weight: 500;">Page ranges</span></button>
 <input class="field" aria-label="Ranges" value="{{ranges}}" onInput="{{onRanges}}" onFocus="{{pickRanges}}" style="width: 180px; height: 32px;">
 </div>
+<sc-if value="{{splitErr}}" hint-placeholder-val="{{false}}"><span role="alert" style="font-size: 12.5px; color: var(--danger); padding-left: 4px;">{{splitErrText}}</span></sc-if>
 </div>
 <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 8px; background: var(--input); border: 1px solid var(--border);">
 <span style="font-size: 12.5px; font-weight: 600;">{{splitSummary}}</span>
@@ -270,6 +274,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <div style="display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ts);"><span>{{pt.name}}</span><span style="color: var(--tm); font-variant-numeric: tabular-nums;">{{pt.range}}</span></div>
 </sc-for>
 <sc-if value="{{moreParts}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; color: var(--tm);">{{moreText}}</span></sc-if>
+<sc-if value="{{hasGaps}}" hint-placeholder-val="{{false}}"><div style="display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>{{gapText}}</span></div></sc-if>
 </div>
 </div>
 </sc-if>
@@ -377,16 +382,19 @@ class Component extends DCLogic {
   pdfFiles() { return [
     { name: 'Annual Report 2025.pdf', meta: 'PDF · 120 pages', kind: 'pdf', pages: 120 },
     { name: 'Appendix A — Financials.pdf', meta: 'PDF · 58 pages', kind: 'pdf', pages: 58 },
-    { name: 'Board minutes.pdf', meta: 'PDF · 36 pages', kind: 'pdf', pages: 36 }
+    { name: 'Board minutes.pdf', meta: 'PDF · 36 pages · password entered', kind: 'pdf', pages: 36, locked: true }
   ]; }
   parseRanges(str) {
-    const out = [];
+    const out = []; let err = '';
     String(str).split(',').forEach((part) => {
-      const t = part.trim(); const m = t.match(/^(\d+)\s*[-–]\s*(\d+)$/);
-      if (m && +m[2] >= +m[1] && +m[1] >= 1) out.push([+m[1], Math.min(+m[2], 120)]);
-      else if (/^\d+$/.test(t) && +t <= 120 && +t >= 1) out.push([+t, +t]);
+      const t = part.trim(); if (!t || err) return;
+      const m = t.match(/^(\d+)\s*[-–]\s*(\d+)$/);
+      if (m && +m[1] >= 1 && +m[2] <= 120 && +m[2] >= +m[1]) out.push([+m[1], +m[2]]);
+      else if (/^\d+$/.test(t) && +t >= 1 && +t <= 120) out.push([+t, +t]);
+      else err = '“' + t + '” isn’t a page or range within 1–120.';
     });
-    return out;
+    if (!err && !out.length) err = 'Enter page ranges, like 1–10, 11–40.';
+    return { parts: err ? [] : out, err };
   }
   renderVals() {
     const TH = this.themes(); const T = TH[this.props.theme] || TH.light;
@@ -420,11 +428,17 @@ class Component extends DCLogic {
       { name: 'Field notes.epub', meta: 'EPUB · 1.2 MB', kind: 'epub' },
       { name: 'Contract draft.pdf', meta: 'PDF · 22 pages', kind: 'pdf', pages: 22 }
     ];
-    let parts = [];
+    let parts = [], splitErr = '';
     if (s.splitBy === 'every') {
-      const n = Math.max(1, parseInt(s.every, 10) || 1);
-      for (let a = 1; a <= 120; a += n) parts.push([a, Math.min(120, a + n - 1)]);
-    } else parts = this.parseRanges(s.ranges);
+      const n = /^\s*\d+\s*$/.test(String(s.every)) ? parseInt(s.every, 10) : NaN;
+      if (!(n >= 1 && n <= 119)) splitErr = 'Enter a number of pages from 1 to 119.';
+      else for (let a = 1; a <= 120; a += n) parts.push([a, Math.min(120, a + n - 1)]);
+    } else { const r = this.parseRanges(s.ranges); parts = r.parts; splitErr = r.err; }
+    const covered = new Set(); parts.forEach(([a, b]) => { for (let k = a; k <= b; k++) covered.add(k); });
+    const gaps = []; let g0 = 0;
+    for (let k = 1; k <= 121; k++) { const miss = k <= 120 && !covered.has(k); if (miss && !g0) g0 = k; if (!miss && g0) { gaps.push(g0 === k - 1 ? String(g0) : g0 + '–' + (k - 1)); g0 = 0; } }
+    const gapText = !parts.length || !gaps.length ? '' : (gaps.length === 1 && !gaps[0].includes('–') ? 'Page ' : 'Pages ') + (gaps.length > 3 ? gaps.slice(0, 3).join(', ') + ' and others' : gaps.join(', ')) + (gaps.length === 1 && !gaps[0].includes('–') ? ' isn’t' : ' aren’t') + ' in any file, so ' + (gaps.length === 1 && !gaps[0].includes('–') ? 'it won’t be' : 'they won’t be') + ' saved.';
+    const locked = files.filter((f) => f.locked);
     const outs = {
       convert: ['Save as', 'Scan 2026-11-07.pdf', 'In D:\\Pictures, beside the first file.'],
       combine: ['Save as', 'Annual Report 2025 (combined).pdf', 'In D:\\Reports, beside the first file.'],
@@ -440,7 +454,7 @@ class Component extends DCLogic {
       };
     } else if (isConvert) { primary = 'Create PDF · ' + nPages + (nPages === 1 ? ' page' : ' pages'); primaryOff = files.length === 0; primaryAct = () => this.setState({ done: true }); }
     else if (isCombine) { primary = 'Combine · ' + nPages + ' pages'; primaryOff = files.length < 2; primaryAct = () => this.setState({ done: true }); }
-    else if (isSplit) { primary = 'Split into ' + parts.length + (parts.length === 1 ? ' file' : ' files'); primaryOff = parts.length < 2; primaryAct = () => this.setState({ done: true }); }
+    else if (isSplit) { primary = 'Split into ' + parts.length + (parts.length === 1 ? ' file' : ' files'); primaryOff = parts.length < 2 || !!splitErr; primaryAct = () => this.setState({ done: true }); }
     const titles = { picker: (toolNames[s.pickFor] || '') + ' — choose a PDF', convert: 'Convert to PDF', combine: 'Combine files', split: 'Split PDF' };
     const descs = {
       picker: 'Pick one of your recent PDFs, or browse for another.',
@@ -486,7 +500,10 @@ class Component extends DCLogic {
       pickEvery: () => this.setState({ splitBy: 'every' }), pickRanges: () => this.setState({ splitBy: 'ranges' }),
       every: s.every, ranges: s.ranges,
       onEvery: (e) => this.setState({ every: e.target.value, splitBy: 'every' }), onRanges: (e) => this.setState({ ranges: e.target.value, splitBy: 'ranges' }),
-      splitSummary: parts.length + (parts.length === 1 ? ' file' : ' files'),
+      splitSummary: splitErr ? 'No files yet' : parts.length + (parts.length === 1 ? ' file' : ' files'),
+      splitErr: !!splitErr, splitErrText: splitErr, hasGaps: !!gapText && !splitErr, gapText,
+      hasLocked: isCombine && !s.done && locked.length > 0,
+      lockedNote: locked.map((f) => f.name).join(', ') + (locked.length === 1 ? ' is' : ' are') + ' password-protected. The combined PDF won’t be.',
       parts: parts.slice(0, 3).map((p, i) => ({ name: 'Annual Report 2025 (part ' + (i + 1) + ').pdf', range: p[0] === p[1] ? 'page ' + p[0] : 'pages ' + p[0] + '–' + p[1] })),
       moreParts: parts.length > 3, moreText: 'and ' + (parts.length - 3) + ' more',
       showOut: (isConvert || isCombine || isSplit) && !s.done,
