@@ -8,7 +8,7 @@ import pymupdf
 
 from lector.features.annotations import highlighter
 from lector.features.file_tools import engine as file_tool_engine
-from lector.features.reading import ocr, ocr_cache, open_errors, safe_write, search
+from lector.features.reading import ocr, ocr_cache, open_errors, page_changes, page_plan, safe_write, search
 from lector.features.reading.open_errors import OpenError
 from lector.features.reading.outline import OutlineEntry, outline_tree
 from lector.features.reading.safe_write import SaveError
@@ -200,6 +200,16 @@ class PdfDocument:
         # any edit names, by its current xref — so every edit to a highlight
         # shares the ref that gets repointed when it is re-added.
         self._refs: dict[int, _HighlightRef] = {}
+        # Page changes (Organise pages, Milestone F2; page_changes.py). The
+        # stacks above also hold `page_changes.PageChange` entries. Once one
+        # has been applied, saves collect unused objects so a deleted page
+        # doesn't stay in the file; `_history_trimmed` is the one-shot "older
+        # changes can no longer be undone"; `_page_sources` are the files
+        # Organise's Insert opened, by source id, until Done.
+        self._pages_changed = False
+        self._history_trimmed = False
+        self._page_sources: dict[str, "pymupdf.Document"] = {}
+        self._next_source = 0
         # Scanned pages (see `ocr.py`), per page index of the open document.
         # `_ocr_text` holds the boxes OCR found and is what chars_on_page/
         # words_on_page hand out in place of the (empty) text layer. The lock
@@ -251,8 +261,12 @@ class PdfDocument:
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._refs.clear()
+        self._pages_changed = False
+        self._history_trimmed = False
+        self.drop_page_sources()
 
     def close(self):
+        self.drop_page_sources()
         if self._doc:
             self._doc.close()
             self._doc = None
@@ -351,7 +365,10 @@ class PdfDocument:
         preview. None for a page that isn't there."""
         if not self._doc or not 0 <= index < len(self._doc):
             return None
-        page = self._doc[index]
+        return self._thumbnail(self._doc[index], width_px)
+
+    @staticmethod
+    def _thumbnail(page: "pymupdf.Page", width_px: int):
         scale = max(1, width_px) / page.rect.width if page.rect.width else 1
         return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
 
@@ -792,7 +809,8 @@ class PdfDocument:
         rgb = highlighter.stroke_rgb(annot) or highlighter.HIGHLIGHT_COLORS[highlighter.DEFAULT_COLOR]
         highlighter.restyle_highlight(page, annot, rgb, new, self._chars_for(page_index, new))
         ref = self._ref(xref)
-        top = self._undo_stack[-1] if self._undo_stack else None
+        # A page change on top is never part of a gesture.
+        top = self._undo_stack[-1] if self._undo_stack and isinstance(self._undo_stack[-1], _Edit) else None
         if gesture is not None and top is not None and top.gesture == gesture and top.ref is ref:
             self._undo_stack.pop()
             self._redo_stack.clear()
@@ -865,24 +883,45 @@ class PdfDocument:
     def can_redo(self) -> bool:
         return bool(self._redo_stack)
 
+    @property
+    def undo_kind(self) -> str | None:
+        """What Undo would take back (`page_changes.HIGHLIGHT` or
+        `PAGE_CHANGES`), or None: the reader's "Undo page changes" label."""
+        return self._kind_of(self._undo_stack)
+
+    @property
+    def redo_kind(self) -> str | None:
+        return self._kind_of(self._redo_stack)
+
+    @staticmethod
+    def _kind_of(stack: list) -> str | None:
+        if not stack:
+            return None
+        return page_changes.PAGE_CHANGES if isinstance(stack[-1], page_changes.PageChange) else page_changes.HIGHLIGHT
+
     def undo_highlight(self) -> int | None:
-        """Takes back the most recent highlight change — an add, a recolour
-        or a removal. Returns the page index it was on, or None if there's
-        nothing to undo."""
+        """Takes back the most recent change — a highlight's add, recolour or
+        removal, or one applied set of page changes. Returns the page index
+        it was on (for page changes, the page the reader is now on), or None
+        if there's nothing to undo."""
         if not self._undo_stack:
             return None
         edit = self._undo_stack.pop()
+        if isinstance(edit, page_changes.PageChange):
+            return self._step_page_change(edit, self._undo_stack, self._redo_stack, forward=False)
         self._move_highlight(edit, edit.after, edit.before)
         self._redo_stack.append(edit)
         self._dirty = True
         return edit.page_index
 
     def redo_highlight(self) -> int | None:
-        """Re-applies the most recently undone highlight change. Returns the
-        page index it was on, or None if there's nothing to redo."""
+        """Re-applies the most recently undone change. Returns the page
+        index it was on, or None if there's nothing to redo."""
         if not self._redo_stack:
             return None
         edit = self._redo_stack.pop()
+        if isinstance(edit, page_changes.PageChange):
+            return self._step_page_change(edit, self._redo_stack, self._undo_stack, forward=True)
         self._move_highlight(edit, edit.before, edit.after)
         self._undo_stack.append(edit)
         self._dirty = True
@@ -903,6 +942,177 @@ class PdfDocument:
             return {}
         counts = {i: highlighter.highlight_count(self._doc[i]) for i in range(len(self._doc))}
         return {i: n for i, n in counts.items() if n}
+
+    # ------------------------------------------------------------------ #
+    # Page changes (Organise pages, Milestone F2)                          #
+    # ------------------------------------------------------------------ #
+
+    def page_change_block(self) -> str | None:
+        """None when this PDF's pages may be changed; otherwise why not
+        (`page_changes.NOT_LOADED`, `RESTRICTED`). MuPDF doesn't enforce a
+        PDF's permissions, so the reader does: changing pages needs either
+        the modify or the assemble permission. A PDF unlocked with its owner
+        password has every permission."""
+        if not self._doc:
+            return page_changes.NOT_LOADED
+        if not self._doc.permissions & (pymupdf.PDF_PERM_MODIFY | pymupdf.PDF_PERM_ASSEMBLE):
+            return page_changes.RESTRICTED
+        return None
+
+    def add_page_source(self, data: bytes, password: str | None = None) -> tuple[str, int]:
+        """Hold a PDF Organise's Insert is putting in (its bytes; images
+        arrive already made into one), unlocked with `password`, and return
+        its source id and page count. Raises OpenError."""
+        try:
+            doc = pymupdf.open(stream=data, filetype="pdf")
+        except Exception as exc:
+            raise OpenError(open_errors.NOT_A_PDF) from exc
+        try:
+            _check_opened(doc, password)
+        except BaseException:
+            doc.close()
+            raise
+        source = f"insert-{self._next_source}"
+        self._next_source += 1
+        self._page_sources[source] = doc
+        return source, len(doc)
+
+    def drop_page_sources(self) -> None:
+        """Let go of every PDF Insert opened (Organise has ended)."""
+        sources, self._page_sources = self._page_sources, {}
+        for doc in sources.values():
+            doc.close()
+
+    def render_plan_thumbnail(self, source: str, index: int, width_px: int):
+        """A page of the plan, `width_px` wide, as it is now (Organise turns
+        it on screen): the open document's own page, or one of a source
+        Insert holds. None for a page that isn't there."""
+        if source == page_plan.DOC:
+            return self.render_thumbnail(index, width_px)
+        doc = self._page_sources.get(source)
+        if doc is None or not 0 <= index < len(doc):
+            return None
+        return self._thumbnail(doc[index], width_px)
+
+    def _plan_pages(self, plan: page_plan.Plan) -> list[tuple[str | None, int, int]]:
+        """`plan` as `engine.apply_page_plan` takes it; ValueError unless
+        every page in it exists, and each of this document's at most once."""
+        own = [page.index for page in plan if page.source == page_plan.DOC]
+        if not plan or len(set(own)) != len(own) or not all(0 <= i < len(self._doc) for i in own):
+            raise ValueError("not a plan of this document")
+        for page in plan:
+            source = self._page_sources.get(page.source)
+            if page.source != page_plan.DOC and (source is None or not 0 <= page.index < len(source)):
+                raise ValueError("not a plan of this document")
+        return [(None if p.source == page_plan.DOC else p.source, p.index, p.turn) for p in plan]
+
+    def apply_page_plan(self, plan: page_plan.Plan) -> bool:
+        """Make the open document's pages `plan`, as one undoable edit
+        ("Page changes"). False when it would change nothing. Raises
+        ValueError for a plan that isn't this document's, or one that may
+        not be applied (`page_change_block`); on any failure the document is
+        as it was."""
+        if self.page_change_block() is not None:
+            raise ValueError("this PDF's pages can't be changed")
+        if page_plan.is_unchanged(plan, len(self._doc)):
+            return False
+        pages = self._plan_pages(plan)
+        order = tuple(page.index if page.source == page_plan.DOC else None for page in plan)
+        with self._save_lock:
+            held = self._capture_state()
+            try:
+                file_tool_engine.apply_page_plan(self._doc, pages, self._page_sources)
+                # A highlight on a deleted page keeps its ref only in the held
+                # state: left here, the check after an overwrite save would
+                # see a ref with no highlight and clear the whole history.
+                live = self._live_highlight_xrefs()
+                refs = {xref: ref for xref, ref in self._refs.items() if xref in live}
+            except BaseException:
+                self._restore_state(held)
+                raise
+            # Nothing below can fail: the change is recorded with the pages.
+            self._refs = refs
+            self._record(page_changes.PageChange(held, order))
+            self._pages_changed = True
+            self._after_page_change(page_changes.page_after(order, self._page_index))
+        self._trim_history()
+        return True
+
+    def _step_page_change(
+        self, change: page_changes.PageChange, source: list, target: list, *, forward: bool
+    ) -> int:
+        """Undo (or redo) `change`, which has just been popped off `source`:
+        swap the open document with the state it holds, then put it on
+        `target`. Back on `source` if the swap fails."""
+        locate = page_changes.page_after if forward else page_changes.page_before
+        try:
+            with self._save_lock:
+                current = self._capture_state()
+                index = locate(change.order, self._page_index)
+                # The last step that can fail: until it has succeeded the
+                # open document and `change.held` are as they were.
+                self._restore_state(change.held)
+                change.held = current
+                self._after_page_change(index)
+        except BaseException:
+            source.append(change)
+            raise
+        target.append(change)
+        self._dirty = True
+        # The state now held may be bigger than the one it replaced.
+        self._trim_history()
+        return self._page_index
+
+    def _refs_in_play(self) -> list[_HighlightRef]:
+        """Every ref the stacks or the live map name, once each."""
+        refs = {id(ref): ref for ref in self._refs.values()}
+        for edit in self._undo_stack + self._redo_stack:
+            if isinstance(edit, _Edit):
+                refs[id(edit.ref)] = edit.ref
+        return list(refs.values())
+
+    def _capture_state(self) -> page_changes.DocState:
+        """The open document as a `DocState`; call with `_save_lock` held."""
+        data = self._doc.tobytes(deflate=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
+        refs = self._refs_in_play()
+        return page_changes.DocState(data, dict(self._refs), tuple((ref, ref.xref) for ref in refs))
+
+    def _restore_state(self, state: page_changes.DocState) -> None:
+        """Make `state` the open document; call with `_save_lock` held. The
+        bytes are opened first, so if that fails nothing has changed."""
+        doc = self._open_unlocked(stream=state.data, filetype="pdf")
+        old, self._doc = self._doc, doc
+        old.close()
+        self._refs = dict(state.refs)
+        for ref, xref in state.ref_xrefs:
+            ref.xref = xref
+
+    def _live_highlight_xrefs(self) -> set[int]:
+        return {annot.xref for page in self._doc for annot in highlighter.highlight_annots(page)}
+
+    def _after_page_change(self, page_index: int) -> None:
+        """What every page change does besides the pages: the in-memory OCR
+        state is per page index, so it is forgotten (and a read in flight
+        dropped); the disk cache, keyed by page content, fills it again."""
+        with self._ocr_lock:
+            self._generation += 1
+            self._scanned.clear()
+            self._ocr_keys.clear()
+            self._ocr_status.clear()
+            self._ocr_text.clear()
+        self._page_index = min(max(page_index, 0), len(self._doc) - 1)
+
+    def _trim_history(self) -> None:
+        undo, redo, trimmed = page_changes.trim(self._undo_stack, self._redo_stack)
+        if trimmed:
+            self._undo_stack, self._redo_stack = undo, redo
+            self._history_trimmed = True
+
+    def take_history_trimmed(self) -> bool:
+        """Whether older changes were dropped since this was last asked (the
+        reader says "Older changes can no longer be undone." once)."""
+        trimmed, self._history_trimmed = self._history_trimmed, False
+        return trimmed
 
     # ------------------------------------------------------------------ #
     # File tools (features/file_tools/)                                    #
@@ -1009,11 +1219,15 @@ class PdfDocument:
             self._dirty = False
 
     def _write_full(self, path: str, **options) -> None:
-        # No garbage collection: it renumbers objects in the *live*
-        # pymupdf.Document, and the undo/redo stacks name highlights by xref,
-        # which a save without it keeps (so do the reopens around an
-        # overwrite).
-        self._doc.save(path, deflate=True, **options)
+        # No compacting garbage collection (2 and up): it renumbers objects
+        # in the *live* pymupdf.Document, and the undo/redo stacks name
+        # highlights by xref, which a save without it keeps (so do the
+        # reopens around an overwrite). Once pages have been changed, level 1
+        # drops the objects nothing uses any more — a deleted page's content
+        # would otherwise stay in the file — without renumbering anything
+        # (tests/test_page_changes.py).
+        garbage = 1 if self._pages_changed else 0
+        self._doc.save(path, deflate=True, garbage=garbage, **options)
 
     def _verify_saved(self, path: str) -> None:
         """Raise SaveError unless the file at `path` opens, with the open

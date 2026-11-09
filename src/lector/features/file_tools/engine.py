@@ -157,6 +157,42 @@ def _doc(job_id: str) -> pymupdf.Document:
 
 
 # ---------------------------------------------------------------------- #
+# Page plans (Organise pages, Milestone F2)                                #
+# ---------------------------------------------------------------------- #
+
+
+def apply_page_plan(
+    doc: pymupdf.Document,
+    pages: list[tuple[str | None, int, int]],
+    sources: dict[str, pymupdf.Document],
+) -> None:
+    """Make `doc`'s pages `pages`, in order: each `(source, index, turn)`
+    is page `index` of `doc` itself (source None) or of `sources[source]`,
+    turned `turn` degrees further clockwise.
+
+    The one place a plan becomes pages, run on the reader's open document
+    (from `PdfDocument.apply_page_plan`, on a bridge thread: every call here
+    is C work on pages already loaded) and on a worker copy by Extract. Each
+    inserted source is appended whole with `insert_pdf` (its annotations and
+    links kept), then `select()` keeps and orders what the plan names.
+    `select()`, not `delete_pages()`: MuPDF's rearrange keeps every
+    surviving object's xref, drops bookmarks and links that point at a page
+    left out and retargets the rest, where `delete_pages()` leaves a
+    bookmark pointing at page -1 (tests/test_page_changes.py)."""
+    offsets: dict[str, int] = {}
+    for source, _index, _turn in pages:
+        if source is not None and source not in offsets:
+            offsets[source] = len(doc)
+            doc.insert_pdf(sources[source])
+    order = [index if source is None else offsets[source] + index for source, index, _turn in pages]
+    doc.select(order)
+    for position, (_source, _index, turn) in enumerate(pages):
+        if turn % 360:
+            page = doc[position]
+            page.set_rotation((page.rotation + turn) % 360)
+
+
+# ---------------------------------------------------------------------- #
 # Writing and checking                                                     #
 # ---------------------------------------------------------------------- #
 

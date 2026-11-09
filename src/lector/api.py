@@ -31,7 +31,7 @@ from lector.features.file_tools import tools as file_tools
 from lector.features.home import file_drop
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
-from lector.features.reading import ocr, open_errors
+from lector.features.reading import ocr, open_errors, page_changes, page_plan
 from lector.features.reading import outline as reading_outline
 from lector.features.reading import safe_write
 from lector.features.reading.document import PdfDocument
@@ -80,6 +80,9 @@ DESCRIBE_TIMEOUT_S = 60
 
 # How long closing waits for a cancelled job to clean up before going on.
 JOB_STOP_WAIT_S = 10
+
+# What Done says when its page changes couldn't be applied.
+PAGE_CHANGES_FAILED = "Couldn't apply the page changes. The PDF is as it was; your changes are still here."
 
 
 class _BadToolRequest(Exception):
@@ -243,6 +246,10 @@ class Api:
         # Lives here rather than in the frontend so no raw settings entry
         # has to make a round trip through JS.
         self._last_removed_recent: tuple[int, dict] | None = None
+        # Organise pages' draft while it is open (Milestone F2): every plan
+        # since it opened, for its own Undo/Redo. The open document is
+        # untouched until Done applies the current plan.
+        self._organise: page_plan.PlanHistory | None = None
 
     # ------------------------------------------------------------------ #
     # Home / recent files                                                  #
@@ -389,6 +396,7 @@ class Api:
             self._doc.open(path, password)
         except open_errors.OpenError as exc:
             return {"error": exc.message, "reason": exc.reason}
+        self._organise = None  # a draft of the PDF that was open
         # A viewport names pages of the document it was measured on; kept
         # across an open, the next vocabulary rebuild would ask the new one
         # for pages it may not have.
@@ -460,6 +468,11 @@ class Api:
             "is_dirty": self._doc.is_dirty,
             "can_undo": self._doc.can_undo,
             "can_redo": self._doc.can_redo,
+            # "highlight" or "page_changes": Undo's label ("Undo page changes").
+            "undo_kind": self._doc.undo_kind,
+            "redo_kind": self._doc.redo_kind,
+            # Why Organise pages is unavailable (its menu item's tooltip), or None.
+            "organise_blocked": self._organise_block_message(),
             "highlight_count_page": highlight_counts.get(self._doc.page_index, 0),
             "highlight_count_total": sum(highlight_counts.values()),
             # The progress bar's markers: every page with a highlight on it,
@@ -864,16 +877,159 @@ class Api:
         return state
 
     def undo_highlight(self) -> dict:
-        affected_page = self._doc.undo_highlight()
-        state = self._state()
-        state["affected_page"] = affected_page
-        return state
+        """Undo the last change: a highlight's, or a set of page changes
+        (then `pages_changed` is true and the page reloads its layout).
+        Nothing while Organise is open: its draft is of the document as it
+        is, and its own Undo is `organise_undo`."""
+        if self._organise is not None:
+            return self._after_history_step(None, None)
+        kind = self._doc.undo_kind
+        return self._after_history_step(kind, self._doc.undo_highlight())
 
     def redo_highlight(self) -> dict:
-        affected_page = self._doc.redo_highlight()
+        if self._organise is not None:
+            return self._after_history_step(None, None)
+        kind = self._doc.redo_kind
+        return self._after_history_step(kind, self._doc.redo_highlight())
+
+    def _after_pages_changed(self) -> None:
+        """The page list just changed under everything that names pages by
+        index: the voice viewport is the old document's (the page sends a
+        new one once it has laid out again), and the reading position moved."""
+        self._voice_viewport = []
+        self._voice_ocr_pages = []
+        self._refresh_voice_vocabulary()
+        self._remember_position()
+
+    def _after_history_step(self, kind: str | None, affected_page: int | None) -> dict:
+        pages_changed = kind == page_changes.PAGE_CHANGES and affected_page is not None
+        if pages_changed:
+            self._after_pages_changed()
         state = self._state()
         state["affected_page"] = affected_page
+        state["pages_changed"] = pages_changed
+        state["history_trimmed"] = self._doc.take_history_trimmed()
         return state
+
+    # ------------------------------------------------------------------ #
+    # Organise pages (Milestone F2)                                        #
+    # ------------------------------------------------------------------ #
+
+    def _organise_block_message(self) -> str | None:
+        reason = self._doc.page_change_block()
+        return None if reason is None else page_changes.BLOCK_MESSAGES[reason]
+
+    def _organise_view(self, **extra) -> dict:
+        history = self._organise
+        return {
+            "ok": True,
+            "pages": [
+                {"key": p.key, "source": p.source, "index": p.index, "turn": p.turn, "new": p.is_new}
+                for p in history.current
+            ],
+            "can_undo": history.can_undo,
+            "can_redo": history.can_redo,
+            "steps": history.steps,
+            **extra,
+        }
+
+    def organise_begin(self) -> dict:
+        """Open Organise on the open document (or carry on with its draft,
+        when the page reloads). `{ok: False, message}` when its pages can't
+        be changed."""
+        message = self._organise_block_message()
+        if message is not None:
+            return {"ok": False, "message": message}
+        if self._organise is None:
+            self._organise = page_plan.PlanHistory(page_plan.initial(self._doc.page_count))
+        return self._organise_view(page_index=self._doc.page_index)
+
+    def organise_action(self, kind: str, args: dict) -> dict:
+        """One Organise action on the draft: `rotate` (`positions`,
+        `degrees` ±90), `delete` (`positions`), `move` (`positions`, `gap`)
+        or `shift` (`positions`, `step` ±1). Returns the new draft and the
+        pages to select (where the moved pages went). `{ok: False, reason}`
+        for one the plan refuses (`page_plan.EVERY_PAGE`, ...)."""
+        if self._organise is None or not isinstance(args, dict):
+            return {"ok": False, "reason": page_plan.BAD_POSITIONS}
+        plan = self._organise.current
+        positions = args.get("positions")
+        try:
+            if not isinstance(positions, list):
+                raise page_plan.PlanError(page_plan.BAD_POSITIONS)
+            new, selection = self._organise_step(plan, kind, positions, args)
+        except page_plan.PlanError as exc:
+            return {"ok": False, "reason": exc.reason}
+        changed = self._organise.push(new)
+        return self._organise_view(changed=changed, selection=list(selection))
+
+    @staticmethod
+    def _one_of(value, allowed: tuple[int, ...]) -> int:
+        """`value` if it is exactly one of `allowed` (an int: not a bool,
+        not 90.0); PlanError otherwise."""
+        if type(value) is not int or value not in allowed:
+            raise page_plan.PlanError(page_plan.BAD_POSITIONS)
+        return value
+
+    @classmethod
+    def _organise_step(cls, plan: page_plan.Plan, kind: str, positions: list, args: dict):
+        if kind == "rotate":
+            degrees = cls._one_of(args.get("degrees"), (page_plan.QUARTER_TURN, -page_plan.QUARTER_TURN))
+            return page_plan.rotate(plan, positions, degrees), page_plan.checked_positions(plan, positions)
+        if kind == "delete":
+            return page_plan.delete(plan, positions), ()
+        if kind == "move":
+            return page_plan.move(plan, positions, args.get("gap"))
+        if kind == "shift":
+            return page_plan.shift(plan, positions, cls._one_of(args.get("step"), (-1, 1)))
+        raise page_plan.PlanError(page_plan.BAD_POSITIONS)
+
+    def organise_undo(self) -> dict:
+        if self._organise is None or self._organise.undo() is None:
+            return {"ok": False}
+        return self._organise_view()
+
+    def organise_redo(self) -> dict:
+        if self._organise is None or self._organise.redo() is None:
+            return {"ok": False}
+        return self._organise_view()
+
+    def organise_thumbnail(self, source: str, index: int, width: int) -> dict:
+        """A page of the draft, `width` pixels wide (clamped), as the page
+        is now; the grid turns it by the plan's `turn` on screen."""
+        index = _page_index(index)
+        if not isinstance(source, str) or index is None or not _finite(width):
+            return {"image": None, "width": 0, "height": 0}
+        width = max(MIN_THUMBNAIL_PX, min(int(width), MAX_THUMBNAIL_PX))
+        pix = self._doc.render_plan_thumbnail(source, index, width)
+        if pix is None:
+            return {"image": None, "width": 0, "height": 0}
+        return {"image": _pixmap_to_png_b64(pix), "width": pix.width, "height": pix.height}
+
+    def organise_done(self) -> dict:
+        """Leave Organise, applying the draft to the open document as one
+        undoable edit. The reader's state comes back with `pages_changed`
+        (whether anything changed) and `history_trimmed` (older changes
+        were dropped). If applying fails, the document is as it was, the
+        draft stays open and `error` says so."""
+        history = self._organise
+        if history is None or not self._doc.is_open:
+            self._organise = None
+            return {**self._state(), "pages_changed": False, "history_trimmed": False}
+        try:
+            applied = self._doc.apply_page_plan(history.current)
+        except Exception:
+            log.exception("Applying page changes failed")
+            return {**self._state(), "pages_changed": False, "history_trimmed": False, "error": PAGE_CHANGES_FAILED}
+        self._organise = None
+        self._doc.drop_page_sources()
+        if applied:
+            self._after_pages_changed()
+        return {
+            **self._state(),
+            "pages_changed": applied,
+            "history_trimmed": self._doc.take_history_trimmed(),
+        }
 
     def highlight_by_voice(
         self, query: str, sentence: bool = False, color: str | None = None, style: str | None = None
