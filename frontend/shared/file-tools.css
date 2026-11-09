@@ -1,0 +1,765 @@
+/* The file tools (docs/PRD.md § "Post-v1: file tools"): the tool dialogs'
+   insides, which the reader and Home share, plus three shared components
+   that came with them: the segmented control, the spinner and the job
+   progress bar. Imported by components.css. Tokens only (theme.css). The
+   reader's More menu and footer pill are in reading.css, Home's Tools page
+   in home.css. */
+
+/* ------------------------------------------------------------------ */
+/* Segmented control — one choice of a few, side by side                */
+/* ------------------------------------------------------------------ */
+
+/* role="radiogroup" of <button role="radio"> (initRadioCards does the
+   roles, the roving Tab stop and the arrow keys). A --surface-1 track with a
+   --border edge, segments inset 3px; the chosen one is lifted onto
+   --surface-input with --shadow-1 and set in 600. */
+.segmented {
+  display: inline-flex;
+  flex: none;
+  gap: var(--space-hair);
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+}
+
+.segmented-btn {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.segmented-btn:hover:not(.selected) { background-color: var(--state-hover); color: var(--text-primary); }
+.segmented-btn:focus-visible { outline-offset: 0; }
+
+.segmented-btn.selected {
+  background-color: var(--surface-input);
+  box-shadow: var(--card-highlight), var(--shadow-1);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* Spinner — something is being worked on                              */
+/* ------------------------------------------------------------------ */
+
+/* A ring with one quarter in currentColor. Under reduced motion the turn is
+   capped like every animation (theme.css), so it shows as a still ring. */
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--progress-track);
+  border-top-color: currentColor;
+  animation: spinner-turn 0.8s linear infinite;
+}
+
+@keyframes spinner-turn {
+  to { transform: rotate(1turn); }
+}
+
+/* ------------------------------------------------------------------ */
+/* Job progress — a file tool's Working state                           */
+/* ------------------------------------------------------------------ */
+
+.job-progress { margin-top: var(--space-5); }
+
+/* 6px, on the reader progress bar's own track colour; fills with --accent
+   from the left by --progress (0 to 1). Indeterminate (one long step with
+   no page to count, Compress's image pass) is a short bar sliding across. */
+.job-progress-bar {
+  position: relative;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background-color: var(--progress-track);
+  overflow: hidden;
+}
+
+.job-progress-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  background-color: var(--accent);
+  transform-origin: 0 50%;
+  transform: scaleX(var(--progress, 0));
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.job-progress.is-indeterminate .job-progress-fill {
+  right: auto;
+  width: 30%;
+  transform: none;
+  animation: job-progress-slide 1.2s var(--ease-out) infinite;
+}
+
+@keyframes job-progress-slide {
+  from { left: -30%; }
+  to { left: 100%; }
+}
+
+.job-progress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.job-progress-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.job-progress-note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Tool dialogs — Set up, Working, Result in one card                   */
+/* ------------------------------------------------------------------ */
+
+.dialog-card--tool { width: 520px; }
+
+/* The header (badge, title, description) as every dialog's; the tool's own
+   controls under it take the card's full width. */
+.dialog-card--tool .dialog-header { align-items: flex-start; }
+.dialog-card--tool .dialog-header > div:not(.dialog-badge) { flex: 1; min-width: 0; }
+
+/* No hint in a tool's footer: its buttons sit at the right, as a dialog's
+   do when there is nothing to say beside them. */
+.dialog-card--tool .dialog-footer { justify-content: flex-end; }
+
+.tool-body > :first-child { margin-top: var(--space-5); }
+
+.tool-facts {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-facts b { font-weight: 600; color: var(--text-primary); }
+
+.tool-section-label {
+  display: block;
+  margin: var(--space-5) 0 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* Option cards inside a tool dialog sit closer: three of them must fit. */
+.tool-options .option-row { padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.tool-options .option-row:first-of-type { margin-top: var(--space-2); }
+.tool-options .option-row + .option-row { margin-top: var(--space-2); }
+
+/* Label / control rows (Export's Format, Resolution, Pages; Convert's Page
+   size). */
+.tool-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  column-gap: var(--space-4);
+  row-gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.tool-grid-label {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+/* A control straight in the grid (Convert's Page size) is as wide as it needs. */
+.tool-grid > .segmented { justify-self: start; }
+
+.tool-grid-label.is-top { align-self: start; padding-top: var(--space-1); }
+
+.tool-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.tool-hint {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Pages (Export, Make searchable): the same radio cards on one line each,
+   with a muted note at the end ("120 images", "Page 34"). */
+.tool-options--compact { margin-top: var(--space-4); }
+.tool-options--compact .option-row { align-items: center; }
+.tool-options--compact .option-row + .option-row { margin-top: var(--space-2); }
+
+.option-meta {
+  flex: none;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Export's range field, under the Pages cards. */
+.tool-range { margin-top: var(--space-2); }
+
+.tool-range input {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.tool-range input:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: 1px; }
+.tool-range input[aria-invalid="true"] { border-color: var(--danger); }
+.tool-range .dialog-field-error { margin-top: var(--space-1); }
+
+/* ------------------------------------------------------------------ */
+/* Destination block — Name + "Save in" (js/save-destination.js)        */
+/* ------------------------------------------------------------------ */
+
+/* Every tool that writes a file or folder ends its Set up with this: a
+   two-row grid, a 64px label column and the controls, then an optional
+   hint indented to the controls. */
+.save-dest { margin-top: var(--space-5); }
+
+.save-dest-grid {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px var(--space-3);
+  align-items: center;
+}
+
+.save-dest-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* A row's error line sits in the control column, right under its row. */
+.save-dest-error {
+  grid-column: 2;
+  margin-top: calc(var(--space-1) - 10px);
+}
+
+.save-dest-error[hidden] { display: none; }
+
+/* Name: one field; the extension is inside its right end, not editable.
+   The focus ring goes round the whole field. */
+.save-dest-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 36px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-input);
+  cursor: text;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.save-dest-field:hover { border-color: var(--border-strong); }
+
+.save-dest-field:focus-within {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.save-dest-field.is-invalid { border-color: var(--danger); }
+
+.save-dest-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+/* The ring is the field's (above), not the input's. */
+.save-dest-input:focus,
+.save-dest-input:focus-visible { outline: none; }
+
+.save-dest-ext {
+  flex: none;
+  padding-right: 10px;
+  font-size: var(--text-md);
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* "Save in": a button styled like the field, the control column's width.
+   Folder icon, the folder's name, then muted "beside the original" or the
+   full path (truncating), and a chevron. */
+.save-dest-place {
+  position: relative;
+  min-width: 0;
+}
+
+.save-dest-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.save-dest-button:hover { border-color: var(--border-strong); }
+
+.save-dest-button[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.save-dest-button.is-invalid { border-color: var(--danger); }
+
+.save-dest-icon,
+.save-dest-chevron,
+.save-dest-check,
+.save-dest-option-icon {
+  display: flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.save-dest-icon svg,
+.save-dest-chevron svg,
+.save-dest-check svg,
+.save-dest-option-icon svg { display: block; width: 100%; height: 100%; }
+
+.save-dest-icon { color: var(--accent); }
+.save-dest-chevron { color: var(--text-secondary); }
+
+.save-dest-folder {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.save-dest-where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+/* Export's and Split's naming, under the block, at the controls' edge. */
+.save-dest-hint {
+  margin: var(--space-2) 0 0;
+  padding-left: calc(64px + var(--space-3));
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.save-dest-hint[hidden] { display: none; }
+
+/* The "Save in" menu: a listbox the button's width, opening above it (6px
+   away) so it never runs into the footer; it may overlap the card's top. It
+   rises in from below, the other menus' motion turned the other way up
+   (reading.css's file-menu-in drops in from above). */
+.save-dest-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hair);
+  box-sizing: border-box;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-input);
+  border: 1px solid var(--border-elevated);
+  box-shadow: var(--shadow-3);
+  overflow-y: auto;
+  transform-origin: bottom left;
+  animation: save-dest-menu-in var(--dur-fast) var(--ease-out);
+}
+
+@keyframes save-dest-menu-in {
+  from { opacity: 0; transform: translateY(calc(var(--lift) * -2)); }
+}
+
+.save-dest-group-head {
+  padding: var(--space-2) 10px var(--space-hair);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.save-dest-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: var(--space-1) 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.save-dest-option:hover,
+.save-dest-option:focus-visible { background-color: var(--state-hover); }
+.save-dest-option:focus-visible { outline-offset: -2px; }
+.save-dest-option[aria-selected="true"] { background-color: var(--accent-soft); }
+
+.save-dest-check { color: var(--accent-strong); }
+.save-dest-option-icon { color: var(--text-secondary); }
+
+.save-dest-option-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.save-dest-option-name { font-weight: 500; }
+
+.save-dest-option-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.save-dest-separator {
+  height: 1px;
+  margin: var(--space-1) 6px;
+  background-color: var(--border);
+}
+
+/* The menu must show past the card's edge, so a tool card doesn't clip; its
+   footer band rounds its own bottom corners (the card's --radius-lg). */
+.dialog-card--tool { overflow: visible; }
+.dialog-card--tool .dialog-footer { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .save-dest-menu { animation: none; }
+}
+
+/* Notes (unsaved highlights, a signed PDF, an e-book's layout): an info line
+   with a small icon, never a blocker. */
+.tool-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.tool-note {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.tool-note [data-icon] { flex: none; width: 15px; height: 15px; margin-top: 1px; color: var(--text-muted); }
+.tool-note [data-icon] svg { display: block; width: 100%; height: 100%; }
+
+/* Make searchable's summary: how many pages have no text, large, in a card
+   (the card family's surface and edge, without its lift: not a control). */
+.tool-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-input);
+}
+
+.tool-summary-number {
+  flex: none;
+  font-family: var(--font-serif);
+  font-size: 40px;
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-summary-text {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.tool-row-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.tool-row-line b { font-weight: 500; color: var(--text-primary); }
+
+/* Result. */
+.tool-result {
+  margin-top: var(--space-4);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.tool-result p { margin: 0; }
+.tool-result p + p { margin-top: var(--space-2); }
+.tool-result b { font-weight: 600; color: var(--text-primary); }
+
+/* Compress's Before and After, each bar as long as its file is big. */
+.size-bars {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* No track: the two bars are compared by their lengths alone. */
+.size-bar { height: 8px; }
+
+.size-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background-color: var(--progress-track);
+  width: var(--share, 100%);
+}
+
+.size-bar.is-after .size-bar-fill { background-color: var(--accent); }
+.size-bars b { font-weight: 600; color: var(--text-primary); }
+
+/* ------------------------------------------------------------------ */
+/* Choose a PDF (Home's Tools page)                                     */
+/* ------------------------------------------------------------------ */
+
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-4);
+}
+
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.pick-row:hover:not(.selected) { background-color: var(--state-hover); }
+
+.pick-row.selected {
+  border-color: var(--accent);
+  background-color: color-mix(in srgb, var(--accent) var(--selected-tint), var(--surface-2));
+}
+
+.pick-thumb {
+  flex: none;
+  width: 26px;
+  height: 34px;
+  border-radius: 2px;
+  background-color: var(--paper);
+  box-shadow: 0 0 0 1px var(--border);
+  overflow: hidden;
+}
+
+.pick-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+.pick-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+}
+
+.pick-meta {
+  flex: none;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pick-browse { margin-top: var(--space-3); }
+.pick-empty { margin: var(--space-4) 0 0; font-size: var(--text-md); color: var(--text-muted); }
+
+/* ------------------------------------------------------------------ */
+/* Convert to PDF (Home's Tools page)                                   */
+/* ------------------------------------------------------------------ */
+
+.drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+
+/* While Convert to PDF is open a file dragged over the window is for it:
+   the zone lights up, and the window's "Drop a PDF to open it" stands aside. */
+.is-file-dragging .drop-zone {
+  border-color: var(--accent);
+  background-color: color-mix(in srgb, var(--accent) var(--selected-tint), var(--surface-2));
+}
+
+.is-converting .drop-overlay { display: none; }
+
+.drop-zone-text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.drop-zone-text [data-icon] { width: 18px; height: 18px; color: var(--accent-strong); }
+.drop-zone-text svg { display: block; width: 100%; height: 100%; }
+
+.convert-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 252px;
+  margin-top: var(--space-3);
+  overflow-y: auto;
+}
+
+.convert-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  height: 48px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  outline-offset: -2px;
+}
+
+.convert-row:hover,
+.convert-row:focus-within { background-color: var(--state-hover); }
+.convert-row.is-dragging { opacity: 0.5; }
+.convert-row.is-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.convert-row.is-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+
+.convert-handle {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+  cursor: grab;
+}
+
+.convert-handle svg { display: block; width: 100%; height: 100%; }
+
+.convert-number {
+  flex: none;
+  width: 18px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.convert-thumb {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background-color: var(--paper);
+  box-shadow: 0 0 0 1px var(--border);
+  overflow: hidden;
+}
+
+.convert-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+.convert-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.convert-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.convert-meta { font-size: var(--text-sm); color: var(--text-muted); }
+
+/* Move up, Move down, Remove: shown on hover or focus, as the Recent row's. */
+.convert-actions {
+  display: flex;
+  gap: var(--space-hair);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.convert-row:is(:hover, :focus-within) .convert-actions { opacity: 1; }
+.convert-actions .icon-btn:disabled { color: var(--text-tertiary); cursor: default; background: transparent; }

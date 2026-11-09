@@ -127,6 +127,78 @@ function treeScrollTarget({
   return clamp(nodeBottom - viewHeight + pad);
 }
 
+// The in-app Save-As dialog (Milestone 8.7): the reader's Save a copy, and, in
+// its folder-picking mode, the file tools' "Choose another folder…" on both the
+// reader and Home (`open({ pickFolder: true })`). One copy of the markup,
+// added to the page the first time it is wanted. Static: the folder and file
+// names it shows are set later as text.
+const SAVE_AS_MARKUP = `
+  <div class="dialog-scrim voice-dialog" id="saveAsDialogScrim" hidden>
+    <div class="dialog-card dialog-card--wide">
+      <div class="dialog-body dialog-body--browser">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="folder"></div>
+          <p class="dialog-title">Save a copy</p>
+        </div>
+      </div>
+      <div class="browser-crumbs" id="saveAsDialogPath"></div>
+      <div class="browser-panes">
+        <div class="browser-side">
+          <p class="browser-side-label">Quick access</p>
+          <div class="browser-quick" id="saveAsDialogQuick"></div>
+          <p class="browser-side-label">This PC</p>
+          <div class="browser-tree" id="saveAsDialogTree" role="tree"></div>
+        </div>
+        <div class="browser-main">
+          <div class="search-field browser-search" role="search">
+            <span class="search-field-icon" data-icon="search"></span>
+            <input class="search-field-input" type="text" id="saveAsDialogSearch" placeholder="Search this folder…"
+                   autocomplete="off" aria-label="Search this folder">
+            <button class="search-field-clear" type="button" aria-label="Clear search" title="Clear search">
+              <span data-icon="close"></span>
+            </button>
+          </div>
+          <div class="browser-list" id="saveAsDialogList"></div>
+          <div class="browser-filename-row">
+            <label for="saveAsDialogFilename">File name</label>
+            <input type="text" id="saveAsDialogFilename" autocomplete="off">
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <span class="hint">Click a folder, or say its number, a place like "documents", or "save here" / "cancel".</span>
+        <button class="btn btn-secondary" id="saveAsDialogCancelBtn">Cancel</button>
+        <button class="btn" id="saveAsDialogConfirmBtn">Save</button>
+      </div>
+    </div>
+  </div>`;
+
+// The Save-As dialog for this page, made the first time it is asked for.
+// `restingContext` is the page's own voice context, handed back on close.
+let _saveAsDialog = null;
+function ensureSaveAsDialog(restingContext) {
+  if (_saveAsDialog) return _saveAsDialog;
+  if (!document.getElementById("saveAsDialogScrim")) {
+    document.body.insertAdjacentHTML("beforeend", SAVE_AS_MARKUP);
+    if (typeof mountIcons === "function") mountIcons(document.getElementById("saveAsDialogScrim"));
+  }
+  _saveAsDialog = createFileBrowser({
+    scrimId: "saveAsDialogScrim",
+    listId: "saveAsDialogList",
+    pathId: "saveAsDialogPath",
+    quickId: "saveAsDialogQuick",
+    treeId: "saveAsDialogTree",
+    searchId: "saveAsDialogSearch",
+    cancelBtnId: "saveAsDialogCancelBtn",
+    confirmBtnId: "saveAsDialogConfirmBtn",
+    filenameId: "saveAsDialogFilename",
+    mode: "save",
+    voiceContext: "save_dialog",
+    restingContext,
+  });
+  return _saveAsDialog;
+}
+
 function createFileBrowser({
   scrimId,
   listId,
@@ -150,6 +222,12 @@ function createFileBrowser({
   const cancelBtn = document.getElementById(cancelBtnId);
   const confirmBtn = confirmBtnId ? document.getElementById(confirmBtnId) : null;
   const filenameInput = filenameId ? document.getElementById(filenameId) : null;
+  const titleEl = scrim.querySelector(".dialog-title");
+  const defaultTitle = titleEl ? titleEl.textContent : "";
+  const defaultConfirmLabel = confirmBtn ? confirmBtn.textContent : "";
+  const filenameRow = filenameInput ? filenameInput.closest(".browser-filename-row") : null;
+  // What this particular `open()` asked for (see there).
+  let openOptions = {};
 
   let entries = [];
   let visibleEntries = [];
@@ -239,7 +317,13 @@ function createFileBrowser({
     if (!visibleEntries.length) {
       const empty = document.createElement("div");
       empty.className = "browser-empty";
-      empty.textContent = query ? "No matches in this folder." : "No folders or PDFs here.";
+      empty.textContent = query
+        ? "No matches in this folder."
+        : openOptions.pickFolder
+          ? "No folders here."
+          : openOptions.kind === "convert"
+            ? "No folders, images or e-books here."
+            : "No folders or PDFs here.";
       listEl.appendChild(empty);
       return;
     }
@@ -569,7 +653,7 @@ function createFileBrowser({
   // scrolled the minimum amount.
   async function navigateTo(dir, { initial = false } = {}) {
     const id = ++navigationId;
-    const listing = await callApi("browse_directory", dir);
+    const listing = await callApi("browse_directory", dir, openOptions.pickFolder ? "folder" : openOptions.kind || "pdf");
     if (id !== navigationId) return;
     showingDrives = false;
     currentDir = listing.path;
@@ -638,16 +722,27 @@ function createFileBrowser({
 
   function confirmSave() {
     // Nothing to save into while the pane lists drives rather than a folder.
-    if (!filenameInput || showingDrives) return;
+    if (showingDrives) return;
+    // Picking a folder: the one being shown is the answer.
+    if (openOptions.pickFolder) {
+      if (currentDir && !listError) closeWith({ path: currentDir });
+      return;
+    }
+    if (!filenameInput) return;
     let name = filenameInput.value.trim();
     if (!name) return;
-    if (!name.toLowerCase().endsWith(".pdf")) name += ".pdf";
+    // A file name gets its extension if it was left off; a folder name (Export
+    // as images' folder) is taken as typed.
+    const extension = openOptions.extension === undefined ? ".pdf" : openOptions.extension;
+    if (extension && !name.toLowerCase().endsWith(extension)) name += extension;
     closeWith({ path: joinPath(currentDir, name) });
   }
 
   function closeWith(result) {
     scrim.hidden = true;
-    callApi("set_voice_context", restingContext);
+    showMode(false);
+    if (titleEl) titleEl.textContent = defaultTitle;
+    callApi("set_voice_context", openOptions.restingContext || restingContext);
     const resolve = settleOpen;
     settleOpen = null;
     if (resolve) resolve(result);
@@ -670,7 +765,25 @@ function createFileBrowser({
     buildTree();
   }
 
-  function open({ dir, filename }) {
+  // The folder-picking mode: folders only, no file name row, and the confirm
+  // button reads "Use this folder" (its voice confirm, "save here", is the
+  // same). Put back as the dialog closes.
+  function showMode(pickFolder) {
+    if (filenameRow) filenameRow.style.display = pickFolder ? "none" : "";
+    if (confirmBtn) confirmBtn.textContent = pickFolder ? "Use this folder" : defaultConfirmLabel;
+  }
+
+  // `title` replaces the dialog's own for this time ("Compressed copy");
+  // `extension` is what a typed file name is given if it has none (".pdf";
+  // null for a folder name); `kind` is what files are listed ("pdf", or
+  // "convert" for the images and e-books Convert to PDF takes); `pickFolder`
+  // makes it a folder picker (the file tools' "Choose another folder…"),
+  // resolving to `{ path: <the folder shown> }`; `restingContext` is the voice
+  // context to hand back on close, if not the screen's own.
+  function open({ dir, filename, title, extension, kind, pickFolder = false, restingContext: resting } = {}) {
+    openOptions = { extension, kind, pickFolder, restingContext: resting };
+    if (titleEl) titleEl.textContent = title || defaultTitle;
+    showMode(pickFolder);
     return new Promise((resolve) => {
       settleOpen = resolve;
       if (filenameInput) filenameInput.value = filename || "";

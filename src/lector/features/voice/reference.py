@@ -54,7 +54,7 @@ _SCREENS = (router.HOME, router.SETTINGS, router.READING)
 _PROMPTS = (
     router.PICKER, router.OPEN_DIALOG, router.SAVE_DIALOG,
     router.REMOVE_CONFIRM, router.SAVE_CONFIRM, router.OVERWRITE_CONFIRM, router.REPLACE_CONFIRM,
-    router.PASSWORD_PROMPT,
+    router.PASSWORD_PROMPT, router.FILE_TOOL,
 )
 
 
@@ -343,11 +343,29 @@ def _reading_sections() -> list[dict]:
             _command(_all(g, router.REDO), "Puts back what you just took back.",
                      "Press Ctrl+Shift+Z or Ctrl+Y, or click Redo in the toolbar", _READING),
         ]),
-        _section("app", "The app itself", scope, [
+        _section("files", "Files", scope, [
+            _command(_all(p, grammar.COMPRESS_FILE),
+                     "Opens Compress: makes a smaller copy, mostly by shrinking its "
+                     "images. Choose how much, then say \"confirm\".",
+                     "Click ⋯ at the header's right end, then Compress", _READING),
+            _command(_all(p, grammar.MAKE_SEARCHABLE),
+                     "Opens Make searchable: adds text to scanned pages in a new copy, "
+                     "so they can be searched and selected anywhere.",
+                     "Click ⋯ at the header's right end, then Make searchable", _READING),
+            _command(_all(p, grammar.EXPORT_IMAGES),
+                     "Opens Export as images: saves pages as PNG or JPEG files in a new "
+                     "folder.",
+                     "Click ⋯ at the header's right end, then Export as images", _READING),
+        ]),
+        _section("app", "The app itself", "Works in the reader, and on Home where it says so.", [
             _command(_all(p, grammar.SAVE),
                      "Asks how to save — a copy, or over the original. Nothing is "
                      "written to your file until you say so.",
-                     "Ctrl+S", _READING),
+                     "Ctrl+S, or Save in the ⋯ menu", _READING),
+            _command(_all(router.HOME_PHRASES, router.OPEN_TOOLS),
+                     "On Home, shows the file tools: Compress, Make searchable, Export as "
+                     "images and Convert to PDF.",
+                     "Click Tools in the sidebar", _HOME),
         ]),
     ]
 
@@ -393,12 +411,18 @@ def _prompts() -> dict:
         [
             _command([NUMBER],
                      "Picks that numbered item — a card after \"pick a file\", an entry in the "
-                     "reader's outline or pages after \"show outline\" or \"show pages\", or a "
-                     "row in the Open PDF and Save a copy dialogs.",
-                     "Click the item", (router.PICKER, *dialogs)),
+                     "reader's outline or pages after \"show outline\" or \"show pages\", a "
+                     "row in the Open PDF and Save a copy dialogs, or an option in a file "
+                     "tool's dialog (counted from the top).",
+                     "Click the item", (router.PICKER, *dialogs, router.FILE_TOOL)),
             _command(_all(o, router.CANCEL),
-                     "Leaves the dialog or numbered list without doing anything.",
+                     "Leaves the dialog or numbered list without doing anything. While a file "
+                     "tool is working, stops it; nothing is written.",
                      "Click Cancel, or press Esc", _PROMPTS),
+            _command(_all(router.FILE_TOOL_PHRASES, router.TOOL_CONFIRM),
+                     "In a file tool's dialog, presses its main button: Compress, Make "
+                     "searchable, Export, Create PDF, Continue or Done.",
+                     "Click the button, or press Enter", (router.FILE_TOOL,)),
             _command(_all(o, router.DIALOG_UP), "Goes up to the parent folder.",
                      "Click the parent folder in the path above the list", dialogs),
             *quick,
@@ -429,7 +453,7 @@ def _prompts() -> dict:
 # front of it (see `sections`); the rest keep this order.
 _SECTION_ORDER: tuple[str, ...] = (
     "anywhere", "back_home", "recent", "favorites", "theme", "save", "reopen",
-    "moving", "panel", "focus", "zoom", "highlighting", "undo_redo", "app", "this_list", "prompts",
+    "moving", "panel", "focus", "zoom", "highlighting", "undo_redo", "files", "app", "this_list", "prompts",
 )
 
 

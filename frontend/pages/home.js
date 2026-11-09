@@ -256,7 +256,9 @@ let displayedEntries = [];
 const sectionTitle = document.getElementById("sectionTitle");
 const recentNav = document.getElementById("recentNav");
 const favoritesNav = document.getElementById("favoritesNav");
-const SECTION_TITLES = { recent: "Recent", favorites: "Favorites" };
+const toolsNav = document.getElementById("toolsNav");
+// "tools" is the file tools' page (tools-page.js): no list, so no loader.
+const SECTION_TITLES = { recent: "Recent", favorites: "Favorites", tools: "Tools" };
 const SECTION_LOADERS = { recent: "get_recent_files", favorites: "get_favorites" };
 let homeSection = "recent";
 
@@ -282,9 +284,12 @@ function syncSectionChrome() {
   sectionTitle.textContent = SECTION_TITLES[homeSection];
   librarySearch.setPageName(SECTION_TITLES[homeSection]);
   // Open PDF is Recent's alone. On Favorites it leaves the layout (not just the
-  // view), so the controls that remain sit against the page's right edge.
+  // view), so the controls that remain sit against the page's right edge. The
+  // Tools page has no header controls at all.
   openPdfBtn.hidden = homeSection !== "recent";
-  [[recentNav, "recent"], [favoritesNav, "favorites"]].forEach(([nav, section]) => {
+  headerSearch.hidden = homeSection === "tools";
+  viewToggle.hidden = homeSection === "tools";
+  [[recentNav, "recent"], [favoritesNav, "favorites"], [toolsNav, "tools"]].forEach(([nav, section]) => {
     const active = homeSection === section;
     nav.classList.toggle("active", active);
     if (active) nav.setAttribute("aria-current", "page");
@@ -303,6 +308,7 @@ async function setHomeSection(section) {
 
 recentNav.addEventListener("click", () => setHomeSection("recent"));
 favoritesNav.addEventListener("click", () => setHomeSection("favorites"));
+toolsNav.addEventListener("click", () => setHomeSection("tools"));
 
 // Settings' Favorites item sends the reader here already pointed at that list
 // through sessionStorage. The first paint is handled by the inline script in
@@ -313,6 +319,9 @@ favoritesNav.addEventListener("click", () => setHomeSection("favorites"));
 const HOME_SECTION_HANDOFF_KEY = "lector-home-section";
 if (sessionStorage.getItem(HOME_SECTION_HANDOFF_KEY) === "favorites") {
   homeSection = "favorites";
+  syncSectionChrome();
+} else if (sessionStorage.getItem(HOME_SECTION_HANDOFF_KEY) === "tools") {
+  homeSection = "tools";
   syncSectionChrome();
 }
 
@@ -404,7 +413,67 @@ const recentListHandlers = {
     if (rows.length) rows[Math.min(rowIndex, rows.length - 1)].focus();
     else recentViewListBtn.focus();
   },
+  // Compress, Make searchable, Export as images, for this file: its dialog
+  // straight away, no file to pick.
+  onTool: (tool, entry) => ToolDialog.open(tool, entry.path),
 };
+
+// The grid card's "⋯" opens the same menu; Remove there goes through the same
+// confirmation, then focus returns to the grid.
+const recentCardMenuHandlers = {
+  ...recentListHandlers,
+  onRemove: (entry) => removeEntry(entry),
+};
+
+// --- File tools (Milestone F1) ------------------------------------------------ //
+// The Tools page (tools-page.js), the tools' dialog (tool-dialogs.js) and
+// Convert to PDF (convert-dialog.js). A job's progress and how it ended come
+// through FileJobs (js/file-jobs.js); on Home its dialog stays open while it
+// runs (there is no reading to go back to).
+async function openToolFromPage(tool) {
+  if (isModalOpen()) return;
+  if (tool === "convert") {
+    ConvertDialog.open();
+    return;
+  }
+  const path = await PdfPicker.choose(tool);
+  if (path) ToolDialog.open(tool, path);
+}
+
+function renderToolsSection() {
+  closePopupMenu();
+  displayedEntries = [];
+  recentEntries = [];
+  recentCount.textContent = "";
+  recentArea.removeAttribute("aria-busy");
+  recentArea.replaceChildren(buildToolsPage(openToolFromPage));
+  mountIcons(recentArea);
+}
+
+PdfPicker.configure({
+  browse: async () => {
+    const result = await openDialog.open({ dir: null });
+    return result && result.path ? result.path : null;
+  },
+});
+ToolDialog.configure({
+  where: "home",
+  saveAs: ensureSaveAsDialog("home"),
+  openOutput: (path) => openPath(path),
+  // A Recent entry whose file has gone: the same message, with Remove from
+  // Recent.
+  onMissing: (message, path) => offerRemoval(path, message),
+});
+FileJobs.configure({ open: (path) => openPath(path) });
+ConvertDialog.configure({
+  // One file a pick: the Open dialog, listing images and e-books.
+  addFile: async () => {
+    const result = await openDialog.open({ dir: null, kind: "convert", title: "Add a file to convert" });
+    return result && result.path ? result.path : null;
+  },
+  saveAs: ensureSaveAsDialog("home"),
+  openOutput: (path) => openPath(path),
+});
 
 // --- Loading (library-loading.js) ----------------------------------------- //
 // The last known length of each list: what the page server wrote into <html>
@@ -418,7 +487,7 @@ const knownCounts = {
 // switch between Recent and Favorites) and its count, and the numbers a voice
 // command could still reach.
 function showLoadingState() {
-  closeRowMenu();
+  closePopupMenu();
   displayedEntries = [];
   recentCount.textContent = "";
   recentArea.setAttribute("aria-busy", "true");
@@ -471,7 +540,7 @@ function renderCount(shown, total, filtering) {
 }
 
 function renderRecent(listed) {
-  closeRowMenu();
+  closePopupMenu();
   // With any thumbnail that has arrived since the list was fetched.
   const entries = thumbnails.withLoaded(listed);
   recentEntries = entries;
@@ -537,7 +606,7 @@ function buildLoadFailedState() {
 }
 
 function renderLoadFailed() {
-  closeRowMenu();
+  closePopupMenu();
   recentEntries = [];
   displayedEntries = [];
   recentCount.textContent = "";
@@ -555,6 +624,10 @@ let loadGeneration = 0;
 
 async function loadSection() {
   const generation = ++loadGeneration;
+  if (homeSection === "tools") {
+    await drawWhenSettled(generation, renderToolsSection);
+    return;
+  }
   let entries;
   try {
     entries = await callApi(SECTION_LOADERS[homeSection]);
@@ -584,7 +657,8 @@ async function drawWhenSettled(generation, draw) {
 // and Favorites, or "Try again") may show the skeleton; one that refreshes the
 // list in place (after starring or removing) keeps the old rows up instead.
 function loadSectionWithPlaceholder() {
-  armListSkeleton();
+  // The Tools page has nothing to wait for, so no placeholder.
+  if (homeSection !== "tools") armListSkeleton();
   return loadSection();
 }
 
@@ -869,6 +943,8 @@ const VOICE_ACTIONS = {
   // Favorites: navigation between the two lists, and starring by voice,
   // split into "the most recent" and "pick one" like open/remove above.
   OPEN_FAVORITES: () => setHomeSection("favorites"),
+  // The file tools' page (Milestone F1).
+  OPEN_TOOLS: () => setHomeSection("tools"),
   FAVORITE_RECENT: () => favoriteMostRecent(),
   FAVORITE_PICKER: () => showPicker("favorite"),
   CLOSE_APP: () => closeApp(),
@@ -884,6 +960,25 @@ window.addEventListener("lector:command", (ev) => {
   if (PasswordDialog.isOpen()) {
     PasswordDialog.handleCommand(command);
     return;
+  }
+  // The file tools' dialogs, in the order they can be stacked: the Save-As
+  // screen and "Replace?" (Change…) over a tool's dialog, the close
+  // gatekeeper's question over anything. TOOL_CONFIRM/CANCEL/DIALOG_PICK are
+  // router.py's FILE_TOOL.
+  const saveAs = ensureSaveAsDialog("home");
+  if (saveAs.isOpen()) {
+    saveAs.handleCommand(command);
+    return;
+  }
+  if (ReplaceDialog.isOpen()) {
+    ReplaceDialog.handleCommand(command);
+    return;
+  }
+  for (const dialog of [StopJobDialog, ToolDialog, ConvertDialog, PdfPicker]) {
+    if (dialog.isOpen()) {
+      dialog.handleCommand(command);
+      return;
+    }
   }
   // CONFIRM_REMOVE/CANCEL only ever arrive while the remove-confirmation
   // dialog is the active voice context (router.py scopes them there), so

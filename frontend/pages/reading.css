@@ -1259,6 +1259,100 @@ html, body { height: 100%; }
   font-size: var(--text-sm);
 }
 
+/* A file job running behind the page (file-menu.js): the mic pill's shape,
+   a spinner and "Compressing 34 / 120". A button: it brings the tool's
+   dialog back. */
+.file-job-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-xl);
+  background-color: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.file-job-pill[hidden] { display: none; }
+.file-job-pill:hover { color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.file-job-pill .spinner { width: 13px; height: 13px; color: var(--accent); }
+
+/* The More menu (file-menu.js): the shared popup menu, hanging from the
+   header's right end, 4px below it. 36px items, 18px icons; a shortcut at
+   the end of Save and Save a copy, a muted second line under Make
+   searchable. */
+.file-menu {
+  position: fixed;
+  z-index: 90;
+  width: 272px;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-input);
+  border: 1px solid var(--border-elevated);
+  box-shadow: var(--shadow-3);
+  animation: file-menu-in var(--dur-fast) var(--ease-out);
+}
+
+/* The Recent row menu's entrance (home.css's recent-menu-in): a fade and a
+   rise of twice the hover lift. */
+@keyframes file-menu-in {
+  from { opacity: 0; transform: translateY(calc(var(--lift) * 2)); }
+}
+
+.file-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.file-menu-item [data-icon] { flex: none; display: block; width: 18px; height: 18px; color: var(--text-muted); }
+.file-menu-item svg { display: block; width: 100%; height: 100%; }
+.file-menu-item:hover,
+.file-menu-item:focus-visible { background-color: var(--state-hover); }
+.file-menu-item:focus-visible { outline-offset: -2px; }
+.file-menu-item:active { background-color: var(--state-pressed); }
+
+.file-menu-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2) 0;
+}
+
+.file-menu-item-sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.file-menu-item-shortcut {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.file-menu-separator {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background-color: var(--border);
+}
+
 .what-btn {
   height: 32px;
   padding: 0 var(--space-3);

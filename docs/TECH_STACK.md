@@ -30,6 +30,20 @@ Rejected alternatives and why (unchanged from the original evaluation, PySide6 i
 
 The only library that provides page rendering, word/line-level bounding-box extraction, AND real PDF annotation writing in one dependency. Avoids stitching together a separate rendering library (e.g. PDFium) with a separate annotation-writing approach.
 
+## File tools (compress, convert, organise pages): PyMuPDF only
+
+The file tools in `docs/PRD.md` ("Post-v1: file tools") use what is already installed, so they add no dependency:
+
+- **Compress:** `Document.save(garbage=4, deflate=True, clean=True)` for the lossless part, `Document.subset_fonts()`, and image resampling and recompression with `Document.rewrite_images()`. Confirmed present in the pinned 1.28.2 (`rewrite_images(dpi_threshold, dpi_target, quality, lossy, lossless, bitonal, color, gray, set_to_gray, options)`); Lector passes its own `PdfImageRewriterOptions` (bicubic resampling, JPEG only when smaller, 1-bit images never touched), so the `Pixmap` fallback was not needed. It is one call for the whole document, which is why Compress reports progress by phase rather than by page. No Pillow.
+- **Make searchable:** the same built-in Tesseract and `eng.traineddata` as highlighting on scanned pages, in the same worker process, reusing its cache; the page's OCR words are inserted as invisible text (render mode 3), not merged in from `Pixmap.pdfocr_tobytes`, so the original image is kept as it is (see `docs/ARCHITECTURE.md` § "File tools").
+- **Export as images:** `Page.get_pixmap(dpi=…, annots=True)` and `Pixmap.save` (PNG) / `Pixmap.tobytes("jpeg", jpg_quality=…)`.
+- **Convert to PDF:** `pymupdf.open(path)` reads images, EPUB, XPS, CBZ and FB2 natively; `Document.convert_to_pdf()` and `Document.insert_pdf()` build the result. WebP is not taken: the MuPDF in 1.28.2 can't decode it ("unknown image file format").
+- **Organise, combine, split (Tier 2):** `Page.set_rotation`, `Document.delete_pages`, `Document.move_page` / `select`, `Document.insert_pdf`.
+
+Long jobs run in the worker process used for OCR (standard-library `multiprocessing`), not a thread, for the same GIL reason.
+
+Rejected: **LibreOffice** or **Microsoft Office automation** for Office-to-PDF (hundreds of MB, or only on machines with Office); **pdf2docx** for PDF-to-Word (pulls in OpenCV, and its output is poor on complex layouts); **Ghostscript** for compression (a second large engine, and AGPL). Office-format conversion stays banned below.
+
 ## Text recognition for scanned pages: Tesseract, as built into PyMuPDF
 
 A scanned page has no text layer, so nothing on it can be selected or matched. PyMuPDF's wheel already has Tesseract compiled into MuPDF (`Pixmap.pdfocr_tobytes`), so OCR adds no new library: the only new file is the English language data, `eng.traineddata` from `tesseract-ocr/tessdata_fast` (~4 MB, Apache-2.0), in `assets/tessdata/`, fetched by `scripts/fetch_tessdata.py`. English only. Offline, like everything else.

@@ -41,6 +41,14 @@ function onFileDrop(handler) {
   fileDropHandler = handler;
 }
 
+// Home's Convert to PDF: `handler(paths)` gets the images and e-books in a
+// drop and returns true if it took them (its dialog is open); otherwise the
+// drop is treated as any other.
+let convertDropHandler = null;
+function onConvertibleDrop(handler) {
+  convertDropHandler = handler;
+}
+
 // Capture phase on window, so this runs ahead of anything on the page and of
 // pywebview's own document-level drop listener.
 window.addEventListener(
@@ -91,8 +99,10 @@ window.addEventListener("dragend", resetFileDrag, true);
 // The outcome Python reports for a drop: `{path}` for a PDF to open, or
 // `{error}` with a reader-facing reason it can't be.
 window.addEventListener("lector:filedrop", (ev) => {
-  const { path, error } = ev.detail || {};
+  const { path, error, convertible } = ev.detail || {};
   resetFileDrag();
+  // Images or e-books dropped while Home's Convert to PDF is open are its.
+  if (convertible && convertible.length && convertDropHandler && convertDropHandler(convertible)) return;
   if (error) {
     showToast(error);
     return;

@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tier 1 · Home Tools page</title>
+<script src="./dc-lite.js"></script>
+</head>
+<body>
+<template data-dc>
+<helmet>
+<style>
+body{margin:0}
+.ib{width:32px;height:32px;border:0;padding:0;background:transparent;border-radius:6px;color:var(--ts);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1),color .12s cubic-bezier(.2,.8,.2,1)}
+.ib:hover{background:var(--hover);color:var(--tp)}
+.ib.on{background:var(--hover);color:var(--tp)}
+.ib:disabled{color:var(--tt);cursor:default;background:transparent}
+.nav{display:flex;align-items:center;gap:12px;width:100%;height:40px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--ts);font:inherit;font-size:13.5px;font-weight:500;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s cubic-bezier(.2,.8,.2,1)}
+.nav:hover{background:var(--hover);color:var(--tp)}
+.nav.on{background:var(--accentSoft);color:var(--accentStrong);font-weight:600}
+.nav:disabled{color:var(--tt);cursor:default;background:transparent}
+.mi{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 10px;border:0;background:transparent;border-radius:6px;font:inherit;font-size:13.5px;color:var(--tp);text-align:left;cursor:pointer;box-sizing:border-box}
+.mi:hover{background:var(--hover)}
+.mi svg{color:var(--ts);flex:none}
+.mi.danger:hover{color:var(--danger)}
+.mi.danger:hover svg{color:var(--danger)}
+.btn{height:36px;padding:0 16px;border:0;border-radius:8px;background:var(--accent);color:var(--onAccent);font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{background:var(--accentHover)}
+.btn:disabled{background:var(--borderStrong);color:var(--s2);cursor:default}
+.btn2{height:36px;padding:0 14px;border:1px solid var(--borderStrong);border-radius:8px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.btn2:hover{background:var(--inputHover)}
+.tc{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid var(--edge);border-radius:12px;background:var(--input);box-shadow:var(--shadow1);font:inherit;text-align:left;cursor:pointer;color:var(--tp);box-sizing:border-box;transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s cubic-bezier(.2,.8,.2,1),border-color .12s cubic-bezier(.2,.8,.2,1)}
+.tc:hover{transform:translateY(-2px);box-shadow:var(--shadow2);border-color:var(--accent)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 140px 96px 88px;align-items:center;height:64px;padding:0 16px;border-top:1px solid var(--border);box-sizing:border-box}
+.row:hover,.row.on{background:var(--hover)}
+.row .act{opacity:0;transition:opacity .12s}
+.row:hover .act,.row.on .act{opacity:1}
+.pick{display:flex;align-items:center;gap:12px;width:100%;height:52px;padding:0 12px;border:1px solid transparent;border-radius:8px;background:transparent;font:inherit;text-align:left;color:var(--tp);cursor:pointer;box-sizing:border-box}
+.pick:hover{background:var(--hover)}
+.pick.sel{border-color:var(--accent);background:var(--selFill)}
+.opt{display:flex;gap:12px;align-items:center;width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--input);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box;color:var(--tp)}
+.opt:hover{border-color:var(--borderStrong)}
+.opt{cursor:default}
+.opt.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--selFill)}
+.seg{display:inline-flex;padding:3px;gap:2px;border-radius:8px;background:var(--s1);border:1px solid var(--border)}
+.sg{height:30px;padding:0 14px;border:0;border-radius:6px;background:transparent;color:var(--ts);font:inherit;font-size:13px;font-weight:500;cursor:pointer}
+.sg:hover{color:var(--tp)}
+.sg.sel{background:var(--input);color:var(--tp);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.fl{display:flex;align-items:center;gap:10px;height:48px;padding:0 6px 0 4px;border-radius:8px;box-sizing:border-box}
+.fl:hover{background:var(--hover)}
+.fl .act{opacity:0}
+.fl:hover .act{opacity:1}
+.field{height:36px;box-sizing:border-box;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px}
+.loc{display:flex;align-items:center;gap:8px;width:100%;height:36px;box-sizing:border-box;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px;text-align:left;cursor:pointer;transition:border-color .12s cubic-bezier(.2,.8,.2,1)}
+.loc:hover{border-color:var(--borderStrong)}
+.loc[aria-expanded="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.lmi{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:4px 10px;border:0;border-radius:6px;background:transparent;color:var(--tp);font:inherit;font-size:13.5px;text-align:left;cursor:pointer;box-sizing:border-box}
+.lmi:hover{background:var(--hover)}
+.lmi[aria-selected="true"]{background:var(--accentSoft)}
+.namebox{display:flex;align-items:center;min-width:0;height:36px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;background:var(--input)}
+.namebox:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+@keyframes up{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+.upmenu{animation:up .14s cubic-bezier(.2,.8,.2,1);transform-origin:bottom left}
+@media (prefers-reduced-motion: reduce){.upmenu{animation:none}}
+.field:focus{outline:2px solid var(--accent);outline-offset:1px}
+.tlink{border:0;background:transparent;padding:0 4px;height:28px;border-radius:6px;color:var(--toastAccent);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes rise{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+.menu{animation:rise .14s cubic-bezier(.2,.8,.2,1);transform-origin:top right}
+.card{animation:pop .2s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion: reduce){.menu,.card,.tc{animation:none;transition:none}}
+</style>
+</helmet>
+<div style="{{vars}} position: relative; width: 1280px; height: 800px; overflow: hidden; display: flex; background: var(--bg); color: var(--tp); font-family: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif; font-size: 13.5px;">
+
+<div style="width: 220px; flex: none; box-sizing: border-box; padding: 20px 12px; background: var(--s1); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 0 12px 20px;">
+<span style="width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: var(--onAccent); display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5c3-1 6-1 9 1 3-2 6-2 9-1V19c-3-1-6-1-9 1-3-2-6-2-9-1z"></path></svg></span>
+<span style="font-family: Charter, Georgia, serif; font-size: 18px;">Lector</span>
+</div>
+<button class="nav {{navRecent}}" onClick="{{goRecent}}"><svg width="20" height="20" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><polyline points="11,6.5 11,11 14.5,13"></polyline></svg>Recent</button>
+<button class="nav" disabled><svg width="20" height="20" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5"></rect><rect x="12" y="3.5" width="6.5" height="6.5"></rect><rect x="3.5" y="12" width="6.5" height="6.5"></rect><rect x="12" y="12" width="6.5" height="6.5"></rect></svg>All PDFs</button>
+<button class="nav"><svg width="20" height="20" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><polygon points="11,3 13.5,8.2 19,9 15,12.9 16,18.5 11,15.8 6,18.5 7,12.9 3,9 8.5,8.2"></polygon></svg>Favorites</button>
+<button class="nav {{navTools}}" onClick="{{goTools}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5a4 4 0 015 5l-8.5 8.5a2.1 2.1 0 01-3-3z"></path><path d="M4 4l5 5M3 9l2-2"></path></svg>Tools</button>
+<span style="flex: 1;"></span>
+<button class="nav"><svg width="20" height="20" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.6"></circle><circle cx="11" cy="11" r="2.4"></circle></svg>Settings</button>
+</div>
+
+<div style="flex: 1; min-width: 0; background: var(--page); box-sizing: border-box; padding: 24px 32px 32px; display: flex; flex-direction: column; gap: 32px; overflow: hidden;">
+<div style="height: 40px; display: flex; align-items: center; gap: 12px;">
+<h1 style="margin: 0; font-family: Charter, Georgia, serif; font-weight: 400; font-size: 28px;">{{pageTitle}}</h1>
+<sc-if value="{{isRecent}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; padding: 2px 8px; border-radius: 999px; background: var(--s1); color: var(--tm);">4</span></sc-if>
+<span style="flex: 1;"></span>
+<sc-if value="{{isRecent}}" hint-placeholder-val="{{false}}"><button class="btn">Open PDF</button></sc-if>
+</div>
+
+<sc-if value="{{isRecent}}" hint-placeholder-val="{{false}}">
+<div style="border-radius: 12px; background: var(--input); border: 1px solid var(--edge); box-shadow: var(--shadow1); overflow: visible;">
+<div style="display: grid; grid-template-columns: minmax(0,1fr) 140px 96px 88px; height: 40px; align-items: center; padding: 0 16px; background: var(--s2); border-radius: 12px 12px 0 0; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; font-weight: 500; color: var(--ts);"><span>Name</span><span>Last active</span><span style="text-align: right;">Pages</span><span></span></div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+<div class="row {{r.cls}}" style="position: relative;">
+<div style="display: flex; align-items: center; gap: 12px; min-width: 0;"><span style="width: 32px; height: 42px; flex: none; background: var(--paper); box-shadow: 0 0 0 1px var(--border); border-radius: 2px;"></span><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.name}}</span></div>
+<span style="color: var(--tm);">{{r.when}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; color: var(--ts);">{{r.pages}}</span>
+<div class="act" style="display: flex; justify-content: flex-end; gap: 2px;">
+<button class="ib" aria-label="Favorite"><svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><polygon points="11,3 13.5,8.2 19,9 15,12.9 16,18.5 11,15.8 6,18.5 7,12.9 3,9 8.5,8.2"></polygon></svg></button>
+<button class="ib {{r.moreCls}}" onClick="{{r.toggle}}" aria-label="More actions" aria-haspopup="menu" aria-expanded="{{r.open}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="18.5" cy="12" r="1.7"></circle></svg></button>
+</div>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+<div class="menu" role="menu" style="position: absolute; top: 54px; right: 12px; width: 260px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: var(--input); box-shadow: var(--shadow3); border: 1px solid var(--edge); display: flex; flex-direction: column; gap: 2px; z-index: 5;">
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5c3-1 6-1 9 1 3-2 6-2 9-1V19c-3-1-6-1-9 1-3-2-6-2-9-1z"></path></svg>Open</button>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg>Show in folder</button>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="mi" role="menuitem" onClick="{{rowTool}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3M4 12h16"></path></svg>Compress…</button>
+<button class="mi" role="menuitem" onClick="{{rowTool}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H6v18h6"></path><path d="M13 3l5 5v3"></path><circle cx="16.5" cy="16.5" r="3.5"></circle><path d="M19 19l2.5 2.5"></path></svg>Make searchable…</button>
+<button class="mi" role="menuitem" onClick="{{rowTool}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><circle cx="9" cy="10" r="1.8"></circle><path d="M20.5 16l-5-5-9 8.5"></path></svg>Export as images…</button>
+<sc-if value="{{tier2}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 2px;">
+<button class="mi" role="menuitem" onClick="{{rowTool}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="4" width="6.5" height="7" rx="1"></rect><rect x="4" y="13" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="13" width="6.5" height="7" rx="1"></rect></svg>Organise pages…</button>
+<button class="mi" role="menuitem" onClick="{{openSplitDirect}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="7" r="2.5"></circle><circle cx="6" cy="17" r="2.5"></circle><path d="M8 8.5L20 17M8 15.5L20 7"></path></svg>Split…</button>
+</div>
+</sc-if>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="mi danger" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"></path></svg>Remove from Recent</button>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isTools}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 32px;">
+<section style="display: flex; flex-direction: column; gap: 12px;">
+<div><h2 style="margin: 0; font-size: 15px; font-weight: 600;">Shrink and convert</h2><p style="margin: 4px 0 0; font-size: 12.5px; color: var(--tm);">Each makes a new file beside the original. Nothing is overwritten.</p></div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;">
+<button class="tc" onClick="{{pickCompress}}">
+<span style="width: 40px; height: 40px; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3M4 12h16"></path></svg></span>
+<span style="font-size: 15px; font-weight: 600;">Compress</span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">Make a PDF smaller, mostly by shrinking its images.</span>
+</button>
+<button class="tc" onClick="{{pickSearch}}">
+<span style="width: 40px; height: 40px; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H6v18h6"></path><path d="M13 3l5 5v3"></path><circle cx="16.5" cy="16.5" r="3.5"></circle><path d="M19 19l2.5 2.5"></path></svg></span>
+<span style="font-size: 15px; font-weight: 600;">Make searchable</span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">Add text to scanned pages so they can be searched.</span>
+</button>
+<button class="tc" onClick="{{pickExport}}">
+<span style="width: 40px; height: 40px; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><circle cx="9" cy="10" r="1.8"></circle><path d="M20.5 16l-5-5-9 8.5"></path></svg></span>
+<span style="font-size: 15px; font-weight: 600;">Export as images</span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">Save pages as PNG or JPEG files.</span>
+</button>
+<button class="tc" onClick="{{openConvert}}">
+<span style="width: 40px; height: 40px; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h10a1 1 0 001-1V7z"></path><path d="M14 3v4h4M12 10v7M9 14l3 3 3-3"></path></svg></span>
+<span style="font-size: 15px; font-weight: 600;">Convert to PDF</span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">Turn images or an e-book (EPUB, XPS, CBZ) into a PDF.</span>
+</button>
+</div>
+</section>
+<sc-if value="{{tier2}}" hint-placeholder-val="{{false}}">
+<section style="display: flex; flex-direction: column; gap: 12px;">
+<div><h2 style="margin: 0; font-size: 15px; font-weight: 600;">Pages</h2><p style="margin: 4px 0 0; font-size: 12.5px; color: var(--tm);">Rearrange whole pages and files. What is on each page never changes.</p></div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;">
+<button class="tc" onClick="{{pickOrganise}}">
+<span style="width: 40px; height: 40px; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="4" width="6.5" height="7" rx="1"></rect><rect x="4" y="13" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="13" width="6.5" height="7" rx="1"></rect></svg></span>
+<span style="font-size: 15px; font-weight: 600;">Organise pages</span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">Rotate, delete, reorder, extract or insert pages.</span>
+</button>
+<button class="tc" onClick="{{openCombine}}">
+<span style="width: 40px; height: 40px; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4v5a3 3 0 003 3h6a3 3 0 013 3v5M18 4v5a3 3 0 01-3 3"></path><path d="M15 17l3 3 3-3"></path></svg></span>
+<span style="font-size: 15px; font-weight: 600;">Combine files</span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">Join several PDFs and images into one PDF.</span>
+</button>
+<button class="tc" onClick="{{pickSplit}}">
+<span style="width: 40px; height: 40px; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="7" r="2.5"></circle><circle cx="6" cy="17" r="2.5"></circle><path d="M8 8.5L20 17M8 15.5L20 7"></path></svg></span>
+<span style="font-size: 15px; font-weight: 600;">Split</span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">Break a PDF into several, by page ranges or every N pages.</span>
+</button>
+</div>
+</section>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<sc-if value="{{dlgOpen}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: 10;">
+<div class="card" role="dialog" aria-modal="true" aria-labelledby="ht" style="width: 540px; box-sizing: border-box; border-radius: 16px; background: var(--s2); box-shadow: var(--shadow3), var(--dialogEdge); overflow: visible; display: flex; flex-direction: column;">
+<div style="padding: 24px 32px 0; display: flex; gap: 14px; align-items: flex-start;">
+<div style="width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{dlgIcon}}"></path></svg>
+</div>
+<div style="flex: 1; min-width: 0;">
+<p id="ht" style="margin: 0; font-family: Charter, Georgia, serif; font-size: 22px; line-height: 28px;">{{dlgTitle}}</p>
+<p style="margin: 4px 0 0; font-size: 13.5px; line-height: 20px; color: var(--ts);">{{dlgDesc}}</p>
+</div>
+</div>
+
+<div style="padding: 20px 32px 24px; display: flex; flex-direction: column; gap: 16px;">
+
+<sc-if value="{{isPicker}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12.5px; font-weight: 500; color: var(--ts);">Recent</span>
+<div role="radiogroup" aria-label="PDF" style="display: flex; flex-direction: column; gap: 2px;">
+<sc-for list="{{picks}}" as="p" hint-placeholder-count="4">
+<button class="pick {{p.cls}}" role="radio" aria-checked="{{p.on}}" onClick="{{p.pick}}">
+<span style="width: 26px; height: 34px; flex: none; background: var(--paper); box-shadow: 0 0 0 1px var(--border); border-radius: 2px;"></span>
+<span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{p.name}}</span>
+<span style="font-size: 12.5px; color: var(--tm); font-variant-numeric: tabular-nums;">{{p.pages}}</span>
+</button>
+</sc-for>
+</div>
+<div><button class="btn2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg>Browse for a PDF…</button></div>
+</div>
+</sc-if>
+
+<sc-if value="{{isList}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1.5px dashed var(--borderStrong); border-radius: 10px; background: var(--input);">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4"></path><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"></path></svg>
+<span style="flex: 1; font-size: 13px; color: var(--ts);">{{dropText}}</span>
+<button class="btn2" onClick="{{addFile}}">Add files…</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px; max-height: 248px; overflow: auto;">
+<sc-for list="{{files}}" as="f" hint-placeholder-count="4">
+<div class="fl">
+<span style="color: var(--tt); display: flex; cursor: grab;" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"></circle><circle cx="15" cy="6" r="1.5"></circle><circle cx="9" cy="12" r="1.5"></circle><circle cx="15" cy="12" r="1.5"></circle><circle cx="9" cy="18" r="1.5"></circle><circle cx="15" cy="18" r="1.5"></circle></svg></span>
+<span style="font-size: 12.5px; width: 18px; text-align: right; color: var(--tm); font-variant-numeric: tabular-nums;">{{f.n}}</span>
+<span style="{{f.thumb}}"></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{f.name}}</span><span style="font-size: 12px; color: var(--tm);">{{f.meta}}</span></span>
+<div class="act" style="display: flex; gap: 2px;">
+<button class="ib" onClick="{{f.up}}" disabled="{{f.first}}" aria-label="Move up"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg></button>
+<button class="ib" onClick="{{f.down}}" disabled="{{f.last}}" aria-label="Move down"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+<button class="ib" onClick="{{f.remove}}" aria-label="Remove from list"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{isConvert}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; gap: 12px;">
+<span style="color: var(--ts); width: 80px;">Page size</span>
+<div class="seg" role="radiogroup" aria-label="Page size">
+<sc-for list="{{sizes}}" as="z" hint-placeholder-count="3">
+<button class="sg {{z.cls}}" role="radio" aria-checked="{{z.on}}" onClick="{{z.pick}}">{{z.t}}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{hasEbook}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>An e-book is laid out on A4 pages. It comes out plainer than in an e-book reader.</span></div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{isSplit}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div role="radiogroup" aria-label="Split by" style="display: flex; flex-direction: column; gap: 8px;">
+<div class="opt {{spEveryCls}}">
+<button role="radio" aria-checked="{{spEvery}}" onClick="{{pickEvery}}" style="display: flex; align-items: center; gap: 12px; flex: 1; height: 32px; border: 0; padding: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer;"><span style="{{spEveryDot}}"></span><span style="font-weight: 500;">Every</span></button>
+<input class="field" aria-label="Pages per file" value="{{every}}" onInput="{{onEvery}}" onFocus="{{pickEvery}}" style="width: 64px; height: 32px; text-align: center;">
+<span style="color: var(--ts);">pages</span>
+</div>
+<div class="opt {{spRangeCls}}">
+<button role="radio" aria-checked="{{spRange}}" onClick="{{pickRanges}}" style="display: flex; align-items: center; gap: 12px; flex: 1; height: 32px; border: 0; padding: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer;"><span style="{{spRangeDot}}"></span><span style="font-weight: 500;">Page ranges</span></button>
+<input class="field" aria-label="Ranges" value="{{ranges}}" onInput="{{onRanges}}" onFocus="{{pickRanges}}" style="width: 180px; height: 32px;">
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 8px; background: var(--input); border: 1px solid var(--border);">
+<span style="font-size: 12.5px; font-weight: 600;">{{splitSummary}}</span>
+<sc-for list="{{parts}}" as="pt" hint-placeholder-count="3">
+<div style="display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ts);"><span>{{pt.name}}</span><span style="color: var(--tm); font-variant-numeric: tabular-nums;">{{pt.range}}</span></div>
+</sc-for>
+<sc-if value="{{moreParts}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; color: var(--tm);">{{moreText}}</span></sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{showOut}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 12px; align-items: center;">
+<span style="font-size: 13px; color: var(--ts);">{{destNameLabel}}</span>
+<div class="namebox"><input value="{{nameStem}}" onInput="{{onStem}}" aria-label="{{destNameLabel}}" spellcheck="false" style="flex: 1; min-width: 0; height: 34px; border: 0; background: transparent; padding: 0 10px; font: inherit; font-size: 13.5px; color: var(--tp); outline: none;"><sc-if value="{{hasExt}}" hint-placeholder-val="{{true}}"><span style="padding-right: 10px; color: var(--tm);">{{nameExt}}</span></sc-if></div>
+<span style="font-size: 13px; color: var(--ts);">Save in</span>
+<div style="position: relative; min-width: 0;">
+<button class="loc" onClick="{{toggleLoc}}" aria-haspopup="listbox" aria-expanded="{{locOpen}}" title="Choose where to save">
+<span style="color: var(--accent); display: flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg></span>
+<span style="font-weight: 600; white-space: nowrap;">{{locName}}</span>
+<span style="flex: 1; min-width: 0; color: var(--tm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{locPath}}</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ts)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10l5 5 5-5"></path></svg>
+</button>
+<sc-if value="{{locOpen}}" hint-placeholder-val="{{false}}">
+<div class="upmenu" role="listbox" aria-label="Save in" style="position: absolute; left: 0; right: 0; bottom: 42px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: var(--input); box-shadow: var(--shadow3); border: 1px solid var(--edge); display: flex; flex-direction: column; gap: 2px; z-index: 20;">
+<sc-for list="{{locs}}" as="l" hint-placeholder-count="4">
+<sc-if value="{{l.hasHead}}" hint-placeholder-val="{{false}}"><div style="padding: 8px 10px 2px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--tm);">{{l.head}}</div></sc-if>
+<button class="lmi" role="option" aria-selected="{{l.on}}" onClick="{{l.pick}}">
+<span style="width: 16px; display: flex; color: var(--accentStrong);"><sc-if value="{{l.on}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if></span>
+<span style="display: flex; flex-direction: column; min-width: 0; flex: 1;"><span style="font-weight: 500;">{{l.name}}</span><span style="font-size: 12px; color: var(--tm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{l.path}}</span></span>
+</button>
+</sc-for>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="lmi" onClick="{{chooseOther}}"><span style="width: 16px;"></span><span style="color: var(--ts); display: flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg></span><span style="font-weight: 500;">Choose another folder…</span></button>
+</div>
+</sc-if>
+</div>
+</div>
+<sc-if value="{{hasHint}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; color: var(--tm); padding-left: 76px;">{{destHint}}</span></sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{isDone}}" hint-placeholder-val="{{false}}">
+<div style="font-size: 13.5px; line-height: 20px;"><b style="font-weight: 600;">{{doneText}}</b> <span style="color: var(--ts);">{{doneSub}}</span></div>
+</sc-if>
+</div>
+
+<div style="display: flex; align-items: center; gap: 8px; padding: 14px 32px; background: var(--s1); border-top: 1px solid var(--border); border-radius: 0 0 16px 16px;">
+<span style="flex: 1; font-size: 12.5px; color: var(--tm);">{{footNote}}</span>
+<sc-if value="{{notDone}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; gap: 8px;"><button class="btn2" onClick="{{close}}">Cancel</button><button class="btn" onClick="{{primaryAct}}" disabled="{{primaryOff}}">{{primary}}</button></div>
+</sc-if>
+<sc-if value="{{isDone}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 8px;"><button class="btn2">Show in folder</button><sc-if value="{{canOpen}}" hint-placeholder-val="{{true}}"><button class="btn2">Open in Lector</button></sc-if><button class="btn" onClick="{{close}}">Done</button></div>
+</sc-if>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{toastOn}}" hint-placeholder-val="{{false}}">
+<div class="card" role="status" style="position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px; border-radius: 10px; background: var(--tp); color: var(--bg); box-shadow: var(--shadow2); font-size: 13px; z-index: 8; white-space: nowrap;">
+<span>{{toastText}}</span>
+<button class="tlink" onClick="{{hideToast}}">OK</button>
+</div>
+</sc-if>
+
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark","sepia"],"default":"light"},"showTier2":{"editor":"boolean","default":false},"startView":{"editor":"enum","options":["tools","recent"],"default":"tools"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  themes() { return {
+    light: { bg:'#E7E2D9', s1:'#EFEAE2', page:'#F6F3EE', s2:'#F6F3EE', input:'#FFFDF9', inputHover:'#F4F0E9', tp:'#161A18', ts:'#4A4F49', tm:'#616560', tt:'#807C76', border:'#D2CCC2', borderStrong:'#A8A6A0', edge:'#D2CCC2', accent:'#3E6259', accentHover:'#33534B', accentStrong:'#2C463F', accentSoft:'rgba(62,98,89,.14)', selFill:'#EEF1EC', onAccent:'#F6F3EE', danger:'#B44137', hover:'rgba(22,26,24,.06)', overlay:'rgba(12,10,8,.55)', shadow1:'0 1px 2px rgba(40,30,20,.06), 0 1px 3px rgba(40,30,20,.06)', shadow2:'0 2px 6px rgba(40,30,20,.08), 0 10px 28px rgba(40,30,20,.16)', shadow3:'0 4px 12px rgba(40,30,20,.10), 0 24px 56px rgba(40,30,20,.24)', dialogEdge:'0 0 0 0 transparent', paper:'#FFFFFF', toastAccent:'#A9D4C6' },
+    dark: { bg:'#171512', s1:'#25211C', page:'#1C1916', s2:'#302B25', input:'#3A352E', inputHover:'#454039', tp:'#EDE8DF', ts:'#C5BFB2', tm:'#B4ACA2', tt:'#928B81', border:'rgba(255,255,255,.08)', borderStrong:'#4A453C', edge:'rgba(255,255,255,.06)', accent:'#6FA394', accentHover:'#7FB3A4', accentStrong:'#7FB3A4', accentSoft:'rgba(111,163,148,.16)', selFill:'#3C443F', onAccent:'#1C1916', danger:'#E68A80', hover:'rgba(237,232,223,.06)', overlay:'rgba(0,0,0,.65)', shadow1:'inset 0 1px 0 rgba(255,255,255,.05)', shadow2:'inset 0 1px 0 rgba(255,255,255,.05), 0 10px 28px rgba(0,0,0,.45)', shadow3:'0 24px 56px rgba(0,0,0,.55)', dialogEdge:'0 0 0 1px rgba(255,255,255,.06)', paper:'#E6E3DE', toastAccent:'#2C463F' },
+    sepia: { bg:'#F1E7D0', s1:'#EDE2C8', page:'#F8F0DE', s2:'#F8F0DE', input:'#FEFAF1', inputHover:'#F6EEDD', tp:'#3B2F20', ts:'#5B4C38', tm:'#716249', tt:'#867B66', border:'#DDCBA0', borderStrong:'#C9B78E', edge:'#DDCBA0', accent:'#4F6B5C', accentHover:'#43594D', accentStrong:'#37483E', accentSoft:'rgba(79,107,92,.14)', selFill:'#EFEEE0', onAccent:'#F8F0DE', danger:'#AA4137', hover:'rgba(59,47,32,.06)', overlay:'rgba(30,22,12,.5)', shadow1:'0 1px 2px rgba(80,55,20,.07), 0 1px 3px rgba(80,55,20,.06)', shadow2:'0 2px 6px rgba(80,55,20,.10), 0 10px 28px rgba(80,55,20,.16)', shadow3:'0 4px 12px rgba(80,55,20,.12), 0 24px 56px rgba(80,55,20,.24)', dialogEdge:'0 0 0 0 transparent', paper:'#FFFDF7', toastAccent:'#B8DBD0' }
+  }; }
+  constructor(p) {
+    super(p);
+    this.state = {
+      view: p.startView || 'tools', rowMenu: (p.startView === 'recent') ? 0 : -1,
+      dlg: null, pickFor: null, picked: 0, done: false, toast: null, size: 'image',
+      files: null, splitBy: 'every', every: '10', ranges: '1–10, 11–40, 41–120'
+    };
+  }
+  destVals(key, stem, ext, originPath, originLabel, hint, nameLabel) {
+    const s = this.state;
+    const stems = s.stems || {};
+    const v = stems[key] != null ? stems[key] : stem;
+    const places = [{ k: 'orig', name: originLabel, folder: originPath.split('\\').pop(), path: originPath }];
+    if (s.extraLoc) places.push({ k: 'extra', name: 'Lector notes', folder: 'Lector notes', path: 'D:\\Projects\\Lector notes', head: 'Recent' });
+    [['desktop', 'Desktop'], ['documents', 'Documents'], ['downloads', 'Downloads']].forEach(([k, n], i) => places.push({ k, name: n, folder: n, path: 'C:\\Users\\…\\' + n, head: i === 0 ? 'On this PC' : '' }));
+    const cur = places.find((x) => x.k === (s.loc || 'orig')) || places[0];
+    return {
+      destNameLabel: nameLabel, nameStem: v, nameExt: ext, hasExt: !!ext,
+      onStem: (e) => this.setState({ stems: { ...stems, [key]: e.target.value } }),
+      locName: cur.folder, locPath: cur.k === 'orig' ? originLabel.toLowerCase() : cur.path,
+      locOpen: !!s.locOpen, toggleLoc: () => this.setState({ locOpen: !s.locOpen }),
+      locs: places.map((x) => ({ name: x.name, path: x.path, on: x === cur, head: x.head || '', hasHead: !!x.head, pick: () => this.setState({ loc: x.k, locOpen: false }) })),
+      chooseOther: () => this.setState({ extraLoc: true, loc: 'extra', locOpen: false }),
+      destHint: hint, hasHint: !!hint,
+      fullName: v + ext,
+      savedClause: cur.k === 'orig' ? ', ' + originLabel.toLowerCase() : cur.k === 'desktop' ? ' on the Desktop' : ' in ' + cur.folder
+    };
+  }
+  imageFiles() { return [
+    { name: 'IMG_2041.jpg', meta: 'JPEG · 2.1 MB', kind: 'img', hue: '#B9C7B4' },
+    { name: 'IMG_2042.jpg', meta: 'JPEG · 2.3 MB', kind: 'img', hue: '#C9B9A4' },
+    { name: 'Receipt scan.png', meta: 'PNG · 860 KB', kind: 'img', hue: '#D6D2C8' },
+    { name: 'Whiteboard.heic.png', meta: 'PNG · 1.4 MB', kind: 'img', hue: '#A9BCC6' }
+  ]; }
+  pdfFiles() { return [
+    { name: 'Annual Report 2025.pdf', meta: 'PDF · 120 pages', kind: 'pdf', pages: 120 },
+    { name: 'Appendix A — Financials.pdf', meta: 'PDF · 58 pages', kind: 'pdf', pages: 58 },
+    { name: 'Board minutes.pdf', meta: 'PDF · 36 pages', kind: 'pdf', pages: 36 }
+  ]; }
+  parseRanges(str) {
+    const out = [];
+    String(str).split(',').forEach((part) => {
+      const t = part.trim(); const m = t.match(/^(\d+)\s*[-–]\s*(\d+)$/);
+      if (m && +m[2] >= +m[1] && +m[1] >= 1) out.push([+m[1], Math.min(+m[2], 120)]);
+      else if (/^\d+$/.test(t) && +t <= 120 && +t >= 1) out.push([+t, +t]);
+    });
+    return out;
+  }
+  renderVals() {
+    const TH = this.themes(); const T = TH[this.props.theme] || TH.light;
+    const vars = Object.keys(T).map((k) => '--' + k + ': ' + T[k] + ';').join(' ');
+    const s = this.state;
+    const tier2 = !!this.props.showTier2;
+    const dot = (on) => 'flex: none; width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: ' + (on ? '5px solid var(--accent)' : '1.5px solid var(--tt)') + '; background: var(--input);';
+    const recent = [
+      { name: 'Annual Report 2025', when: '12 min ago', pages: '120 pages' },
+      { name: 'Scanned lease agreement', when: '2 hr ago', pages: '14 pages' },
+      { name: 'Thinking, Fast and Slow — notes', when: 'Yesterday', pages: '48 pages' },
+      { name: 'Board minutes', when: '3 days ago', pages: '36 pages' }
+    ];
+    const toolNames = { compress: 'Compress', search: 'Make searchable', export: 'Export as images', organise: 'Organise pages', split: 'Split' };
+    const icons = {
+      picker: 'M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z',
+      convert: 'M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h10a1 1 0 001-1V7zM14 3v4h4M12 10v7M9 14l3 3 3-3',
+      combine: 'M6 4v5a3 3 0 003 3h6a3 3 0 013 3v5M18 4v5a3 3 0 01-3 3M15 17l3 3 3-3',
+      split: 'M8.5 7a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8.5 17a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8 8.5L20 17M8 15.5L20 7'
+    };
+    const isConvert = s.dlg === 'convert', isCombine = s.dlg === 'combine', isSplit = s.dlg === 'split', isPicker = s.dlg === 'picker';
+    const base = isConvert ? this.imageFiles() : this.pdfFiles();
+    const files = s.files || base;
+    const nPages = isConvert ? files.reduce((a, f) => a + (f.kind === 'epub' ? 212 : 1), 0) : files.reduce((a, f) => a + (f.pages || 1), 0);
+    const hasEbook = isConvert && files.some((f) => f.kind === 'epub');
+    const move = (i, d) => { const a = files.slice(); const j = i + d; if (j < 0 || j >= a.length) return; const t = a[i]; a[i] = a[j]; a[j] = t; this.setState({ files: a }); };
+    const thumb = (f) => f.kind === 'img'
+      ? 'width: 32px; height: 32px; flex: none; border-radius: 4px; background: ' + f.hue + ';'
+      : 'width: 26px; height: 34px; flex: none; border-radius: 2px; background: var(--paper); box-shadow: 0 0 0 1px var(--border);' + (f.kind === 'epub' ? ' border-left: 3px solid var(--accent);' : '');
+    const extra = [
+      { name: 'Field notes.epub', meta: 'EPUB · 1.2 MB', kind: 'epub' },
+      { name: 'Contract draft.pdf', meta: 'PDF · 22 pages', kind: 'pdf', pages: 22 }
+    ];
+    let parts = [];
+    if (s.splitBy === 'every') {
+      const n = Math.max(1, parseInt(s.every, 10) || 1);
+      for (let a = 1; a <= 120; a += n) parts.push([a, Math.min(120, a + n - 1)]);
+    } else parts = this.parseRanges(s.ranges);
+    const outs = {
+      convert: ['Save as', 'Scan 2026-11-07.pdf', 'In D:\\Pictures, beside the first file.'],
+      combine: ['Save as', 'Annual Report 2025 (combined).pdf', 'In D:\\Reports, beside the first file.'],
+      split: ['Save to folder', 'Annual Report 2025 (split)', 'Files named Annual Report 2025 (part 1).pdf and so on.']
+    };
+    const out = outs[s.dlg] || ['', '', ''];
+    const openPicker = (t) => () => this.setState({ dlg: 'picker', pickFor: t, picked: 0, done: false, toast: null });
+    let primary = '', primaryOff = false, primaryAct = () => {};
+    if (isPicker) {
+      primary = 'Continue'; primaryAct = () => {
+        if (s.pickFor === 'split') this.setState({ dlg: 'split', done: false });
+        else this.setState({ dlg: null, toast: s.pickFor === 'organise' ? 'Opens the PDF in the reader, in Organise pages' : 'Next: the ' + toolNames[s.pickFor] + ' dialog, the same one the reader uses' });
+      };
+    } else if (isConvert) { primary = 'Create PDF · ' + nPages + (nPages === 1 ? ' page' : ' pages'); primaryOff = files.length === 0; primaryAct = () => this.setState({ done: true }); }
+    else if (isCombine) { primary = 'Combine · ' + nPages + ' pages'; primaryOff = files.length < 2; primaryAct = () => this.setState({ done: true }); }
+    else if (isSplit) { primary = 'Split into ' + parts.length + (parts.length === 1 ? ' file' : ' files'); primaryOff = parts.length < 2; primaryAct = () => this.setState({ done: true }); }
+    const titles = { picker: (toolNames[s.pickFor] || '') + ' — choose a PDF', convert: 'Convert to PDF', combine: 'Combine files', split: 'Split PDF' };
+    const descs = {
+      picker: 'Pick one of your recent PDFs, or browse for another.',
+      convert: 'Turns images into one PDF, one image a page, in the order below. E-books (EPUB, XPS, CBZ, FB2) work too.',
+      combine: 'Joins the files below into one new PDF, in this order. The originals stay as they are.',
+      split: 'Annual Report 2025.pdf · 120 pages. Makes new files; the original stays as it is.'
+    };
+    const dv = this.destVals(s.dlg || 'none', isConvert ? 'Scan 2026-11-07' : isCombine ? 'Annual Report 2025 (combined)' : 'Annual Report 2025 (split)', isSplit ? '' : '.pdf', isConvert ? 'D:\\Pictures' : 'D:\\Reports', isSplit ? 'Beside the original' : 'Beside the first file', '', 'Name');
+    const doneTexts = {
+      convert: ['Created ' + dv.fullName + '.', nPages + (nPages === 1 ? ' page' : ' pages') + dv.savedClause + '.'],
+      combine: ['Created ' + dv.fullName + '.', nPages + ' pages from ' + files.length + ' files' + dv.savedClause + '.'],
+      split: ['Made ' + parts.length + ' files.', 'In the folder “' + dv.fullName + '”' + dv.savedClause + '.']
+    };
+    const dt = doneTexts[s.dlg] || ['', ''];
+    return {
+      ...this.destVals(s.dlg || 'none', isConvert ? 'Scan 2026-11-07' : isCombine ? 'Annual Report 2025 (combined)' : 'Annual Report 2025 (split)', isSplit ? '' : '.pdf', isConvert ? 'D:\\Pictures' : 'D:\\Reports', isSplit ? 'Beside the original' : 'Beside the first file', isSplit ? 'Files inside are named Annual Report 2025 (part 1).pdf and so on.' : '', isSplit ? 'Folder' : 'Name'),
+      vars, tier2,
+      isRecent: s.view === 'recent', isTools: s.view === 'tools',
+      navRecent: s.view === 'recent' ? 'on' : '', navTools: s.view === 'tools' ? 'on' : '',
+      goRecent: () => this.setState({ view: 'recent', rowMenu: -1 }), goTools: () => this.setState({ view: 'tools', rowMenu: -1 }),
+      pageTitle: s.view === 'recent' ? 'Recent' : 'Tools',
+      rows: recent.map((r, i) => ({ ...r, open: s.rowMenu === i, cls: s.rowMenu === i ? 'on' : '', moreCls: s.rowMenu === i ? 'on' : '', toggle: () => this.setState({ rowMenu: s.rowMenu === i ? -1 : i }) })),
+      rowTool: () => this.setState({ rowMenu: -1, toast: 'Opens that tool’s dialog for this PDF — no file to choose' }),
+      openSplitDirect: () => this.setState({ rowMenu: -1, dlg: 'split', done: false, toast: null }),
+      pickCompress: openPicker('compress'), pickSearch: openPicker('search'), pickExport: openPicker('export'),
+      pickOrganise: openPicker('organise'), pickSplit: openPicker('split'),
+      openConvert: () => this.setState({ dlg: 'convert', files: null, done: false, toast: null }),
+      openCombine: () => this.setState({ dlg: 'combine', files: null, done: false, toast: null }),
+      dlgOpen: !!s.dlg,
+      dlgTitle: titles[s.dlg] || '', dlgDesc: s.done ? 'Done. The originals are unchanged.' : (descs[s.dlg] || ''),
+      dlgIcon: icons[isPicker ? 'picker' : s.dlg] || '',
+      isPicker: isPicker && !s.done,
+      picks: recent.map((r, i) => ({ name: r.name + '.pdf', pages: r.pages, on: s.picked === i, cls: s.picked === i ? 'sel' : '', pick: () => this.setState({ picked: i }) })),
+      isList: (isConvert || isCombine) && !s.done, isConvert: isConvert && !s.done, hasEbook: hasEbook && !s.done,
+      dropText: isConvert ? 'Drop images or an e-book here' : 'Drop PDFs or images here',
+      addFile: () => { const a = files.slice(); const next = extra.find((x) => !a.some((f) => f.name === x.name) && (isConvert ? x.kind !== 'pdf' : x.kind === 'pdf')); if (next) { a.push(next); this.setState({ files: a }); } },
+      files: files.map((f, i) => ({ ...f, n: i + 1, thumb: thumb(f), first: i === 0, last: i === files.length - 1, up: () => move(i, -1), down: () => move(i, 1), remove: () => this.setState({ files: files.filter((_, j) => j !== i) }) })),
+      sizes: [['image', 'Same as image'], ['a4', 'A4'], ['letter', 'Letter']].map(([v, t]) => ({ t, on: s.size === v, cls: s.size === v ? 'sel' : '', pick: () => this.setState({ size: v }) })),
+      isSplit: isSplit && !s.done,
+      spEvery: s.splitBy === 'every', spRange: s.splitBy === 'ranges',
+      spEveryCls: s.splitBy === 'every' ? 'sel' : '', spRangeCls: s.splitBy === 'ranges' ? 'sel' : '',
+      spEveryDot: dot(s.splitBy === 'every'), spRangeDot: dot(s.splitBy === 'ranges'),
+      pickEvery: () => this.setState({ splitBy: 'every' }), pickRanges: () => this.setState({ splitBy: 'ranges' }),
+      every: s.every, ranges: s.ranges,
+      onEvery: (e) => this.setState({ every: e.target.value, splitBy: 'every' }), onRanges: (e) => this.setState({ ranges: e.target.value, splitBy: 'ranges' }),
+      splitSummary: parts.length + (parts.length === 1 ? ' file' : ' files'),
+      parts: parts.slice(0, 3).map((p, i) => ({ name: 'Annual Report 2025 (part ' + (i + 1) + ').pdf', range: p[0] === p[1] ? 'page ' + p[0] : 'pages ' + p[0] + '–' + p[1] })),
+      moreParts: parts.length > 3, moreText: 'and ' + (parts.length - 3) + ' more',
+      showOut: (isConvert || isCombine || isSplit) && !s.done,
+      outLabel: out[0], outName: out[1], outHint: out[2],
+      isDone: s.done, notDone: !s.done, canOpen: !isSplit,
+      doneText: dt[0], doneSub: dt[1],
+      footNote: isCombine && !s.done ? files.length + ' files · ' + nPages + ' pages' : '',
+      primary, primaryOff, primaryAct,
+      close: () => this.setState({ dlg: null, done: false, locOpen: false, loc: 'orig' }),
+      toastOn: !!s.toast, toastText: s.toast || '', hideToast: () => this.setState({ toast: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

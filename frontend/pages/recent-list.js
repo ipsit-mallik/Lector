@@ -247,8 +247,7 @@ function buildBodyRow(entry, handlers, section) {
   more.tabIndex = -1;
   more.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    if (openRowMenuState && openRowMenuState.trigger === more) closeRowMenu();
-    else openRowMenu(more, row, entry, handlers, section);
+    toggleRowMenu(more, row, entry, handlers, section);
   });
   actions.appendChild(more);
   row.appendChild(actions);
@@ -287,142 +286,68 @@ function buildRecentTable(entries, sort, handlers, section) {
 }
 
 // --- Row "⋯" menu ------------------------------------------------------------ //
-// One menu open at a time, built fresh per open and appended to <body> so
-// the table card's rounded-corner clipping can't cut it off.
-
-const MENU_GAP_PX = 4;
-const MENU_EDGE_PX = 8;
-let openRowMenuState = null;
-
-function closeRowMenu({ restoreFocus = false } = {}) {
-  if (!openRowMenuState) return;
-  const { menu, trigger, row } = openRowMenuState;
-  openRowMenuState = null;
-  menu.remove();
-  row.classList.remove("is-menu-open");
-  trigger.setAttribute("aria-expanded", "false");
-  if (restoreFocus && trigger.isConnected) trigger.focus();
-}
+// The shared popup menu (js/popup-menu.js): one open at a time, appended to
+// <body> so the table card's rounded-corner clipping can't cut it off. The
+// grid card's "⋯" opens the same menu (recent-card.js).
 
 function buildMenuItem(icon, label, onSelect) {
-  const item = document.createElement("button");
-  item.type = "button";
-  item.className = "recent-menu-item";
-  item.setAttribute("role", "menuitem");
-  item.tabIndex = -1;
-  const iconEl = document.createElement("span");
-  iconEl.dataset.icon = icon;
-  item.appendChild(iconEl);
-  item.appendChild(document.createTextNode(label));
-  item.addEventListener("click", onSelect);
-  return item;
-}
-
-function positionRowMenu(menu, trigger) {
-  const anchor = trigger.getBoundingClientRect();
-  const box = menu.getBoundingClientRect();
-  let top = anchor.bottom + MENU_GAP_PX;
-  if (top + box.height > window.innerHeight - MENU_EDGE_PX) {
-    top = anchor.top - box.height - MENU_GAP_PX;
-  }
-  const left = Math.max(MENU_EDGE_PX, anchor.right - box.width);
-  menu.style.top = `${Math.max(MENU_EDGE_PX, top)}px`;
-  menu.style.left = `${left}px`;
-}
-
-function handleMenuKeydown(ev) {
-  const items = Array.from(ev.currentTarget.querySelectorAll("[role='menuitem']"));
-  const index = items.indexOf(document.activeElement);
-  const moves = {
-    ArrowDown: (index + 1) % items.length,
-    ArrowUp: (index - 1 + items.length) % items.length,
-    Home: 0,
-    End: items.length - 1,
-  };
-  if (ev.key in moves) {
-    ev.preventDefault();
-    items[moves[ev.key]].focus();
-  } else if (ev.key === "Escape") {
-    ev.preventDefault();
-    ev.stopPropagation();
-    closeRowMenu({ restoreFocus: true });
-  } else if (ev.key === "Tab") {
-    // Hand focus back to the "⋯" button before the browser moves it, so
-    // Tab carries on from the row rather than from the end of <body>.
-    closeRowMenu({ restoreFocus: true });
-  }
+  return buildPopupMenuItem({ icon, label, onSelect, className: "recent-menu-item" });
 }
 
 // Remove from Recent, below a separator, with the note that the file stays on
 // disk. Only offered in Recent: in Favorites the file may not be listed in
 // Recent at all, and un-starring is the row's star.
-function buildRemoveItems(entry, rowIndex, handlers, select) {
+function buildRemoveItems(entry, rowIndex, handlers) {
   const note = document.createElement("p");
   note.className = "recent-menu-note";
   note.id = "recentMenuNote";
   // Not a menu item: exposed through the Remove item's aria-describedby only.
   note.setAttribute("role", "none");
   note.textContent = "Only removes it from this list. The file stays on disk.";
-  const remove = buildMenuItem("remove", "Remove from Recent", select(() => handlers.onRemove(entry, rowIndex)));
+  const remove = buildMenuItem("remove", "Remove from Recent", () => handlers.onRemove(entry, rowIndex));
   remove.setAttribute("aria-describedby", note.id);
-  const separator = document.createElement("div");
-  separator.className = "recent-menu-separator";
-  separator.setAttribute("role", "separator");
-  return [separator, remove, note];
+  return [buildPopupMenuSeparator("recent-menu-separator"), remove, note];
 }
 
+// Compress, Make searchable and Export as images, for this file (Milestone
+// F1), below a separator. Each opens that tool's dialog with no file to pick.
+function buildToolItems(entry, handlers) {
+  if (!handlers.onTool) return [];
+  return [
+    buildPopupMenuSeparator("recent-menu-separator"),
+    buildMenuItem("compress", "Compress…", () => handlers.onTool("compress", entry)),
+    buildMenuItem("searchable", "Make searchable…", () => handlers.onTool("searchable", entry)),
+    buildMenuItem("export_images", "Export as images…", () => handlers.onTool("export", entry)),
+  ];
+}
+
+// `row` is the list row or grid card the menu is for: it is marked open while
+// the menu is (`is-menu-open`), and its place in the list is the index Remove
+// passes on.
 function openRowMenu(trigger, row, entry, handlers, section) {
-  closeRowMenu();
-  const menu = document.createElement("div");
-  menu.className = "recent-menu";
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", `Actions for ${entry.title}`);
-
-  const select = (action) => () => {
-    closeRowMenu({ restoreFocus: true });
-    action();
-  };
   const rowIndex = Array.from(row.parentElement.querySelectorAll(".recent-item")).indexOf(row);
-
   // No favorite item: the row's own star (buildFavoriteBtn) already does it.
-  menu.append(
-    buildMenuItem("open_pdf", "Open", select(() => handlers.onOpen(entry))),
-    buildMenuItem("folder", "Show in folder", select(() => handlers.onShowInFolder(entry))),
-    ...(section === "recent" ? buildRemoveItems(entry, rowIndex, handlers, select) : [])
-  );
-  menu.addEventListener("keydown", handleMenuKeydown);
-  document.body.appendChild(menu);
-  mountIcons(menu);
-  positionRowMenu(menu, trigger);
-
-  openRowMenuState = { menu, trigger, row };
-  row.classList.add("is-menu-open");
-  trigger.setAttribute("aria-expanded", "true");
-  menu.querySelector("[role='menuitem']").focus();
-}
-
-// Any press outside the menu, scrolling the list under it, or resizing
-// closes it — it is anchored to a row that would otherwise move out from
-// under it. Only the page's own scroller counts (the document or Home's
-// .content): other scrolling, such as a dialog's list, leaves it open. Losing
-// window focus doesn't close it either, so switching apps and back is safe.
-function initRowMenuDismissal() {
-  if (typeof document === "undefined") return;
-  document.addEventListener("pointerdown", (ev) => {
-    if (!openRowMenuState) return;
-    const { menu, trigger } = openRowMenuState;
-    if (!menu.contains(ev.target) && !trigger.contains(ev.target)) closeRowMenu();
+  const children = [
+    buildMenuItem("open_pdf", "Open", () => handlers.onOpen(entry)),
+    buildMenuItem("folder", "Show in folder", () => handlers.onShowInFolder(entry)),
+    ...buildToolItems(entry, handlers),
+    ...(section === "recent" ? buildRemoveItems(entry, rowIndex, handlers) : []),
+  ];
+  openPopupMenu({
+    trigger,
+    children,
+    className: "recent-menu",
+    label: `Actions for ${entry.title}`,
+    // Anchored to a row that moves when the list scrolls: only the page's
+    // own scroller counts (the document or Home's .content), so scrolling a
+    // dialog's list leaves it open.
+    closesOnScroll: (target) => target === document || (target.classList && target.classList.contains("content")),
+    onClose: () => row.classList.remove("is-menu-open"),
   });
-  document.addEventListener(
-    "scroll",
-    (ev) => {
-      if (!openRowMenuState) return;
-      const scroller = ev.target === document || ev.target.classList.contains("content");
-      if (scroller) closeRowMenu();
-    },
-    true
-  );
-  window.addEventListener("resize", () => closeRowMenu());
+  row.classList.add("is-menu-open");
 }
 
-initRowMenuDismissal();
+function toggleRowMenu(trigger, row, entry, handlers, section) {
+  if (isPopupMenuOpen(trigger)) closePopupMenu();
+  else openRowMenu(trigger, row, entry, handlers, section);
+}

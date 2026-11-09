@@ -28,6 +28,7 @@ import queue
 import re
 import threading
 import time
+from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -373,6 +374,36 @@ def _worker_init(crash_log: str) -> None:
 FinishedCallback = Callable[[OcrJob, str, dict | None], None]
 
 
+class WorkerLost(Exception):
+    """A call's worker process crashed, hung past its timeout, or was shut
+    down with the app; its result will never come."""
+
+
+class CallAborted(Exception):
+    """A call stopped by its `abort` event: the worker process was ended
+    mid-call (and is replaced on next use), so nothing it was doing finished."""
+
+
+@dataclass
+class _Call:
+    """Any module-level function run in the worker, queued with the OCR jobs
+    so the two never run at once (the file tools, `features/file_tools/`)."""
+
+    fn: Callable
+    args: tuple
+    timeout: float
+    future: Future
+    abort: threading.Event | None
+
+
+def _worker_pids(pool) -> frozenset:
+    """The pool's worker process ids. A pool replaces a worker that died, so
+    a change while a call waits means the call's worker is gone: found at
+    once rather than at its timeout. Reads `Pool._pool`, which is private;
+    an empty set (never changing) if it isn't there."""
+    return frozenset(getattr(p, "pid", None) for p in getattr(pool, "_pool", ()) or ())
+
+
 class OcrRunner:
     """Runs OCR jobs one at a time in a single worker process.
 
@@ -406,18 +437,92 @@ class OcrRunner:
     def submit(self, job: OcrJob) -> None:
         if self._closing.is_set():
             return
+        self._start_thread()
+        self._jobs.put(job)
+
+    def call(
+        self,
+        fn: Callable,
+        args: tuple = (),
+        timeout: float = OCR_TIMEOUT_S,
+        abort: threading.Event | None = None,
+    ) -> Future:
+        """Run `fn(*args)` in the worker process, after whatever is queued,
+        and return a Future for its result. `fn` must be a module-level
+        function (it is pickled by name). The Future fails with the call's
+        own exception, `WorkerLost`, or — when `abort` is set while it runs —
+        `CallAborted`, after the worker process has been ended."""
+        future: Future = Future()
+        if self._closing.is_set():
+            future.set_exception(WorkerLost())
+            return future
+        self._start_thread()
+        self._jobs.put(_Call(fn, tuple(args), timeout, future, abort))
+        return future
+
+    def _start_thread(self) -> None:
         with self._pool_lock:
             if self._thread is None:
                 self._thread = threading.Thread(target=self._serve, name="lector-ocr", daemon=True)
                 self._thread.start()
-        self._jobs.put(job)
 
     def _serve(self) -> None:
         while not self._closing.is_set():
             job = self._jobs.get()
             if job is None:  # shutdown's wake-up
                 return
-            self._run(job)
+            if isinstance(job, _Call):
+                self._run_call(job)
+            else:
+                self._run(job)
+        self._fail_queued_calls()
+
+    def _fail_queued_calls(self) -> None:
+        """After shutdown, a call still queued would leave its caller waiting
+        for ever."""
+        while True:
+            try:
+                job = self._jobs.get_nowait()
+            except queue.Empty:
+                return
+            if isinstance(job, _Call) and not job.future.done():
+                job.future.set_exception(WorkerLost())
+
+    def _run_call(self, call: _Call) -> None:
+        if not call.future.set_running_or_notify_cancel():
+            return
+        if call.abort is not None and call.abort.is_set():
+            call.future.set_exception(CallAborted())
+            return
+        try:
+            pool = self._ensure_pool()
+            workers = _worker_pids(pool)
+            pending = pool.apply_async(call.fn, call.args)
+            deadline = time.monotonic() + call.timeout
+            while not pending.ready():
+                if self._closing.is_set():
+                    raise WorkerLost()
+                if call.abort is not None and call.abort.is_set():
+                    # One long MuPDF call has no point to stop at, so the
+                    # process goes; the next call starts a fresh one.
+                    log.info("A file job was stopped mid-step; replacing the worker")
+                    self._discard_pool()
+                    call.future.set_exception(CallAborted())
+                    return
+                if time.monotonic() > deadline or _worker_pids(pool) != workers:
+                    log.error(
+                        "A worker call timed out or its worker died (see ocr-worker.log); "
+                        "replacing the worker"
+                    )
+                    self._discard_pool()
+                    raise WorkerLost()
+                pending.wait(_WAIT_SLICE_S)
+            call.future.set_result(pending.get(0))
+        except WorkerLost as exc:
+            call.future.set_exception(exc)
+        except Exception as exc:
+            # The call's own exception, pickled back from the worker.
+            call.future.set_exception(exc)
 
     def _run(self, job: OcrJob) -> None:
         status, payload = self._read(job)

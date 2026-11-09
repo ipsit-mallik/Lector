@@ -120,8 +120,10 @@ function _ensureToastRegion() {
 }
 
 // Returns a dismiss function, so a caller can retract the toast early (e.g.
-// when the action it offers to undo has itself been reverted).
-function showToast(message, { actionLabel, onAction, durationMs } = {}) {
+// when the action it offers to undo has itself been reverted). One action is
+// `actionLabel` + `onAction`; several (a finished file job's Open and Show in
+// folder) are `actions: [{ label, onAction }]`.
+function showToast(message, { actionLabel, onAction, actions, durationMs } = {}) {
   const region = _ensureToastRegion();
   const toast = document.createElement("div");
   toast.className = "toast";
@@ -129,7 +131,9 @@ function showToast(message, { actionLabel, onAction, durationMs } = {}) {
   text.textContent = message;
   toast.appendChild(text);
 
-  const ms = durationMs ?? (actionLabel ? TOAST_WITH_ACTION_MS : TOAST_DEFAULT_MS);
+  const buttons = actions ? [...actions] : [];
+  if (actionLabel && onAction) buttons.unshift({ label: actionLabel, onAction });
+  const ms = durationMs ?? (buttons.length ? TOAST_WITH_ACTION_MS : TOAST_DEFAULT_MS);
   let timer = null;
   const dismiss = () => {
     clearTimeout(timer);
@@ -140,14 +144,14 @@ function showToast(message, { actionLabel, onAction, durationMs } = {}) {
     setTimeout(() => toast.remove(), 400);
   };
 
-  if (actionLabel && onAction) {
+  for (const action of buttons) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "toast-action";
-    btn.textContent = actionLabel;
+    btn.textContent = action.label;
     btn.addEventListener("click", () => {
       dismiss();
-      onAction();
+      action.onAction();
     });
     toast.appendChild(btn);
   }
@@ -377,6 +381,35 @@ function initRadioCards(group, { selectOnArrow = true } = {}) {
     subtree: true,
   });
   sync();
+}
+
+// Keep Tab and Shift+Tab inside `container` (a modal dialog's card) while it
+// is open: past the last control comes the first, and before the first the
+// last. Returns the function that stops it. Only controls the reader can
+// reach count: hidden ones, disabled ones and a radio group's unselected
+// cards (tabIndex -1) are skipped.
+function trapFocus(container) {
+  const reachable = () =>
+    Array.from(container.querySelectorAll("button, input, select, textarea, a[href], [tabindex]")).filter(
+      (el) => el.tabIndex >= 0 && !el.disabled && el.getClientRects().length > 0
+    );
+  const onKeydown = (ev) => {
+    if (ev.key !== "Tab") return;
+    const all = reachable();
+    if (!all.length) return;
+    const first = all[0];
+    const last = all[all.length - 1];
+    const inside = container.contains(document.activeElement);
+    if (ev.shiftKey && (document.activeElement === first || !inside)) {
+      ev.preventDefault();
+      last.focus();
+    } else if (!ev.shiftKey && (document.activeElement === last || !inside)) {
+      ev.preventDefault();
+      first.focus();
+    }
+  };
+  document.addEventListener("keydown", onKeydown, true);
+  return () => document.removeEventListener("keydown", onKeydown, true);
 }
 
 initTooltips();

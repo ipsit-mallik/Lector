@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 import pymupdf
 
 from lector.features.annotations import highlighter
+from lector.features.file_tools import engine as file_tool_engine
 from lector.features.reading import ocr, ocr_cache, open_errors, safe_write, search
 from lector.features.reading.open_errors import OpenError
 from lector.features.reading.outline import OutlineEntry, outline_tree
@@ -902,6 +903,64 @@ class PdfDocument:
             return {}
         counts = {i: highlighter.highlight_count(self._doc[i]) for i in range(len(self._doc))}
         return {i: n for i, n in counts.items() if n}
+
+    # ------------------------------------------------------------------ #
+    # File tools (features/file_tools/)                                    #
+    # ------------------------------------------------------------------ #
+
+    def snapshot(self) -> tuple[bytes, str | None]:
+        """The document as it is now, unsaved highlights included, as PDF
+        bytes for a file tool to work on, and the password they need (held
+        in memory only). The open document, its unsaved state and its undo
+        history are left exactly as they were: no garbage collection (it
+        renumbers the xrefs the undo stack names), and the encryption kept."""
+        with self._save_lock:
+            data = self._doc.tobytes(deflate=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
+            return data, self._password
+
+    def describe_for_tools(self, page_index: int) -> dict:
+        """What a tool dialog shows about the open document (see
+        `file_tools.engine.describe_document`), using the per-page "has a
+        text layer" answers already cached here, so it never runs OCR."""
+        return file_tool_engine.describe_document(self._doc, page_index, self._is_scanned)
+
+    def unsaved_highlight_count(self) -> int:
+        """How many more highlights the open document has than its file on
+        disk: what a tool's "Includes your N unsaved highlights" counts.
+        0 when nothing is unsaved, or when the change was a recolour or a
+        removal rather than a new highlight."""
+        if not self._doc or not self._dirty:
+            return 0
+        try:
+            saved = self._open_unlocked(self._path)
+        except Exception:
+            return 0
+        try:
+            on_disk = sum(highlighter.highlight_count(page) for page in saved)
+        finally:
+            saved.close()
+        return max(0, self.highlight_count_total() - on_disk)
+
+    def textless_pages(self) -> list[int]:
+        """The pages with no text layer that show an image, worked out once
+        per page and cached for as long as the document is open."""
+        if not self._doc:
+            return []
+        return [i for i in range(len(self._doc)) if self._is_scanned(i)]
+
+    def ocr_words(self, page_index: int) -> list | None:
+        """The words OCR read on a scanned page (in memory, or cached from an
+        earlier session) in `ocr.recognize`'s form, or None if it hasn't been
+        read. Never starts a read."""
+        if not self._doc or not 0 <= page_index < len(self._doc):
+            return None
+        text = self._ocr_text_for(page_index)
+        if text is None:
+            return None
+        return [
+            [w.rect.x0, w.rect.y0, w.rect.x1, w.rect.y1, w.text, w.block_no, w.line_no, w.word_no]
+            for w in text[1]
+        ]
 
     def is_open_document(self, path: str) -> bool:
         """Whether `path` is the PDF that is open, however it is spelled."""

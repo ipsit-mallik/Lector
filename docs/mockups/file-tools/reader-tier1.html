@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tier 1 · Reader file tools</title>
+<script src="./dc-lite.js"></script>
+</head>
+<body>
+<template data-dc>
+<helmet>
+<style>
+body{margin:0}
+.ib{width:32px;height:32px;border:0;padding:0;background:transparent;border-radius:6px;color:var(--ts);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1),color .12s cubic-bezier(.2,.8,.2,1)}
+.ib:hover{background:var(--hover);color:var(--tp)}
+.ib.on{background:var(--accentSoft);color:var(--accentStrong)}
+.rb{width:40px;height:40px;border:0;padding:0;background:transparent;border-radius:8px;color:var(--ts);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.rb:hover{background:var(--hover);color:var(--tp)}
+.mi{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 10px;border:0;background:transparent;border-radius:6px;font:inherit;font-size:13.5px;color:var(--tp);text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s cubic-bezier(.2,.8,.2,1)}
+.mi:hover{background:var(--hover)}
+.mi svg{color:var(--ts);flex:none}
+.btn{height:36px;padding:0 16px;border:0;border-radius:8px;background:var(--accent);color:var(--onAccent);font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{background:var(--accentHover)}
+.btn2{height:36px;padding:0 14px;border:1px solid var(--borderStrong);border-radius:8px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1)}
+.btn2:hover{background:var(--inputHover)}
+.btn3{height:36px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--ts);font:inherit;font-size:13.5px;font-weight:500;cursor:pointer}
+.btn3:hover{background:var(--hover);color:var(--tp)}
+.opt{display:flex;gap:12px;align-items:flex-start;width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--input);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box;color:var(--tp);transition:border-color .12s cubic-bezier(.2,.8,.2,1),background-color .12s cubic-bezier(.2,.8,.2,1)}
+.opt:hover{border-color:var(--borderStrong)}
+.opt.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--selFill)}
+.seg{display:inline-flex;padding:3px;gap:2px;border-radius:8px;background:var(--s1);border:1px solid var(--border)}
+.sg{height:30px;padding:0 14px;border:0;border-radius:6px;background:transparent;color:var(--ts);font:inherit;font-size:13px;font-weight:500;cursor:pointer;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sg:hover{color:var(--tp)}
+.sg.sel{background:var(--input);color:var(--tp);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.chipbtn{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:1px solid var(--border);border-radius:999px;background:var(--input);color:var(--tp);font:inherit;font-size:12.5px;cursor:pointer}
+.chipbtn:hover{border-color:var(--borderStrong)}
+.tlink{border:0;background:transparent;padding:0 4px;height:28px;border-radius:6px;color:var(--toastAccent);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.tlink:hover{text-decoration:underline}
+.field{height:36px;box-sizing:border-box;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px}
+.loc{display:flex;align-items:center;gap:8px;width:100%;height:36px;box-sizing:border-box;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px;text-align:left;cursor:pointer;transition:border-color .12s cubic-bezier(.2,.8,.2,1)}
+.loc:hover{border-color:var(--borderStrong)}
+.loc[aria-expanded="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.lmi{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:4px 10px;border:0;border-radius:6px;background:transparent;color:var(--tp);font:inherit;font-size:13.5px;text-align:left;cursor:pointer;box-sizing:border-box}
+.lmi:hover{background:var(--hover)}
+.lmi[aria-selected="true"]{background:var(--accentSoft)}
+.namebox{display:flex;align-items:center;min-width:0;height:36px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;background:var(--input)}
+.namebox:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+@keyframes up{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+.upmenu{animation:up .14s cubic-bezier(.2,.8,.2,1);transform-origin:bottom left}
+@media (prefers-reduced-motion: reduce){.upmenu{animation:none}}
+.field:focus{outline:2px solid var(--accent);outline-offset:1px}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes rise{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.menu{animation:rise .14s cubic-bezier(.2,.8,.2,1);transform-origin:top right}
+.card{animation:pop .2s cubic-bezier(.2,.8,.2,1)}
+.spin{animation:spin .9s linear infinite}
+@media (prefers-reduced-motion: reduce){.menu,.card,.spin{animation:none}}
+</style>
+</helmet>
+<div style="{{vars}} position: relative; width: 1280px; height: 800px; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); color: var(--tp); font-family: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif; font-size: 13.5px;">
+
+<div style="height: 48px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 24px 0 16px; background: var(--s1); border-bottom: 1px solid var(--border);">
+<button class="ib" aria-label="Outline and pages"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M9 4.5v15"></path></svg></button>
+<button class="btn3" style="height: 36px; padding: 0 8px; display: flex; align-items: center; gap: 2px; font-size: 12.5px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Library</button>
+<span style="font-family: Charter, Georgia, serif; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Annual Report 2025</span>
+<span style="flex: 1;"></span>
+<button class="ib" aria-label="Previous page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></button>
+<span style="width: 52px; height: 30px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 6px; background: var(--input); display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums;">34</span>
+<span style="color: var(--tm); font-size: 13px;">of 120</span>
+<button class="ib" aria-label="Next page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+<span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
+<button class="ib" aria-label="Zoom out"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"></path></svg></button>
+<button class="btn3" style="width: 76px; height: 32px; padding: 0; font-variant-numeric: tabular-nums; color: var(--tp);">100%</button>
+<button class="ib" aria-label="Zoom in"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12M12 6v12"></path></svg></button>
+<span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
+<button class="ib" aria-label="Focus mode"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
+<button class="ib {{moreCls}}" onClick="{{toggleMenu}}" aria-label="More" aria-haspopup="menu" aria-expanded="{{menu}}" title="More"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="18.5" cy="12" r="1.7"></circle></svg></button>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex;">
+<div style="width: 14px; flex: none; display: flex; justify-content: center; padding: 10px 0; box-sizing: border-box;">
+<div style="width: 6px; height: 100%; border-radius: 3px; background: var(--track); position: relative; overflow: hidden; opacity: .55;">
+<div style="position: absolute; left: 0; right: 0; top: 0; height: 28%; background: var(--progressFill);"></div>
+</div>
+</div>
+<div style="flex: 1; min-width: 0; display: flex; justify-content: center; padding-top: 24px; overflow: hidden;">
+<div style="width: 520px; height: 736px; flex: none; background: var(--paper); box-shadow: var(--shadowPage); box-sizing: border-box; padding: 72px 64px; display: flex; flex-direction: column; gap: 12px;">
+<div style="height: 14px; width: 58%; border-radius: 3px; background: var(--ink); opacity: .55; margin-bottom: 14px;"></div>
+<sc-for list="{{lines}}" as="ln" hint-placeholder-count="14">
+<div style="{{ln.s}}"></div>
+</sc-for>
+</div>
+</div>
+<div style="width: 56px; flex: none; background: var(--s1); border-left: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+<button class="rb" aria-label="Highlight"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4l5 5-9 9H6v-5z"></path><path d="M4 21h16"></path></svg></button>
+<span style="width: 22px; height: 4px; border-radius: 2px; background: #F7DE7A; margin: -2px 0 2px;"></span>
+<button class="rb" aria-label="Undo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 010 10h-3"></path></svg></button>
+<button class="rb" aria-label="Redo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H9a5 5 0 000 10h3"></path></svg></button>
+<button class="rb" aria-label="Find in document"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg></button>
+<span style="width: 24px; height: 1px; background: var(--border); margin: 8px 0;"></span>
+<button class="rb" aria-label="Book layout" style="background: var(--accentSoft); color: var(--accentStrong);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5c3-1 6-1 9 1 3-2 6-2 9-1V19c-3-1-6-1-9 1-3-2-6-2-9-1z"></path><path d="M12 6.5V20"></path></svg></button>
+<button class="rb" aria-label="Cycle theme"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 000 16z" fill="currentColor"></path></svg></button>
+</div>
+</div>
+
+<div style="height: 44px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--s1); border-top: 1px solid var(--border);">
+<span style="display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--input); font-size: 12.5px; color: var(--ts);"><span style="width: 7px; height: 7px; border-radius: 50%; background: var(--tt);"></span>Mic idle</span>
+<span style="font-size: 12.5px; color: var(--tm);">Hold Space to talk</span>
+<span style="flex: 1;"></span>
+<sc-if value="{{showChip}}" hint-placeholder-val="{{false}}">
+<button class="chipbtn" onClick="{{reopen}}" title="Show progress">
+<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="3" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="var(--border)"></circle><path d="M12 3a9 9 0 019 9" stroke="var(--accent)" stroke-linecap="round"></path></svg>
+<span>{{chipText}}</span>
+</button>
+</sc-if>
+<span style="font-size: 12.5px; color: var(--tm);">3 highlights on this page</span>
+<button class="btn2" style="height: 30px; font-size: 12.5px;">What can I say?</button>
+</div>
+
+<sc-if value="{{menu}}" hint-placeholder-val="{{true}}">
+<div class="menu" role="menu" aria-label="File" style="position: absolute; top: 52px; right: 16px; width: 272px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: var(--input); box-shadow: var(--shadow3); border: 1px solid var(--edge); display: flex; flex-direction: column; gap: 2px; z-index: 5;">
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v5h7V4M8 20v-6h8v6"></path></svg><span style="flex: 1;">Save</span><span style="font-size: 12px; color: var(--tm);">Ctrl+S</span></button>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="1.5"></rect><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"></path></svg><span style="flex: 1;">Save a copy…</span><span style="font-size: 12px; color: var(--tm);">Ctrl+Shift+S</span></button>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="mi" role="menuitem" onClick="{{openCompress}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3M4 12h16"></path></svg><span style="flex: 1;">Compress…</span></button>
+<button class="mi" role="menuitem" onClick="{{openSearch}}" style="height: 48px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H6v18h6"></path><path d="M13 3l5 5v3"></path><circle cx="16.5" cy="16.5" r="3.5"></circle><path d="M19 19l2.5 2.5"></path></svg><span style="flex: 1; display: flex; flex-direction: column; gap: 1px;"><span>Make searchable…</span><span style="font-size: 12px; color: var(--tm);">42 pages have no text</span></span></button>
+<button class="mi" role="menuitem" onClick="{{openExport}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><circle cx="9" cy="10" r="1.8"></circle><path d="M20.5 16l-5-5-9 8.5"></path></svg><span style="flex: 1;">Export as images…</span></button>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg><span style="flex: 1;">Show in folder</span></button>
+</div>
+</sc-if>
+
+<sc-if value="{{dlgOpen}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: 10;">
+<div class="card" role="dialog" aria-modal="true" aria-labelledby="dt" style="width: 520px; box-sizing: border-box; border-radius: 16px; background: var(--s2); box-shadow: var(--shadow3), var(--dialogEdge); overflow: visible; display: flex; flex-direction: column;">
+<div style="padding: 24px 32px 0; display: flex; gap: 14px; align-items: flex-start;">
+<div style="width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;">
+<sc-if value="{{isC}}" hint-placeholder-val="{{true}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3M4 12h16"></path></svg></sc-if>
+<sc-if value="{{isS}}" hint-placeholder-val="{{false}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H6v18h6"></path><path d="M13 3l5 5v3"></path><circle cx="16.5" cy="16.5" r="3.5"></circle><path d="M19 19l2.5 2.5"></path></svg></sc-if>
+<sc-if value="{{isE}}" hint-placeholder-val="{{false}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><circle cx="9" cy="10" r="1.8"></circle><path d="M20.5 16l-5-5-9 8.5"></path></svg></sc-if>
+</div>
+<div style="flex: 1; min-width: 0;">
+<p id="dt" style="margin: 0; font-family: Charter, Georgia, serif; font-size: 22px; line-height: 28px;">{{title}}</p>
+<p style="margin: 4px 0 0; font-size: 13.5px; line-height: 20px; color: var(--ts);">{{desc}}</p>
+</div>
+</div>
+
+<div style="padding: 20px 32px 24px; display: flex; flex-direction: column; gap: 16px;">
+
+<sc-if value="{{cSetup}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; gap: 8px; font-size: 12.5px; color: var(--tm);"><span>Now <b style="color: var(--tp); font-weight: 600;">24.6 MB</b></span><span>·</span><span>120 pages</span><span>·</span><span>96 images</span></div>
+<div role="radiogroup" aria-label="Level" style="display: flex; flex-direction: column; gap: 8px;">
+<sc-for list="{{levels}}" as="o" hint-placeholder-count="3">
+<button class="opt {{o.cls}}" role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}">
+<span style="{{o.dot}}"></span>
+<span style="display: flex; flex-direction: column; gap: 2px; flex: 1;">
+<span style="display: flex; align-items: center; gap: 8px; font-weight: 600;">{{o.t}}<sc-if value="{{o.rec}}" hint-placeholder-val="{{false}}"><span style="font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accentSoft); color: var(--accentStrong);">Recommended</span></sc-if></span>
+<span style="font-size: 12.5px; line-height: 18px; color: var(--ts);">{{o.d}}</span>
+</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{sSetup}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 8px; background: var(--input); border: 1px solid var(--border);">
+<div style="font-family: Charter, Georgia, serif; font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums;">42</div>
+<div style="font-size: 13px; line-height: 19px; color: var(--ts);">of 120 pages are pictures of text, so they can't be searched or selected yet. The other 78 already have text and are left as they are.</div>
+</div>
+<div role="radiogroup" aria-label="Pages" style="display: flex; flex-direction: column; gap: 8px;">
+<sc-for list="{{sOpts}}" as="o" hint-placeholder-count="2">
+<button class="opt {{o.cls}}" role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="padding: 10px 14px; align-items: center;">
+<span style="{{o.dot}}"></span>
+<span style="flex: 1; font-weight: 500;">{{o.t}}</span>
+<span style="font-size: 12.5px; color: var(--tm);">{{o.d}}</span>
+</button>
+</sc-for>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; font-size: 13px;"><span style="color: var(--ts);">Language</span><span>English <span style="color: var(--tm);">· read on this computer</span></span></div>
+</div>
+</sc-if>
+
+<sc-if value="{{eSetup}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: grid; grid-template-columns: 96px 1fr; row-gap: 14px; align-items: center;">
+<span style="color: var(--ts);">Format</span>
+<div style="display: flex; align-items: center; gap: 12px;">
+<div class="seg" role="radiogroup" aria-label="Format">
+<button class="sg {{pngCls}}" role="radio" aria-checked="{{isPng}}" onClick="{{pickPng}}">PNG</button>
+<button class="sg {{jpgCls}}" role="radio" aria-checked="{{isJpg}}" onClick="{{pickJpg}}">JPEG</button>
+</div>
+<span style="font-size: 12.5px; color: var(--tm);">{{fmtHint}}</span>
+</div>
+<span style="color: var(--ts);">Resolution</span>
+<div style="display: flex; align-items: center; gap: 12px;">
+<div class="seg" role="radiogroup" aria-label="Resolution">
+<sc-for list="{{ppis}}" as="p" hint-placeholder-count="3">
+<button class="sg {{p.cls}}" role="radio" aria-checked="{{p.on}}" onClick="{{p.pick}}">{{p.t}}</button>
+</sc-for>
+</div>
+<span style="font-size: 12.5px; color: var(--tm); font-variant-numeric: tabular-nums;">{{pxHint}}</span>
+</div>
+</div>
+<div role="radiogroup" aria-label="Pages" style="display: flex; flex-direction: column; gap: 8px;">
+<sc-for list="{{eOpts}}" as="o" hint-placeholder-count="3">
+<button class="opt {{o.cls}}" role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="padding: 10px 14px; align-items: center;">
+<span style="{{o.dot}}"></span>
+<span style="flex: 1; font-weight: 500;">{{o.t}}</span>
+<span style="font-size: 12.5px; color: var(--tm);">{{o.d}}</span>
+</button>
+</sc-for>
+<sc-if value="{{showRange}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; gap: 10px; padding-left: 42px;">
+<input class="field" aria-label="Page range" value="{{range}}" onInput="{{onRange}}" style="width: 160px;">
+<span style="font-size: 12.5px; color: var(--tm);">e.g. 1–5, 8, 11–13</span>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{setup}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 12px; align-items: center;">
+<span style="font-size: 13px; color: var(--ts);">{{destNameLabel}}</span>
+<div class="namebox"><input value="{{nameStem}}" onInput="{{onStem}}" aria-label="{{destNameLabel}}" spellcheck="false" style="flex: 1; min-width: 0; height: 34px; border: 0; background: transparent; padding: 0 10px; font: inherit; font-size: 13.5px; color: var(--tp); outline: none;"><sc-if value="{{hasExt}}" hint-placeholder-val="{{true}}"><span style="padding-right: 10px; color: var(--tm);">{{nameExt}}</span></sc-if></div>
+<span style="font-size: 13px; color: var(--ts);">Save in</span>
+<div style="position: relative; min-width: 0;">
+<button class="loc" onClick="{{toggleLoc}}" aria-haspopup="listbox" aria-expanded="{{locOpen}}" title="Choose where to save">
+<span style="color: var(--accent); display: flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg></span>
+<span style="font-weight: 600; white-space: nowrap;">{{locName}}</span>
+<span style="flex: 1; min-width: 0; color: var(--tm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{locPath}}</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ts)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10l5 5 5-5"></path></svg>
+</button>
+<sc-if value="{{locOpen}}" hint-placeholder-val="{{false}}">
+<div class="upmenu" role="listbox" aria-label="Save in" style="position: absolute; left: 0; right: 0; bottom: 42px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: var(--input); box-shadow: var(--shadow3); border: 1px solid var(--edge); display: flex; flex-direction: column; gap: 2px; z-index: 20;">
+<sc-for list="{{locs}}" as="l" hint-placeholder-count="4">
+<sc-if value="{{l.hasHead}}" hint-placeholder-val="{{false}}"><div style="padding: 8px 10px 2px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--tm);">{{l.head}}</div></sc-if>
+<button class="lmi" role="option" aria-selected="{{l.on}}" onClick="{{l.pick}}">
+<span style="width: 16px; display: flex; color: var(--accentStrong);"><sc-if value="{{l.on}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if></span>
+<span style="display: flex; flex-direction: column; min-width: 0; flex: 1;"><span style="font-weight: 500;">{{l.name}}</span><span style="font-size: 12px; color: var(--tm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{l.path}}</span></span>
+</button>
+</sc-for>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="lmi" onClick="{{chooseOther}}"><span style="width: 16px;"></span><span style="color: var(--ts); display: flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg></span><span style="font-weight: 500;">Choose another folder…</span></button>
+</div>
+</sc-if>
+</div>
+</div>
+<sc-if value="{{hasHint}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; color: var(--tm); padding-left: 76px;">{{destHint}}</span></sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{showNotes}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<sc-if value="{{unsaved}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>Includes your 3 unsaved highlights. They stay unsaved here until you save.</span></div>
+</sc-if>
+<sc-if value="{{signed}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--input); border: 1px solid var(--border); font-size: 12.5px; line-height: 18px; color: var(--tp);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4.5M12 17.5v.5"></path></svg><span>This PDF is digitally signed. The new file won't carry the signature; the original keeps it.</span></div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{working}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 8px 0 4px;">
+<div style="display: flex; justify-content: space-between; font-size: 13px;"><span>{{workText}}</span><span style="color: var(--tm); font-variant-numeric: tabular-nums;">{{pct}}</span></div>
+<div style="height: 6px; border-radius: 3px; background: var(--track); overflow: hidden;"><div style="{{barStyle}}"></div></div>
+<span style="font-size: 12.5px; color: var(--tm);">You can keep reading while this runs. Cancelling writes nothing.</span>
+</div>
+</sc-if>
+
+<sc-if value="{{cDone}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<sc-if value="{{smaller}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; gap: 10px; font-size: 12.5px;">
+<span style="color: var(--tm);">Before</span><div style="height: 10px; border-radius: 5px; background: var(--borderStrong);"></div><span style="text-align: right; font-variant-numeric: tabular-nums;">24.6 MB</span>
+<span style="color: var(--tm);">After</span><div style="height: 10px; border-radius: 5px; background: var(--accent); width: 25%;"></div><span style="text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">6.2 MB</span>
+</div>
+<div style="font-size: 13.5px;"><b style="font-weight: 600;">75% smaller.</b> <span style="color: var(--ts);">Saved as {{fullName}}{{savedClause}}.</span></div>
+</div>
+</sc-if>
+<sc-if value="{{compact}}" hint-placeholder-val="{{false}}">
+<div style="font-size: 13.5px; line-height: 20px; color: var(--ts);">This PDF is already compact: compressing at Balanced would save less than 5%, so no file was written. Strong shrinks images further, at some cost to how photos look.</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{sDone}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 20px;">
+<div><b style="font-weight: 600;">Text added to 40 pages.</b> <span style="color: var(--ts);">Saved as {{fullName}}{{savedClause}}.</span></div>
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 2px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>No readable text was found on pages 7 and 19 (they may be photos or blank).</span></div>
+</div>
+</sc-if>
+
+<sc-if value="{{eDone}}" hint-placeholder-val="{{false}}">
+<div style="font-size: 13.5px; line-height: 20px;"><b style="font-weight: 600;">{{eDoneText}}</b> <span style="color: var(--ts);">In the folder “{{fullName}}”{{savedClause}}.</span></div>
+</sc-if>
+
+</div>
+
+<div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 14px 32px; background: var(--s1); border-top: 1px solid var(--border); border-radius: 0 0 16px 16px;">
+<sc-if value="{{setup}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; gap: 8px;"><button class="btn2" onClick="{{close}}">Cancel</button><button class="btn" onClick="{{start}}">{{primary}}</button></div>
+</sc-if>
+<sc-if value="{{working}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 8px;"><button class="btn2" onClick="{{keepReading}}">Keep reading</button><button class="btn2" onClick="{{cancelJob}}">Cancel</button></div>
+</sc-if>
+<sc-if value="{{done}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 8px;">
+<sc-if value="{{showFolderBtn}}" hint-placeholder-val="{{true}}"><button class="btn2">Show in folder</button></sc-if>
+<sc-if value="{{showOpenBtn}}" hint-placeholder-val="{{true}}"><button class="btn2">Open copy</button></sc-if>
+<sc-if value="{{compact}}" hint-placeholder-val="{{false}}"><button class="btn2" onClick="{{tryStrong}}">Try Strong</button></sc-if>
+<button class="btn" onClick="{{close}}">Done</button>
+</div>
+</sc-if>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{toastOn}}" hint-placeholder-val="{{false}}">
+<div class="card" role="status" style="position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 8px 0 16px; border-radius: 10px; background: var(--tp); color: var(--bg); box-shadow: var(--shadow2); font-size: 13px; z-index: 8; white-space: nowrap;">
+<span>{{toastText}}</span>
+<button class="tlink">Open</button>
+<button class="tlink">Show in folder</button>
+<button class="ib" onClick="{{hideToast}}" aria-label="Dismiss" style="color: var(--bg); width: 28px; height: 28px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+</sc-if>
+
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark","sepia"],"default":"light"},"unsavedHighlights":{"editor":"boolean","default":true},"signedPdf":{"editor":"boolean","default":false},"compressResult":{"editor":"enum","options":["smaller","already compact"],"default":"smaller"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  themes() { return {
+  light: { bg:'#E7E2D9', s1:'#EFEAE2', s2:'#F6F3EE', input:'#FFFDF9', inputHover:'#F4F0E9', tp:'#161A18', ts:'#4A4F49', tm:'#616560', tt:'#807C76', border:'#D2CCC2', borderStrong:'#A8A6A0', edge:'#D2CCC2', accent:'#3E6259', accentHover:'#33534B', accentStrong:'#2C463F', accentSoft:'rgba(62,98,89,.14)', selFill:'#EEF1EC', onAccent:'#F6F3EE', danger:'#B44137', hover:'rgba(22,26,24,.06)', overlay:'rgba(12,10,8,.55)', shadow2:'0 2px 6px rgba(40,30,20,.08), 0 10px 28px rgba(40,30,20,.16)', shadow3:'0 4px 12px rgba(40,30,20,.10), 0 24px 56px rgba(40,30,20,.24)', dialogEdge:'0 0 0 0 transparent', shadowPage:'0 1px 3px rgba(40,30,20,.14), 0 4px 14px rgba(40,30,20,.08)', paper:'#FFFFFF', ink:'#2A2E2B', line:'#DAD6CF', track:'#CFCAC1', progressFill:'#2E7D64', toastAccent:'#A9D4C6' },
+  dark: { bg:'#171512', s1:'#25211C', s2:'#302B25', input:'#3A352E', inputHover:'#454039', tp:'#EDE8DF', ts:'#C5BFB2', tm:'#B4ACA2', tt:'#928B81', border:'rgba(255,255,255,.08)', borderStrong:'#4A453C', edge:'rgba(255,255,255,.06)', accent:'#6FA394', accentHover:'#7FB3A4', accentStrong:'#7FB3A4', accentSoft:'rgba(111,163,148,.16)', selFill:'#3C443F', onAccent:'#1C1916', danger:'#E68A80', hover:'rgba(237,232,223,.06)', overlay:'rgba(0,0,0,.65)', shadow2:'0 10px 28px rgba(0,0,0,.45)', shadow3:'0 24px 56px rgba(0,0,0,.55)', dialogEdge:'0 0 0 1px rgba(255,255,255,.06)', shadowPage:'0 2px 10px rgba(0,0,0,.5)', paper:'#E6E3DE', ink:'#2A2E2B', line:'#CBC7C0', track:'#78726A', progressFill:'#B8DBD0', toastAccent:'#2C463F' },
+  sepia: { bg:'#F1E7D0', s1:'#EDE2C8', s2:'#F8F0DE', input:'#FEFAF1', inputHover:'#F6EEDD', tp:'#3B2F20', ts:'#5B4C38', tm:'#716249', tt:'#867B66', border:'#DDCBA0', borderStrong:'#C9B78E', edge:'#DDCBA0', accent:'#4F6B5C', accentHover:'#43594D', accentStrong:'#37483E', accentSoft:'rgba(79,107,92,.14)', selFill:'#EFEEE0', onAccent:'#F8F0DE', danger:'#AA4137', hover:'rgba(59,47,32,.06)', overlay:'rgba(30,22,12,.5)', shadow2:'0 2px 6px rgba(80,55,20,.10), 0 10px 28px rgba(80,55,20,.16)', shadow3:'0 4px 12px rgba(80,55,20,.12), 0 24px 56px rgba(80,55,20,.24)', dialogEdge:'0 0 0 0 transparent', shadowPage:'0 1px 3px rgba(80,55,20,.16), 0 4px 14px rgba(80,55,20,.08)', paper:'#FFFDF7', ink:'#3B2F20', line:'#E2D8C4', track:'#D6C6A6', progressFill:'#2C775F', toastAccent:'#B8DBD0' }
+  }; }
+  constructor(p) {
+    super(p);
+    this.state = { menu: true, dlg: null, phase: 'setup', level: 'balanced', sPages: 'all', fmt: 'png', ppi: 150, ePages: 'all', range: '1–5, 8', prog: 0, bgJob: null, toast: null, forceStrong: false };
+  }
+  destVals(key, stem, ext, originPath, originLabel, hint, nameLabel) {
+    const s = this.state;
+    const stems = s.stems || {};
+    const v = stems[key] != null ? stems[key] : stem;
+    const places = [{ k: 'orig', name: originLabel, folder: originPath.split('\\').pop(), path: originPath }];
+    if (s.extraLoc) places.push({ k: 'extra', name: 'Lector notes', folder: 'Lector notes', path: 'D:\\Projects\\Lector notes', head: 'Recent' });
+    [['desktop', 'Desktop'], ['documents', 'Documents'], ['downloads', 'Downloads']].forEach(([k, n], i) => places.push({ k, name: n, folder: n, path: 'C:\\Users\\…\\' + n, head: i === 0 ? 'On this PC' : '' }));
+    const cur = places.find((x) => x.k === (s.loc || 'orig')) || places[0];
+    return {
+      destNameLabel: nameLabel, nameStem: v, nameExt: ext, hasExt: !!ext,
+      onStem: (e) => this.setState({ stems: { ...stems, [key]: e.target.value } }),
+      locName: cur.folder, locPath: cur.k === 'orig' ? originLabel.toLowerCase() : cur.path,
+      locOpen: !!s.locOpen, toggleLoc: () => this.setState({ locOpen: !s.locOpen }),
+      locs: places.map((x) => ({ name: x.name, path: x.path, on: x === cur, head: x.head || '', hasHead: !!x.head, pick: () => this.setState({ loc: x.k, locOpen: false }) })),
+      chooseOther: () => this.setState({ extraLoc: true, loc: 'extra', locOpen: false }),
+      destHint: hint, hasHint: !!hint,
+      fullName: v + ext,
+      savedClause: cur.k === 'orig' ? ', ' + originLabel.toLowerCase() : cur.k === 'desktop' ? ' on the Desktop' : ' in ' + cur.folder
+    };
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  exportCount() {
+    const s = this.state;
+    if (s.ePages === 'all') return 120;
+    if (s.ePages === 'this') return 1;
+    let n = 0;
+    String(s.range).split(',').forEach((part) => {
+      const m = part.trim().match(/^(\d+)\s*[-–]\s*(\d+)$/);
+      if (m) { const a = +m[1], b = +m[2]; if (b >= a) n += Math.min(b, 120) - Math.min(a, 121) + 1; }
+      else if (/^\d+$/.test(part.trim()) && +part.trim() <= 120) n += 1;
+    });
+    return Math.max(0, n);
+  }
+  total(t) { return t === 'compress' ? 120 : t === 'search' ? (this.state.sPages === 'all' ? 42 : 1) : Math.max(1, this.exportCount()); }
+  run(tool) {
+    clearInterval(this.timer);
+    const total = this.total(tool);
+    const step = Math.max(1, Math.round(total / 70));
+    this.setState({ phase: 'working', prog: 0 });
+    this.timer = setInterval(() => {
+      const next = Math.min(total, this.state.prog + step);
+      if (next >= total) {
+        clearInterval(this.timer);
+        if (this.state.bgJob) this.setState({ prog: total, phase: 'done', toast: this.state.bgJob, bgJob: null });
+        else this.setState({ prog: total, phase: 'done' });
+      } else this.setState({ prog: next });
+    }, 60);
+  }
+  renderVals() {
+    const TH = this.themes(); const T = TH[this.props.theme] || TH.light;
+    const vars = Object.keys(T).map((k) => '--' + k + ': ' + T[k] + ';').join(' ');
+    const s = this.state;
+    const tool = s.dlg || s.bgJob || s.toast;
+    const isC = s.dlg === 'compress', isS = s.dlg === 'search', isE = s.dlg === 'export';
+    const setup = !!s.dlg && s.phase === 'setup', working = !!s.dlg && s.phase === 'working', done = !!s.dlg && s.phase === 'done';
+    const compactRes = this.props.compressResult === 'already compact' && !s.forceStrong;
+    const total = this.total(tool || 'compress');
+    const dot = (on) => 'flex: none; width: 16px; height: 16px; margin-top: 2px; box-sizing: border-box; border-radius: 50%; border: ' + (on ? '5px solid var(--accent)' : '1.5px solid var(--tt)') + '; background: var(--input);';
+    const radio = (list, key) => list.map((o) => ({ ...o, on: s[key] === o.v, cls: s[key] === o.v ? 'sel' : '', dot: dot(s[key] === o.v), pick: () => this.setState({ [key]: o.v }) }));
+    const n = this.exportCount();
+    const px = { 96: '794 × 1123 px', 150: '1240 × 1754 px', 300: '2480 × 3508 px' }[s.ppi];
+    const titles = { compress: 'Compress PDF', search: 'Make searchable', export: 'Export as images' };
+    const descs = {
+      compress: 'Makes a smaller copy. Annual Report 2025.pdf stays as it is.',
+      search: 'Adds an invisible text layer to scanned pages, so they can be found, selected and highlighted in any PDF viewer.',
+      export: 'Saves pages as image files, with your highlights drawn in.'
+    };
+    const workTexts = {
+      compress: 'Compressing images · page ' + s.prog + ' of 120',
+      search: 'Reading text · page ' + s.prog + ' of ' + total,
+      export: 'Exporting · image ' + s.prog + ' of ' + total
+    };
+    const chipTexts = { compress: 'Compressing ' + s.prog + ' / 120', search: 'Reading text ' + s.prog + ' / ' + total, export: 'Exporting ' + s.prog + ' / ' + total };
+    const toastTexts = { compress: 'Compressed copy saved · 6.2 MB', search: 'Searchable copy saved · text added to 40 pages', export: n + ' images exported' };
+    const widths = [100, 96, 100, 88, 100, 93, 62, 0, 100, 97, 100, 91, 100, 70, 0, 100, 95, 100, 84];
+    const pct = Math.round(100 * s.prog / Math.max(1, total));
+    return {
+      ...this.destVals(s.dlg || 'none', isE ? 'Annual Report 2025 (images)' : isC ? 'Annual Report 2025 (compressed)' : 'Annual Report 2025 (searchable)', isE ? '' : '.pdf', 'D:\\Reports', 'Beside the original', isE ? 'Files inside are named Annual Report 2025-p001.' + (s.fmt === 'png' ? 'png' : 'jpg') + ', -p002 and so on.' : '', isE ? 'Folder' : 'Name'),
+      vars,
+      menu: s.menu,
+      moreCls: s.menu ? 'on' : '',
+      toggleMenu: () => this.setState({ menu: !s.menu }),
+      openCompress: () => this.setState({ menu: false, dlg: 'compress', phase: 'setup', forceStrong: false, toast: null }),
+      openSearch: () => this.setState({ menu: false, dlg: 'search', phase: 'setup', toast: null }),
+      openExport: () => this.setState({ menu: false, dlg: 'export', phase: 'setup', toast: null }),
+      dlgOpen: !!s.dlg, isC, isS, isE, setup, working, done,
+      cSetup: setup && isC, sSetup: setup && isS, eSetup: setup && isE,
+      cDone: done && isC, sDone: done && isS, eDone: done && isE,
+      smaller: !compactRes, compact: done && isC && compactRes,
+      title: titles[s.dlg] || '',
+      desc: done ? (isC && compactRes ? 'Nothing was written.' : 'Done. The original is unchanged.') : (descs[s.dlg] || ''),
+      levels: radio([
+        { v: 'light', t: 'Light', d: 'Lossless: tidies the file and subsets fonts. Images untouched, so the saving is small.' },
+        { v: 'balanced', t: 'Balanced', rec: true, d: 'Images at 150 ppi. Sharp on screen and in print at normal sizes.' },
+        { v: 'strong', t: 'Strong', d: 'Images at 96 ppi. The smallest file, for email; photos look softer.' }
+      ], 'level'),
+      sOpts: radio([
+        { v: 'all', t: 'All 42 pages without text', d: '' },
+        { v: 'this', t: 'Only this page', d: 'Page 34' }
+      ], 'sPages'),
+      eOpts: radio([
+        { v: 'all', t: 'All pages', d: '120 images' },
+        { v: 'this', t: 'This page', d: 'Page 34' },
+        { v: 'range', t: 'Pages', d: s.ePages === 'range' ? n + (n === 1 ? ' image' : ' images') : 'Choose a range' }
+      ], 'ePages'),
+      showRange: s.ePages === 'range', range: s.range, onRange: (e) => this.setState({ range: e.target.value }),
+      isPng: s.fmt === 'png', isJpg: s.fmt === 'jpg', pngCls: s.fmt === 'png' ? 'sel' : '', jpgCls: s.fmt === 'jpg' ? 'sel' : '',
+      pickPng: () => this.setState({ fmt: 'png' }), pickJpg: () => this.setState({ fmt: 'jpg' }),
+      fmtHint: s.fmt === 'png' ? 'Sharp text, larger files' : 'Smaller files, best for photos',
+      ppis: [96, 150, 300].map((v) => ({ t: v + ' ppi', on: s.ppi === v, cls: s.ppi === v ? 'sel' : '', pick: () => this.setState({ ppi: v }) })),
+      pxHint: px + ' a page',
+      saveLabel: isE ? 'Save to folder' : 'Save as',
+      outName: isC ? 'Annual Report 2025 (compressed).pdf' : isS ? 'Annual Report 2025 (searchable).pdf' : 'Annual Report 2025 (images)',
+      outHint: isE ? 'Files are named Annual Report 2025-p001.' + (s.fmt === 'png' ? 'png' : 'jpg') + ', -p002 and so on.' : 'In D:\\Reports, beside the original.',
+      showNotes: setup && !isE ? true : (setup && isE && this.props.unsavedHighlights),
+      unsaved: !!this.props.unsavedHighlights,
+      signed: !!this.props.signedPdf && setup && !isE,
+      primary: isC ? 'Compress' : isS ? 'Make searchable' : ('Export ' + n + (n === 1 ? ' image' : ' images')),
+      start: () => { if (isE && n === 0) return; this.run(s.dlg); },
+      close: () => { clearInterval(this.timer); this.setState({ dlg: null, phase: 'setup', locOpen: false, loc: 'orig' }); },
+      cancelJob: () => { clearInterval(this.timer); this.setState({ phase: 'setup', prog: 0 }); },
+      keepReading: () => this.setState({ bgJob: s.dlg, dlg: null }),
+      reopen: () => this.setState({ dlg: s.bgJob, bgJob: null }),
+      tryStrong: () => { this.setState({ level: 'strong', forceStrong: true }); this.run('compress'); },
+      workText: workTexts[s.dlg] || '', pct: pct + '%',
+      barStyle: 'height: 100%; border-radius: 3px; background: var(--accent); width: ' + pct + '%; transition: width .06s linear;',
+      eDoneText: n + (n === 1 ? ' image exported.' : ' images exported.'),
+      showFolderBtn: !(isC && compactRes) && !isS,
+      showOpenBtn: (isC && !compactRes) || isS,
+      showChip: !!s.bgJob, chipText: chipTexts[s.bgJob] || '',
+      toastOn: !!s.toast, toastText: toastTexts[s.toast] || '',
+      hideToast: () => this.setState({ toast: null }),
+      lines: widths.map((w) => ({ s: w === 0 ? 'height: 10px;' : 'height: 8px; border-radius: 3px; background: var(--line); width: ' + w + '%;' }))
+    };
+  }
+}
+</script>
+</body>
+</html>

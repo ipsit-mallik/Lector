@@ -20,6 +20,14 @@ from webview.dom import DOMEventHandler
 from lector.features.annotations import highlight_matcher, highlighter
 from lector.features.annotations.highlighter import words_between
 from lector.features.dialogs import browser as dialog_browser
+from lector.features.file_tools import choices as tool_choices
+from lector.features.file_tools import destinations as tool_destinations
+from lector.features.file_tools import engine as tool_engine
+from lector.features.file_tools import formats as tool_formats
+from lector.features.file_tools import jobs as file_jobs
+from lector.features.file_tools import messages as tool_messages
+from lector.features.file_tools import naming as tool_naming
+from lector.features.file_tools import tools as file_tools
 from lector.features.home import file_drop
 from lector.features.home import recent as home_recent
 from lector.features.onboarding import state as onboarding
@@ -59,6 +67,62 @@ MAX_THUMBNAIL_PX = 480
 # `request_microphone`'s error when no capture could be opened. A code, not
 # the audio library's text, which can name devices and drivers.
 MICROPHONE_UNAVAILABLE = "microphone_unavailable"
+
+
+# A file tool's `source` meaning "the PDF open in the reader, as it is now".
+TOOL_SOURCE_OPEN = "open"
+
+# Most files one Convert to PDF takes, so a runaway list can't be sent.
+MAX_CONVERT_INPUTS = 500
+
+# How long describing a file (in the worker, behind any OCR read) may take.
+DESCRIBE_TIMEOUT_S = 60
+
+# How long closing waits for a cancelled job to clean up before going on.
+JOB_STOP_WAIT_S = 10
+
+
+class _BadToolRequest(Exception):
+    """A tool request the bridge refuses, for one of `tool_messages`'
+    reasons (or a `safe_write` one)."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _file_size(path: str | None) -> int:
+    try:
+        return os.path.getsize(path) if path else 0
+    except OSError:
+        return 0
+
+
+def _checked_pages(value, page_count: int) -> list[int]:
+    """1-based page numbers from the page, as 0-based indices: refused
+    unless every one is a whole number on the PDF, none repeated."""
+    if not isinstance(value, list) or not value or len(value) > page_count:
+        raise _BadToolRequest(tool_messages.WORKER_FAILED)
+    indices = []
+    for number in value:
+        index = _page_index(number)
+        if index is None or not 1 <= index <= page_count:
+            raise _BadToolRequest(tool_messages.WORKER_FAILED)
+        indices.append(index - 1)
+    if len(set(indices)) != len(indices):
+        raise _BadToolRequest(tool_messages.WORKER_FAILED)
+    return sorted(indices)
+
+
+def _with_place(run, where: str):
+    """A job whose result also says where its output went ("in Documents"),
+    for the dialog's result line and the finished toast."""
+
+    def run_and_say_where(ctx):
+        result = run(ctx)
+        return {**result, "where": where} if isinstance(result, dict) else result
+
+    return run_and_say_where
 
 
 def _pixmap_to_png_b64(pix) -> str:
@@ -135,6 +199,14 @@ class Api:
             self._on_ocr_finished,
             crash_log=None if log_dir is None else log_dir / "ocr-worker.log",
         )
+        # File tools: one job at a time, run as steps in the same worker
+        # process (features/file_tools/). What jobs wrote this session may be
+        # shown in their folder; a Home PDF's password is held only for the
+        # job on that file.
+        self._jobs = file_jobs.FileJobRunner(self._ocr, self._on_file_job_event)
+        self._tool_outputs: set[str] = set()
+        self._tool_outputs_lock = threading.Lock()
+        self._tool_source: tuple[str, str | None] | None = None
         # Which screen/dialog is currently listening (Milestone 8.4). Starts
         # at `router.DEFAULT_CONTEXT` (`reading`) rather than `home` so a
         # caller that never makes a `set_voice_context` call — every test in
@@ -240,28 +312,42 @@ class Api:
 
     def show_in_folder(self, path: str) -> dict:
         """Opens the OS file manager with `path` selected (Recent list's
-        "Show in folder"). Only for a path that is in the Recent list and
-        still on disk — the frontend can't use this to launch the file
-        manager on an arbitrary location. Returns `{"error": str | None}`."""
-        if not any(e["path"] == path for e in settings.get_recent_files()):
+        "Show in folder"), or, for a folder a file tool made (Export as
+        images), on that folder. Only for a path in the Recent list or one a
+        file tool wrote this session, still on disk — the frontend can't use
+        this to launch the file manager on an arbitrary location. Returns
+        `{"error": str | None}`."""
+        if not isinstance(path, str):
             return {"error": "That file is no longer in Recent."}
-        if not os.path.isfile(path):
+        tool_output = self._is_tool_output(path)
+        if not tool_output and not any(e["path"] == path for e in settings.get_recent_files()):
+            return {"error": "That file is no longer in Recent."}
+        is_folder = tool_output and os.path.isdir(path)
+        if not is_folder and not os.path.isfile(path):
             return {"error": "That file has been moved or deleted."}
         try:
-            home_recent.reveal_in_file_manager(path)
+            if is_folder:
+                home_recent.reveal_in_file_manager(path, open_folder=True)
+            else:
+                home_recent.reveal_in_file_manager(path)
         except OSError:
             return {"error": "Couldn't open the folder."}
         return {"error": None}
 
-    def browse_directory(self, path: str | None = None) -> dict:
+    def browse_directory(self, path: str | None = None, kind: str = dialog_browser.PDF_FILTER) -> dict:
         """Lists a directory for the in-app Open/Save-As screens (Milestone
         8.7), replacing the native `create_file_dialog()` the router could
         not see. `path=None` starts at `dialog_browser.default_open_dir()` —
         the Open dialog's own default; the Save-As dialog always passes an
         explicit starting path from `get_save_dialog_start()` instead, since
         its default is the current document's folder, not the most recent
-        file's."""
-        return dialog_browser.list_directory(path or dialog_browser.default_open_dir())
+        file's. `kind` "convert" lists the images and e-books Convert to PDF
+        takes instead of PDFs; "folder" (the file tools' folder picker) lists
+        folders only."""
+        folder = path or dialog_browser.default_open_dir()
+        if kind in (dialog_browser.CONVERT_FILTER, dialog_browser.FOLDER_FILTER):
+            return dialog_browser.list_directory(folder, kind)
+        return dialog_browser.list_directory(folder)
 
     def list_drives(self) -> dict:
         """Top-level nodes of the Open/Save-As directory tree — see
@@ -907,13 +993,322 @@ class Api:
         """`<name> (highlighted).pdf` beside the original, or, when that is
         taken, the first free `<name> (highlighted) (2).pdf`, (3), …, so the
         suggestion never names a file that is already there."""
-        base, ext = os.path.splitext(self._doc.path or "untitled.pdf")
-        candidate = f"{base} (highlighted){ext}"
-        number = 2
-        while os.path.exists(candidate):
-            candidate = f"{base} (highlighted) ({number}){ext}"
-            number += 1
-        return candidate
+        return tool_naming.free_file_name(self._doc.path or "untitled.pdf", tool_naming.HIGHLIGHTED)
+
+    # ------------------------------------------------------------------ #
+    # File tools (docs/PRD.md § "Post-v1: file tools")                     #
+    # ------------------------------------------------------------------ #
+
+    def get_file_tool_menu(self) -> dict:
+        """The reader's More menu's second line under Make searchable: how
+        many pages have no text. Worked out from each page's own text layer
+        the first time it is asked, then cached with the document; never
+        runs OCR."""
+        if not self._doc.is_open:
+            return {"textless": 0, "pages": 0}
+        return {"textless": len(self._doc.textless_pages()), "pages": self._doc.page_count}
+
+    def file_tool_info(self, tool: str, source: str, password: str | None = None) -> dict:
+        """What a tool's Set up state shows about its PDF: `source` is
+        `"open"` (the reader's document, as it is on screen) or a path from
+        Home. A protected PDF from Home comes back as `{"ok": False,
+        "reason": "password"}` (or "wrong_password") until called with the
+        right password, which is then held here, in memory only, for that
+        file's job; a missing one as `reason` "missing"."""
+        if tool not in (tool_messages.COMPRESS, tool_messages.SEARCHABLE, tool_messages.EXPORT):
+            return {"ok": False, "error": tool_messages.message(tool_messages.WORKER_FAILED, tool)}
+        if password is not None and not isinstance(password, str):
+            password = None
+        if source == TOOL_SOURCE_OPEN:
+            if not self._doc.is_open:
+                return {"ok": False, "error": open_errors.MESSAGES[open_errors.MISSING], "reason": "missing"}
+            path = self._doc.path
+            info = self._doc.describe_for_tools(self._doc.page_index)
+            info.update(
+                unsaved=self._doc.unsaved_highlight_count(),
+                dirty=self._doc.is_dirty,
+                current_page=self._doc.page_index,
+                current_textless=self._doc.page_index in info["textless"],
+            )
+            info["size"] = _file_size(path)
+        else:
+            outcome = self._describe_home_source(source, password)
+            if not outcome.get("ok", True):
+                return outcome
+            path, info = source, outcome
+            info.update(unsaved=0, dirty=False, current_page=None, current_textless=False)
+        info["textless_pages"] = [i + 1 for i in info["textless"]]
+        info["textless"] = len(info["textless"])
+        folder = os.path.dirname(path)
+        info.update(
+            ok=True,
+            name=os.path.basename(path),
+            folder=folder,
+            # The destination block's start: always beside the original.
+            output={
+                "folder": folder,
+                "stem": tool_destinations.suggested_stem(tool, path, folder),
+                "extension": tool_destinations.extension(tool),
+            },
+            prefs=settings.get_file_tool_prefs(),
+        )
+        return info
+
+    def _describe_home_source(self, path, password: str | None) -> dict:
+        if not isinstance(path, str) or not os.path.isfile(path):
+            return {"ok": False, "error": open_errors.MESSAGES[open_errors.MISSING], "reason": "missing"}
+        try:
+            info = self._ocr.call(tool_engine.describe_path, (path, password), timeout=DESCRIBE_TIMEOUT_S).result()
+        except tool_engine.SourceError:
+            return {"ok": False, "error": open_errors.MESSAGES[open_errors.NOT_A_PDF], "reason": "not_a_pdf"}
+        except Exception:
+            log.exception("Couldn't describe a PDF for a file tool")
+            return {"ok": False, "error": open_errors.MESSAGES[open_errors.UNKNOWN], "reason": "unknown"}
+        if info.get("locked"):
+            reason = open_errors.PASSWORD if password is None else open_errors.WRONG_PASSWORD
+            return {"ok": False, "reason": reason, "error": open_errors.MESSAGES[reason], "name": os.path.basename(path)}
+        # Held for this file's job only; replaced by the next file chosen.
+        self._tool_source = (path, password) if info.get("needs_pass") else None
+        return info
+
+    # ---- Where a tool saves (the dialogs' Name and "Save in" rows) ----------
+
+    def get_save_places(self, origin_folder: str) -> dict:
+        """The "Save in" menu, asked each time it opens: the origin folder,
+        RECENT (folders that no longer exist are forgotten first) and ON
+        THIS PC (Desktop, Documents, Downloads, as the OS has them)."""
+        if not isinstance(origin_folder, str) or not origin_folder:
+            origin_folder = ""
+        return tool_destinations.menu(origin_folder)
+
+    def remember_output_folder(self, folder: str) -> dict:
+        """A folder picked from RECENT or with "Choose another folder…": to
+        the top of RECENT. `{"ok": False}` for one that isn't there."""
+        if not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder):
+            return {"ok": False}
+        tool_destinations.remember(folder)
+        return {"ok": True}
+
+    def check_output_folder(self, folder: str) -> dict:
+        """Whether a tool could save in `folder` (it is there, and Lector may
+        write in it), asked as soon as a folder is chosen."""
+        if tool_destinations.is_writable_folder(folder):
+            return {"ok": True, "error": None}
+        return {"ok": False, "error": tool_destinations.FOLDER_UNUSABLE}
+
+    def suggest_tool_name(self, tool: str, source: str, folder: str) -> dict:
+        """The Name field's suggestion in `folder`: "Report (compressed)",
+        or the first free "… (2)" there. `source` is "open", a path, or
+        Convert's first file."""
+        origin = self._tool_origin(source)
+        if tool not in tool_messages.TOOLS or origin is None:
+            return {"stem": "", "extension": ""}
+        if not isinstance(folder, str) or not os.path.isdir(folder):
+            folder = os.path.dirname(origin)
+        return {
+            "stem": tool_destinations.suggested_stem(tool, origin, folder),
+            "extension": tool_destinations.extension(tool),
+        }
+
+    def check_tool_destination(self, tool: str, source: str, folder: str, name: str, inputs=None) -> dict:
+        """Checked as the primary button is pressed, before the job starts:
+        `{"ok": True, "path", "name", "folder", "exists"}` (a file already
+        there is asked about first), or `{"ok": False, "field": "name" |
+        "folder", "error": sentence}` for the line under that row."""
+        if tool not in tool_messages.TOOLS:
+            return {"ok": False, "field": tool_destinations.NAME_FIELD, "error": tool_destinations.NAME_UNUSABLE}
+        try:
+            target = tool_destinations.check(tool, folder, name, self._tool_originals(source, inputs))
+        except tool_destinations.DestinationError as exc:
+            return {"ok": False, "field": exc.field, "error": exc.message}
+        return {
+            "ok": True,
+            "path": target.path,
+            "name": os.path.basename(target.path),
+            "folder": os.path.dirname(target.path),
+            "exists": target.exists,
+        }
+
+    def _tool_origin(self, source) -> str | None:
+        """The PDF (or Convert's first file) a tool's "beside" means."""
+        if source == TOOL_SOURCE_OPEN:
+            return self._doc.path if self._doc.is_open else None
+        return source if isinstance(source, str) and os.path.isabs(source) else None
+
+    def _tool_originals(self, source, inputs=None) -> list[str]:
+        """What a tool's output may never be: its PDF, or every Convert input."""
+        if isinstance(inputs, list):
+            return [p for p in inputs if isinstance(p, str)]
+        origin = self._tool_origin(source)
+        return [origin] if origin else []
+
+    def parse_export_range(self, text: str, page_count: int) -> dict:
+        """The Export dialog's "Pages" field: `{"pages": [1-based...]}`, or
+        `{"error": sentence}` for the line under the field."""
+        count = _page_index(page_count)
+        if not count:
+            return {"error": "This PDF has no pages."}
+        try:
+            return {"pages": tool_naming.parse_page_ranges(text, count)}
+        except tool_naming.RangeError as exc:
+            return {"error": exc.message}
+
+    def describe_convert_inputs(self, paths: list[str]) -> list[dict]:
+        """Each file Convert to PDF was given: its type, size, page count
+        (an e-book's after it is laid out) and thumbnail, or `{"error"}`
+        naming why it can't be used."""
+        if not isinstance(paths, list):
+            return []
+        described = []
+        for path in paths[:MAX_CONVERT_INPUTS]:
+            entry = {"path": path, "name": os.path.basename(path) if isinstance(path, str) else ""}
+            if not isinstance(path, str) or not os.path.isfile(path):
+                entry["error"] = f"Couldn't find {entry['name'] or 'that file'}."
+            elif not tool_formats.is_convertible(path):
+                entry["error"] = f"{entry['name']} can't be made into a PDF."
+            else:
+                try:
+                    entry.update(
+                        self._ocr.call(tool_engine.convert_describe, (path,), timeout=DESCRIBE_TIMEOUT_S).result()
+                    )
+                except Exception:
+                    entry["error"] = f"{entry['name']} couldn't be read."
+            described.append(entry)
+        return described
+
+    def start_file_job(self, tool: str, source: str, options: dict) -> dict:
+        """Start a tool's job. `source` is `"open"` or a path (Convert: the
+        first input; `options["inputs"]` holds them all). Returns `{"ok":
+        True, "id"}`, or `{"ok": False, "busy": True}` when one is running,
+        or `{"ok": False, "error": sentence}`. Progress, and the outcome,
+        arrive as `lector:filejob` events."""
+        if self._jobs.is_running():
+            return {"ok": False, "busy": True, "error": "Another file job is running."}
+        try:
+            run = self._build_job(tool, source, options if isinstance(options, dict) else {})
+        except _BadToolRequest as exc:
+            return {"ok": False, "error": tool_messages.message(exc.reason, tool)}
+        job_id = self._jobs.start(tool, run)
+        if job_id is None:
+            return {"ok": False, "busy": True, "error": "Another file job is running."}
+        return {"ok": True, "id": job_id}
+
+    def _build_job(self, tool: str, source: str, options: dict):
+        """Check what the page asked for and return the job's function. Never
+        trusts the page: every path, choice and page number is checked."""
+        if tool == tool_messages.CONVERT:
+            return self._build_convert(options)
+        if tool not in (tool_messages.COMPRESS, tool_messages.SEARCHABLE, tool_messages.EXPORT):
+            raise _BadToolRequest(tool_messages.WORKER_FAILED)
+        src = self._tool_job_source(source)
+        dest, where = self._checked_dest(tool, options, [src.path], tool_destinations.BESIDE_ORIGINAL)
+        page_count = self._source_page_count(source, src)
+        if tool == tool_messages.COMPRESS:
+            level = options.get("level")
+            if level not in tool_choices.LEVELS:
+                raise _BadToolRequest(tool_messages.WORKER_FAILED)
+            settings.set_file_tool_prefs(compress_level=level)
+            return _with_place(lambda ctx: file_tools.compress(ctx, src, dest, level), where)
+        if tool == tool_messages.EXPORT:
+            fmt, ppi = options.get("format"), options.get("ppi")
+            if fmt not in tool_choices.EXPORT_FORMATS or isinstance(ppi, bool) or ppi not in tool_choices.EXPORT_PPI:
+                raise _BadToolRequest(tool_messages.WORKER_FAILED)
+            pages = _checked_pages(options.get("pages"), page_count)
+            settings.set_file_tool_prefs(export_format=fmt, export_ppi=ppi)
+            return _with_place(lambda ctx: file_tools.export_images(ctx, src, dest, fmt, ppi, pages), where)
+        pages = _checked_pages(options.get("pages"), page_count)
+        known = self._known_words if source == TOOL_SOURCE_OPEN else file_tools.cached_words
+        return _with_place(lambda ctx: file_tools.make_searchable(ctx, src, dest, pages, known), where)
+
+    def _build_convert(self, options: dict):
+        inputs = options.get("inputs")
+        if not isinstance(inputs, list) or not 0 < len(inputs) <= MAX_CONVERT_INPUTS:
+            raise _BadToolRequest(tool_messages.INPUT_UNREADABLE)
+        for path in inputs:
+            if not isinstance(path, str) or not os.path.isfile(path) or not tool_formats.is_convertible(path):
+                raise _BadToolRequest(tool_messages.INPUT_UNREADABLE)
+        page_size = options.get("page_size")
+        if page_size not in tool_formats.PAGE_SIZE_CHOICES:
+            raise _BadToolRequest(tool_messages.WORKER_FAILED)
+        dest, where = self._checked_dest(tool_messages.CONVERT, options, inputs, tool_destinations.BESIDE_FIRST_FILE)
+        return _with_place(lambda ctx: file_tools.convert(ctx, list(inputs), dest, page_size), where)
+
+    def _tool_job_source(self, source) -> "file_tools.Source":
+        if source == TOOL_SOURCE_OPEN:
+            if not self._doc.is_open:
+                raise _BadToolRequest(tool_messages.SOURCE_UNREADABLE)
+            data, password = self._doc.snapshot()
+            return file_tools.Source(self._doc.path, data, password)
+        if not isinstance(source, str) or not os.path.isfile(source):
+            raise _BadToolRequest(tool_messages.SOURCE_UNREADABLE)
+        held = self._tool_source
+        password = held[1] if held and safe_write.same_file(held[0], source) else None
+        return file_tools.Source(source, None, password)
+
+    def _source_page_count(self, source: str, src: "file_tools.Source") -> int:
+        if source == TOOL_SOURCE_OPEN:
+            return self._doc.page_count
+        info = self._describe_home_source(src.path, src.password)
+        if not info.get("ok", True) or "pages" not in info:
+            raise _BadToolRequest(tool_messages.SOURCE_UNREADABLE)
+        return info["pages"]
+
+    @staticmethod
+    def _checked_dest(tool: str, options: dict, sources: list[str], origin_phrase: str) -> tuple[str, str]:
+        """The output path for the folder and name the page chose, and how
+        the result says where it went. The page sends the folder and the
+        bare name, never a path: Python adds the extension and checks the
+        name (no `\\ / : * ? " < > |`), that the folder is there and
+        writable, and that the output isn't one of the sources (the tools
+        never write over an original)."""
+        try:
+            target = tool_destinations.check(tool, options.get("folder"), options.get("name"), sources)
+        except tool_destinations.DestinationError as exc:
+            raise _BadToolRequest(exc.reason) from None
+        folder = os.path.dirname(target.path)
+        origin = os.path.dirname(sources[0]) if sources else ""
+        return target.path, tool_destinations.where_phrase(folder, origin, origin_phrase)
+
+    def _known_words(self, index: int, key: str) -> list | None:
+        """Make searchable from the reader: what highlighting already read on
+        the page (in memory, or cached), else the cache under the job's key."""
+        return self._doc.ocr_words(index) or file_tools.cached_words(index, key)
+
+    def cancel_file_job(self) -> dict:
+        """Stop the running job at the next page (a long step at once); it
+        writes nothing. `{"cancelled": bool}`."""
+        return {"cancelled": self._jobs.cancel()}
+
+    def get_file_job(self) -> dict | None:
+        """The running job's latest progress, or None: a page that has just
+        loaded shows the footer pill or the dialog from it."""
+        return self._jobs.current()
+
+    def _on_file_job_event(self, event: dict) -> None:
+        """A job's progress or outcome, from its own thread, to the page.
+        What a job wrote may then be shown in its folder or opened."""
+        result = event.get("result")
+        if event.get("state") == file_jobs.DONE and isinstance(result, dict) and result.get("path"):
+            with self._tool_outputs_lock:
+                self._tool_outputs.add(os.path.normcase(os.path.abspath(result["path"])))
+            result.update(name=os.path.basename(result["path"]), folder=os.path.dirname(result["path"]))
+        if event.get("state") != file_jobs.WORKING:
+            self._tool_source = None
+        self._dispatch_page_event("lector:filejob", event)
+
+    def _is_tool_output(self, path: str) -> bool:
+        with self._tool_outputs_lock:
+            return os.path.normcase(os.path.abspath(path)) in self._tool_outputs
+
+    def show_open_document_in_folder(self) -> dict:
+        """The reader's More menu's "Show in folder", for the open PDF."""
+        if not self._doc.is_open or not os.path.isfile(self._doc.path or ""):
+            return {"error": "That file has been moved or deleted."}
+        try:
+            home_recent.reveal_in_file_manager(self._doc.path)
+        except OSError:
+            return {"error": "Couldn't open the folder."}
+        return {"error": None}
 
     # ------------------------------------------------------------------ #
     # Settings / theme                                                     #
@@ -1296,7 +1691,9 @@ class Api:
         decides what opening means on its screen (Reading asks about unsaved
         highlights first), so this only reports.
         """
-        outcome = file_drop.pdf_from_drop(event)
+        outcome = file_drop.with_convertible(
+            file_drop.pdf_from_drop(event), file_drop.convertible_from_drop(event)
+        )
         if outcome is None:
             return
         self._dispatch_page_event("lector:filedrop", outcome)
@@ -1359,6 +1756,27 @@ class Api:
         document is both open and dirty does any of this run; otherwise the
         close proceeds immediately, same as before this method existed.
         """
+        if not self._closing_confirmed and self._jobs.is_running():
+            # A file job first: "Stop it and close?" Yes cancels it, waits for
+            # it to clean up (it writes nothing), and closes again, which
+            # brings the unsaved-highlights question below if there is one.
+            try:
+                window = webview.windows[0]
+            except IndexError:
+                window = None
+            if window is not None:
+
+                def _on_job_answer(stop) -> None:
+                    if not stop:
+                        return
+                    self._jobs.cancel()
+                    if not self._jobs.wait(JOB_STOP_WAIT_S):
+                        log.warning("A cancelled file job had not stopped when the app closed")
+                    window.destroy()
+
+                window.evaluate_js("confirmStopFileJob()", callback=_on_job_answer)
+                return False
+
         if self._closing_confirmed or not self._doc.is_open or not self._doc.is_dirty:
             self.shutdown_voice()
             return None

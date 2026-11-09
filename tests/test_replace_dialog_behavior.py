@@ -163,7 +163,9 @@ class ReadingWiringTests(unittest.TestCase):
 
     def test_the_page_loads_the_dialog_before_reading_js(self):
         html = (self.ROOT / "reading.html").read_text(encoding="utf-8")
-        self.assertIn('id="replaceConfirmScrim"', html)
+        # The markup is the script's own (shared with Home's file tools).
+        script = (self.ROOT / "replace-dialog.js").read_text(encoding="utf-8")
+        self.assertIn('id="replaceConfirmScrim"', script)
         self.assertLess(html.index('src="replace-dialog.js"'), html.index('src="reading.js"'))
 
     def test_a_copy_onto_a_taken_name_is_asked_about_and_failures_show_the_plain_message(self):

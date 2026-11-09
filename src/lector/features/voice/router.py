@@ -105,6 +105,10 @@ REPLACE_CONFIRM = "replace_confirm"
 # Hardening H5: the password box for a password-protected PDF. A password is
 # typed, never spoken: dictating one would put it in a transcript.
 PASSWORD_PROMPT = "password_prompt"
+# Milestone F1: a file tool's dialog (Compress, Make searchable, Export as
+# images, Convert to PDF, choosing a PDF) and the close gatekeeper's "Stop it
+# and close?" while a file job runs.
+FILE_TOOL = "file_tool"
 
 # Every context a page or dialog may declare itself as, via `Api.set_voice_context`.
 # Extendable: 8.6-8.9 add screens that need no new entry here beyond what is
@@ -112,7 +116,7 @@ PASSWORD_PROMPT = "password_prompt"
 CONTEXTS: tuple[str, ...] = (
     HOME, READING, SETTINGS, SAVE_DIALOG, OPEN_DIALOG, PICKER, DICTATION,
     REMOVE_CONFIRM, SAVE_CONFIRM, REFERENCE, OVERWRITE_CONFIRM, REPLACE_CONFIRM,
-    PASSWORD_PROMPT,
+    PASSWORD_PROMPT, FILE_TOOL,
 )
 
 # What a fresh `VoiceEngine`/`Api` should behave as before any page has made
@@ -214,6 +218,11 @@ FAVORITE_PICKER = "FAVORITE_PICKER"
 HOME_PHRASES[OPEN_FAVORITES] = ("open favorites", "show favorites")
 HOME_PHRASES[FAVORITE_RECENT] = ("favorite recent", "star recent")
 HOME_PHRASES[FAVORITE_PICKER] = ("favorite a file", "star a file")
+
+# Milestone F1: Home's Tools page. Closest to "open settings" (0.54) and "open
+# pdf" (0.50), under the match threshold.
+OPEN_TOOLS = "OPEN_TOOLS"
+HOME_PHRASES[OPEN_TOOLS] = ("open tools",)
 
 # Settings context (Milestone 8.5): theme switching and the existing
 # save/reopen preference toggles, per docs/TASKS.md. Three single-phrase
@@ -410,6 +419,20 @@ PASSWORD_PROMPT_PHRASES: dict[str, tuple[str, ...]] = {
     CANCEL: ("cancel", "never mind"),
 }
 
+# Milestone F1: inside a file tool's dialog, "confirm" presses the primary
+# button (Compress, Export 120 images, Continue, Create PDF, Done; "Stop and
+# close" in the close gatekeeper's question), "cancel" closes it or stops a
+# running job, and a bare number picks that option card. One word is enough
+# here: nothing a tool does changes a file that is already there — it writes
+# a new one, and replacing a name that is taken still asks "Replace?" first.
+# Formats, resolutions and page ranges are chosen by mouse or keyboard.
+TOOL_CONFIRM = "TOOL_CONFIRM"
+
+FILE_TOOL_PHRASES: dict[str, tuple[str, ...]] = {
+    TOOL_CONFIRM: ("confirm",),
+    CANCEL: ("cancel", "never mind"),
+}
+
 
 # Modal scopes that do not let screen-level globals through (Milestone 8.12),
 # mapped to the few they do. Every other context matches the whole global set
@@ -424,6 +447,7 @@ MODAL_ALLOWED_GLOBALS: dict[str, frozenset[str]] = {
     OVERWRITE_CONFIRM: frozenset(),
     REPLACE_CONFIRM: frozenset(),
     PASSWORD_PROMPT: frozenset(),
+    FILE_TOOL: frozenset(),
 }
 
 
@@ -458,6 +482,7 @@ _REPLACE_CONFIRM_ORDERED_PHRASES, _REPLACE_CONFIRM_PHRASE_TO_INTENT = _flatten_p
 _PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT = _flatten_phrases(
     PASSWORD_PROMPT_PHRASES
 )
+_FILE_TOOL_ORDERED_PHRASES, _FILE_TOOL_PHRASE_TO_INTENT = _flatten_phrases(FILE_TOOL_PHRASES)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
 # except `READING` (which delegates to `command_grammar` instead) and
@@ -479,6 +504,7 @@ _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     OVERWRITE_CONFIRM: (_OVERWRITE_CONFIRM_ORDERED_PHRASES, _OVERWRITE_CONFIRM_PHRASE_TO_INTENT),
     REPLACE_CONFIRM: (_REPLACE_CONFIRM_ORDERED_PHRASES, _REPLACE_CONFIRM_PHRASE_TO_INTENT),
     PASSWORD_PROMPT: (_PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT),
+    FILE_TOOL: (_FILE_TOOL_ORDERED_PHRASES, _FILE_TOOL_PHRASE_TO_INTENT),
 }
 
 
@@ -525,6 +551,7 @@ _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     OVERWRITE_CONFIRM: _vocabulary_from_phrases(OVERWRITE_CONFIRM_PHRASES),
     REPLACE_CONFIRM: _vocabulary_from_phrases(REPLACE_CONFIRM_PHRASES),
     PASSWORD_PROMPT: _vocabulary_from_phrases(PASSWORD_PROMPT_PHRASES),
+    FILE_TOOL: sorted(set(_vocabulary_from_phrases(FILE_TOOL_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
 }
 
 
@@ -722,7 +749,7 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
             if command is not None:
                 return {"command": command, "clarify": None}
 
-    if context in (OPEN_DIALOG, SAVE_DIALOG):
+    if context in (OPEN_DIALOG, SAVE_DIALOG, FILE_TOOL):
         for candidate in (text, *(alternatives or ())):
             command = _parse_dialog_number(candidate)
             if command is not None:

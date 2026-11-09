@@ -8,6 +8,7 @@
 @import "file-browser.css";
 @import "scrollbars.css";
 @import "library-header.css";
+@import "file-tools.css";
 
 button {
   font-family: var(--font-sans);

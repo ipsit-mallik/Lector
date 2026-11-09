@@ -110,6 +110,12 @@
 .header-search.is-open .header-search-toggle:focus-visible { background-color: var(--state-pressed); }
 .header-search-toggle [data-icon] { width: 18px; height: 18px; }
 
+/* A page without a list (Home's Tools page) has no search or view toggle at
+   all. Their display rules are author rules, which beat the browser's own
+   [hidden] { display: none }, so `hidden` is spelled out here. */
+.header-search[hidden],
+.view-toggle[hidden] { display: none; }
+
 /* --- Grid/list toggle --------------------------------------------------------
    A segmented pair, so the pressed state reads as "one of these two, always
    exactly one". 32px buttons with 18px icons, 4px all round and between them;

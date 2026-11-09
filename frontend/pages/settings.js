@@ -63,6 +63,10 @@ document.getElementById("favoritesNav").addEventListener("click", () => {
   sessionStorage.setItem("lector-home-section", "favorites");
   goHome();
 });
+document.getElementById("toolsNav").addEventListener("click", () => {
+  sessionStorage.setItem("lector-home-section", "tools");
+  goHome();
+});
 
 const voiceBox = createVoiceBox({
   box: document.getElementById("voiceBox"),

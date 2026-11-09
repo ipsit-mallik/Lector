@@ -186,11 +186,12 @@ def _build_entry(path: str, opened_at: str, favorite: bool) -> dict:
     }
 
 
-def reveal_in_file_manager(path: str) -> None:
+def reveal_in_file_manager(path: str, *, open_folder: bool = False) -> None:
     """Open the OS file manager on `path`'s folder with the file selected
-    (Recent list's "Show in folder"). Fire-and-forget: the file manager is
-    its own process and Lector doesn't wait on it. The caller is
-    responsible for checking `path` is a real file first."""
+    (Recent list's "Show in folder"), or, with `open_folder`, on the folder
+    `path` itself (Export as images' new folder). Fire-and-forget: the file
+    manager is its own process and Lector doesn't wait on it. The caller is
+    responsible for checking `path` is a real file (or folder) first."""
     if sys.platform == "win32":
         # A single command-line string rather than an argv list: explorer.exe
         # parses its own command line, and only accepts the path quoted
@@ -199,8 +200,9 @@ def reveal_in_file_manager(path: str) -> None:
         # Full path to explorer.exe so a stray copy in the working directory
         # can't be picked up instead.
         explorer = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "explorer.exe")
-        subprocess.Popen(f'"{explorer}" /select,"{os.path.normpath(path)}"')
+        target = os.path.normpath(path)
+        subprocess.Popen(f'"{explorer}" "{target}"' if open_folder else f'"{explorer}" /select,"{target}"')
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", "-R", path])
+        subprocess.Popen(["open", path] if open_folder else ["open", "-R", path])
     else:
-        subprocess.Popen(["xdg-open", os.path.dirname(path)])
+        subprocess.Popen(["xdg-open", path if open_folder else os.path.dirname(path)])

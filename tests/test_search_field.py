@@ -51,7 +51,9 @@ def _theme_block(theme: str) -> str:
 FIELDS = (
     (("index.html",), "headerSearchInput"),
     (("index.html",), "openDialogSearch"),
-    (("pages", "reading.html"), "saveAsDialogSearch"),
+    # The Save-As dialog's markup is built by file-browser.js, for the reader
+    # and Home's file tools alike.
+    (("js", "file-browser.js"), "saveAsDialogSearch"),
     (("pages", "reading.html"), "findInput"),
     (("pages", "command-reference.js"), "referenceSearch"),
 )

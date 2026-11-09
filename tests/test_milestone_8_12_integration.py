@@ -99,6 +99,11 @@ class WiringTests(unittest.TestCase):
                 if not section["available"]:
                     continue
                 for command in section["commands"]:
+                    # A section can hold cards for more than one screen ("The
+                    # app itself": Save in the reader, "open tools" on Home);
+                    # each card names the screens it works on.
+                    if context not in command["contexts"]:
+                        continue
                     for phrase in command["phrases"]:
                         text = reference_test_phrase(phrase)
                         intent = router.resolve(context, text)["command"]["intent"]

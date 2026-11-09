@@ -25,6 +25,9 @@
       <button class="nav-item" id="favoritesNav">
         <span data-icon="favorites"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><polygon points="11,3 13.5,8.2 19,9 15,12.9 16,18.5 11,15.8 6,18.5 7,12.9 3,9 8.5,8.2"></polygon></svg></span> Favorites
       </button>
+      <button class="nav-item" id="toolsNav">
+        <span data-icon="tools"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.6 3.6a4 4 0 0 0-4.9 5.2l-5.3 5.3a1.8 1.8 0 0 0 2.5 2.5l5.3-5.3a4 4 0 0 0 5.2-4.9l-2.4 2.4-2.1-.4-.4-2.1z"></path></svg></span> Tools
+      </button>
       <button class="nav-item" id="settingsNav">
         <span data-icon="settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.6"></circle><circle cx="11" cy="11" r="2.4"></circle><line x1="11" y1="1.8" x2="11" y2="4"></line><line x1="11" y1="18" x2="11" y2="20.2"></line><line x1="1.8" y1="11" x2="4" y2="11"></line><line x1="18" y1="11" x2="20.2" y2="11"></line></svg></span> Settings
       </button>
@@ -96,16 +99,23 @@
              still owns the page from here (it applies the same state, and clears
              the note). -->
         <script>
-          if (sessionStorage.getItem("lector-home-section") === "favorites") {
+          (() => {
+            const section = sessionStorage.getItem("lector-home-section");
+            const target = { favorites: ["favoritesNav", "Favorites"], tools: ["toolsNav", "Tools"] }[section];
+            if (!target) return;
             const recentNav = document.getElementById("recentNav");
-            const favoritesNav = document.getElementById("favoritesNav");
+            const nav = document.getElementById(target[0]);
             recentNav.classList.remove("active");
             recentNav.removeAttribute("aria-current");
-            favoritesNav.classList.add("active");
-            favoritesNav.setAttribute("aria-current", "page");
-            document.getElementById("sectionTitle").textContent = "Favorites";
+            nav.classList.add("active");
+            nav.setAttribute("aria-current", "page");
+            document.getElementById("sectionTitle").textContent = target[1];
             document.getElementById("openPdfBtn").hidden = true;
-          }
+            if (section === "tools") {
+              document.getElementById("headerSearch").hidden = true;
+              document.getElementById("viewToggle").hidden = true;
+            }
+          })();
         </script>
         <!-- Fades the sidebar highlight across from the page the reader just left
              (home.css .nav-arriving/.nav-leaving). After the hand-off above, so it
@@ -232,13 +242,20 @@
   <script src="js/filedrop.js"></script>
   <script src="js/search-field.js"></script>
   <script src="js/file-browser.js"></script>
+  <script src="js/popup-menu.js"></script>
+  <script src="js/file-jobs.js"></script>
+  <script src="js/save-destination.js"></script>
   <script src="pages/recent-list.js"></script>
   <script src="pages/library-loading.js"></script>
   <script src="pages/library-search.js"></script>
   <script src="pages/recent-card.js"></script>
   <script src="pages/command-reference.js"></script>
   <script src="pages/password-dialog.js"></script>
+  <script src="pages/replace-dialog.js"></script>
   <script src="pages/open-pdf.js"></script>
+  <script src="pages/tool-dialogs.js"></script>
+  <script src="pages/tools-page.js"></script>
+  <script src="pages/convert-dialog.js"></script>
   <script src="pages/home.js"></script>
 </body>
 </html>

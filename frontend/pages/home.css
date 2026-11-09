@@ -284,7 +284,14 @@ html, body { height: 100%; }
 
 .recent-card:is(:hover, :has(:focus-visible)) .card-actions .card-action-btn,
 .recent-card .card-actions .card-action-btn:focus-visible,
-.recent-card .card-actions .recent-fav-btn.is-favorite { opacity: 1; }
+.recent-card .card-actions .recent-fav-btn.is-favorite,
+.recent-card.is-menu-open .card-actions .card-action-btn { opacity: 1; }
+
+/* "⋯" while its menu is open: the tint an icon button has when it is on. */
+.recent-card.is-menu-open .card-actions .recent-more-btn {
+  background-color: var(--accent-soft);
+  color: var(--accent-strong);
+}
 
 .recent-card .card-actions .card-action-btn:hover {
   background-color: var(--surface-hover);
@@ -770,3 +777,69 @@ html, body { height: 100%; }
    change shows even where the text colour barely moves. */
 .voice-help-btn:hover { color: var(--text-primary); text-decoration-color: currentColor; }
 .voice-help-btn:active { color: var(--accent-pressed); text-decoration-color: currentColor; }
+
+/* --- Tools page (tools-page.js, Milestone F1) ------------------------------
+   A section per group of tools (Tier 1's "Shrink and convert"; Tier 2 adds
+   "Pages"), each a grid of card buttons: four across at the default window,
+   fewer as it narrows (two at the 880px minimum). The cards are the card
+   family's surface, edge and lift. */
+.tools-section + .tools-section { margin-top: var(--space-7); }
+
+.tools-section-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tools-section-sub {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.tool-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 16px;
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-input);
+  box-shadow: var(--card-highlight), var(--shadow-1);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.tool-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+  background-color: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.tool-card-icon svg { width: 20px; height: 20px; }
+
+.tool-card-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tool-card-desc {
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}

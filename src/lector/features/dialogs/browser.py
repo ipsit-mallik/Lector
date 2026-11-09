@@ -16,6 +16,7 @@ import string
 import uuid
 from pathlib import Path
 
+from lector.features.file_tools import formats as file_tool_formats
 from lector.features.settings import store as settings
 
 log = logging.getLogger(__name__)
@@ -38,17 +39,35 @@ _WINDOWS_KNOWN_FOLDER_IDS = {
 }
 
 
-def list_directory(path: str) -> dict:
+# What the Open dialog lists besides folders, by name: PDFs everywhere, and,
+# for Convert to PDF only, the images and e-books it takes. The page only ever
+# names a filter; it can't hand in extensions of its own.
+PDF_FILTER = "pdf"
+CONVERT_FILTER = "convert"
+# The folder picker ("Choose another folder…" in a file tool's "Save in"
+# menu): folders only, no files at all.
+FOLDER_FILTER = "folder"
+FILTERS = {
+    PDF_FILTER: frozenset({PDF_EXTENSION}),
+    CONVERT_FILTER: file_tool_formats.CONVERT_EXTENSIONS,
+    FOLDER_FILTER: frozenset(),
+}
+
+
+def list_directory(path: str, kind: str = PDF_FILTER) -> dict:
     """Folders and PDFs directly inside `path` — folders first, then files,
     each alphabetically (case-insensitive) — the order the Open/Save-As rows
     are drawn in and numbered for voice picking.
 
     Non-PDF files are omitted, matching the native dialog's own
-    `file_types=("PDF Files (*.pdf)",)` filter. A directory that cannot be
-    listed (permissions, deleted since) reports an `error` string instead of
+    `file_types=("PDF Files (*.pdf)",)` filter; with `kind` "convert", the
+    files listed are the images and e-books Convert to PDF takes instead (an
+    unknown `kind` lists PDFs). A directory that cannot be listed
+    (permissions, deleted since) reports an `error` string instead of
     raising, so the dialog stays open with an empty list and a message rather
     than crashing the bridge call.
     """
+    extensions = FILTERS.get(kind, FILTERS[PDF_FILTER])
     resolved = Path(path).resolve()
     parent = _parent_of(resolved)
     try:
@@ -69,7 +88,7 @@ def list_directory(path: str) -> dict:
         key=lambda e: e.name.lower(),
     )
     files = sorted(
-        (e for e in raw_entries if e.is_file() and e.suffix.lower() == PDF_EXTENSION),
+        (e for e in raw_entries if e.is_file() and e.suffix.lower() in extensions),
         key=lambda e: e.name.lower(),
     )
     entries = [{"name": e.name, "path": str(e), "is_dir": True} for e in folders]
@@ -112,6 +131,12 @@ def list_quick_access() -> dict:
         if candidate.is_dir():
             entries.append({"name": folder, "path": str(candidate), "is_dir": True})
     return {"entries": entries}
+
+
+def known_folder(name: str) -> Path:
+    """`_known_folder`, for the file tools' "Save in" menu (Desktop,
+    Documents, Downloads): one lookup for every place that lists them."""
+    return _known_folder(name)
 
 
 def _known_folder(name: str) -> Path:

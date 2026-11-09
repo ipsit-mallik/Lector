@@ -12,6 +12,7 @@ straight away, while Reading must first ask about unsaved highlights.
 """
 import os
 
+from lector.features.file_tools import formats
 from lector.features.reading import open_errors
 
 PDF_SUFFIX = ".pdf"
@@ -46,6 +47,30 @@ def pdf_from_drop(event: dict) -> dict | None:
         if os.path.isfile(path):
             return {"path": path}
     return {"error": MISSING if pdf_names else NOT_A_PDF}
+
+
+CONVERT_HINT = "To make a PDF from it, use Tools › Convert to PDF."
+
+
+def convertible_from_drop(event: dict) -> list[str]:
+    """The dropped files Convert to PDF takes (images, e-books) that are on
+    disk, in the order dropped. Home's Convert dialog adds them when it is
+    open; anywhere else they only change what the refusal says."""
+    files = ((event or {}).get("dataTransfer") or {}).get("files") or []
+    paths = [f.get("pywebviewFullPath") for f in files if isinstance(f, dict)]
+    return [p for p in paths if isinstance(p, str) and formats.is_convertible(p) and os.path.isfile(p)]
+
+
+def with_convertible(outcome: dict | None, convertible: list[str]) -> dict | None:
+    """`pdf_from_drop`'s answer with the convertible files added, and, when
+    the drop held no PDF at all, the refusal pointing at Convert to PDF."""
+    if not convertible:
+        return outcome
+    outcome = dict(outcome or {})
+    outcome["convertible"] = convertible
+    if outcome.get("error") == NOT_A_PDF:
+        outcome["error"] = f"{NOT_A_PDF} {CONVERT_HINT}"
+    return outcome
 
 
 def pdf_from_path(path: str) -> dict:

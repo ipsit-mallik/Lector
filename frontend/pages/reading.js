@@ -1302,21 +1302,9 @@ async function cycleTheme() {
 
 // In-app Save-As dialog (Milestone 8.7), replacing the native
 // `create_file_dialog()` the voice router could not see or drive — the same
-// file-browser.js module Home's Open dialog uses, in its "save" mode.
-const saveAsDialog = createFileBrowser({
-  scrimId: "saveAsDialogScrim",
-  listId: "saveAsDialogList",
-  pathId: "saveAsDialogPath",
-  quickId: "saveAsDialogQuick",
-  treeId: "saveAsDialogTree",
-  searchId: "saveAsDialogSearch",
-  cancelBtnId: "saveAsDialogCancelBtn",
-  confirmBtnId: "saveAsDialogConfirmBtn",
-  filenameId: "saveAsDialogFilename",
-  mode: "save",
-  voiceContext: "save_dialog",
-  restingContext: "reading",
-});
+// file-browser.js module Home's Open dialog uses, in its "save" mode. The
+// file tools' Change… uses it too.
+const saveAsDialog = ensureSaveAsDialog("reading");
 
 async function promptSaveIfDirty(allowDiscard) {
   if (!state.is_dirty) return true;
@@ -1347,7 +1335,12 @@ async function promptSaveIfDirty(allowDiscard) {
     if (!path) return false;
   }
 
-  const outcome = await callApi("perform_save", mode, path);
+  return finishSave(await callApi("perform_save", mode, path));
+}
+
+// What perform_save answered, acted on: the new state, or the reason it
+// didn't happen.
+function finishSave(outcome) {
   if (outcome.ok) {
     state = outcome.state;
     return true;
@@ -1363,6 +1356,41 @@ async function promptSaveIfDirty(allowDiscard) {
     window.location.href = "../index.html";
   }
   return false;
+}
+
+// The More menu's Save (and Ctrl+S): the usual flow, which asks how to save
+// if it hasn't been told. With nothing unsaved there is nothing to do, which
+// a click is told rather than left wondering.
+async function saveFromMenu() {
+  if (!state.is_dirty) {
+    showToast("No unsaved changes to save.");
+    return;
+  }
+  await promptSaveIfDirty(false);
+}
+
+// Save a copy… (the More menu and Ctrl+Shift+S): straight to the Save-As
+// screen, whether or not anything is unsaved, since a copy is wanted for its
+// own sake. The reader's own choice of "overwrite" in Settings doesn't apply.
+async function saveCopy() {
+  const path = await pickCopyPath();
+  if (!path) return false;
+  return finishSave(await callApi("perform_save", "copy", path));
+}
+
+// A file a tool wrote, opened in the reader: after the usual unsaved-
+// highlights question, like any PDF dropped on the window.
+async function openToolOutput(path) {
+  if (!(await promptSaveIfDirty(true))) return;
+  if (!(await openPdf(path))) return;
+  window.location.reload();
+}
+
+// Compress, Make searchable, Export as images (tool-dialogs.js), for the PDF
+// as it is on screen.
+function openTool(tool) {
+  if (document.querySelector(".dialog-scrim:not([hidden])")) return;
+  ToolDialog.open(tool, "open");
 }
 
 // The Save-As screen, asked again until it gives a path that is free or that
@@ -1541,6 +1569,14 @@ document.addEventListener("keydown", (ev) => {
     zoomShortcut();
     return;
   }
+  // Ctrl+Shift+S is Save a copy (the More menu shows it), from the inputs
+  // too, as Ctrl+S's own Save is. With Shift held, `ev.key` is "S", so the
+  // lower-case "s" below never sees it.
+  if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === "s") {
+    ev.preventDefault();
+    if (!ev.repeat && !dialogOpenAtKey) saveCopy();
+    return;
+  }
   // The zoom slider is an input itself, so its Esc is taken before the guard
   // below; and it comes ahead of everything else open, Focus mode included.
   if (ev.key === "Escape" && isZoomPopoverOpen() && !dialogOpenAtKey) {
@@ -1645,8 +1681,25 @@ configureProgressBar({
 });
 configureFocusMode({
   scroller: () => activeScrollEl(),
-  holdsPeek: () => isZoomPopoverOpen(),
+  // The header stays down for the zoom popover and the More menu, both of
+  // which hang from it.
+  holdsPeek: () => isZoomPopoverOpen() || isFileMenuOpen(),
 });
+// The More menu and the footer's job pill (file-menu.js), and the tools'
+// dialog (tool-dialogs.js).
+configureFileMenu({
+  save: () => saveFromMenu(),
+  saveCopy: () => saveCopy(),
+  openTool: (tool) => openTool(tool),
+  onClose: () => settleFocusPeek(),
+});
+ToolDialog.configure({
+  where: "reader",
+  saveAs: saveAsDialog,
+  openOutput: (path) => openToolOutput(path),
+  onBackground: (event) => showFileJobPill(event),
+});
+FileJobs.configure({ open: (path) => openToolOutput(path) });
 configureZoomControl({
   setZoomPct: (pct) => setZoomPct(pct),
   fitGeometry: () => zoomFitGeometry(),
@@ -1932,6 +1985,11 @@ const VOICE_ACTIONS = {
   // this reaches the exact same prompt-or-save flow Ctrl+S does, rather than
   // a shortcut that skips the dialog.
   SAVE: () => promptSaveIfDirty(false),
+  // The file tools (Milestone F1): each opens its dialog in Set up; inside
+  // it, "confirm" and "cancel" and the numbered options take over.
+  COMPRESS_FILE: () => openTool("compress"),
+  MAKE_SEARCHABLE: () => openTool("searchable"),
+  EXPORT_IMAGES: () => openTool("export"),
   // Global commands (Milestone 8.4) — available from every context, so they
   // reach the same functions their toolbar buttons do.
   UNDO: () => undo(),
@@ -2008,6 +2066,16 @@ window.addEventListener("lector:command", (ev) => {
   // CANCEL is all the password box hears (router.py's PASSWORD_PROMPT).
   if (PasswordDialog.isOpen()) {
     PasswordDialog.handleCommand(command);
+    return;
+  }
+  // TOOL_CONFIRM/CANCEL/DIALOG_PICK: the close gatekeeper's question while a
+  // file job runs, then a tool's own dialog (router.py's FILE_TOOL).
+  if (StopJobDialog.isOpen()) {
+    StopJobDialog.handleCommand(command);
+    return;
+  }
+  if (ToolDialog.isOpen()) {
+    ToolDialog.handleCommand(command);
     return;
   }
   // SAVE_COPY/SAVE_OVERWRITE/DONT_SAVE/CANCEL only ever arrive while the

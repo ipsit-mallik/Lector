@@ -27,6 +27,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ParamSpec, TypeVar
 
+from lector.features.file_tools import choices as file_tool_choices
 from lector.features.reading import safe_write
 from lector.shared import highlight_options
 from lector.shared.theme import DEFAULT_HIGHLIGHT_COLOR, HIGHLIGHT_COLOR_NAMES, THEME_ORDER
@@ -424,6 +425,99 @@ def set_highlight_opacity(style: str, pct: int) -> None:
     # is not a valid style's percent is dropped on the way.
     data[_HIGHLIGHT_OPACITY_KEY] = {**get_highlight_opacities(), style: pct}
     _save(data)
+
+
+# The file tools' remembered choices: the last Compress level and the last
+# Export format and resolution, one dict, each value checked on read.
+_FILE_TOOLS_KEY = "file_tools"
+
+
+def get_file_tool_prefs() -> dict:
+    stored = _load().get(_FILE_TOOLS_KEY)
+    stored = stored if isinstance(stored, dict) else {}
+    level = stored.get("compress_level")
+    fmt = stored.get("export_format")
+    ppi = stored.get("export_ppi")
+    return {
+        "compress_level": level if level in file_tool_choices.LEVELS else file_tool_choices.DEFAULT_LEVEL,
+        "export_format": fmt if fmt in file_tool_choices.EXPORT_FORMATS else file_tool_choices.DEFAULT_FORMAT,
+        "export_ppi": ppi
+        if isinstance(ppi, int) and not isinstance(ppi, bool) and ppi in file_tool_choices.EXPORT_PPI
+        else file_tool_choices.DEFAULT_PPI,
+    }
+
+
+@_serialized
+def set_file_tool_prefs(**changes) -> None:
+    """Remember some of `get_file_tool_prefs`' values; raises ValueError for
+    an unknown name or a value not on offer."""
+    allowed = {
+        "compress_level": file_tool_choices.LEVELS,
+        "export_format": file_tool_choices.EXPORT_FORMATS,
+        "export_ppi": file_tool_choices.EXPORT_PPI,
+    }
+    for name, value in changes.items():
+        if name not in allowed or isinstance(value, bool) or value not in allowed[name]:
+            raise ValueError(f"invalid file tool preference: {name}")
+    data = _load()
+    data[_FILE_TOOLS_KEY] = {**get_file_tool_prefs(), **changes}
+    _save(data)
+
+
+# The file tools' "Save in" menu's RECENT group: folders the reader chose with
+# "Choose another folder…" (or picked again from RECENT), most recent first.
+# Never the default: every tool dialog still opens on "Beside the original".
+_RECENT_OUTPUT_FOLDERS_KEY = "recent_output_folders"
+MAX_RECENT_OUTPUT_FOLDERS = 3
+
+
+def _folder_key(path: str) -> str:
+    """Two spellings of one folder compare equal (case on Windows, a
+    trailing separator, `a\\..\\b`)."""
+    return os.path.normcase(os.path.normpath(path))
+
+
+def get_recent_output_folders() -> list[str]:
+    """Checked on read: absolute paths only, each folder once, at most
+    `MAX_RECENT_OUTPUT_FOLDERS`. Whether each still exists is not checked
+    here (see `prune_recent_output_folders`)."""
+    stored = _load().get(_RECENT_OUTPUT_FOLDERS_KEY)
+    if not isinstance(stored, list):
+        return []
+    folders, seen = [], set()
+    for item in stored:
+        if not isinstance(item, str) or not os.path.isabs(item) or _folder_key(item) in seen:
+            continue
+        seen.add(_folder_key(item))
+        folders.append(item)
+    return folders[:MAX_RECENT_OUTPUT_FOLDERS]
+
+
+@_serialized
+def add_recent_output_folder(path: str) -> list[str]:
+    """Put `path` at the top of the list (moving it there if it is already
+    in it) and drop the oldest past the cap. Returns the new list."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        raise ValueError("a recent output folder must be an absolute path")
+    key = _folder_key(path)
+    folders = [path] + [f for f in get_recent_output_folders() if _folder_key(f) != key]
+    data = _load()
+    data[_RECENT_OUTPUT_FOLDERS_KEY] = folders[:MAX_RECENT_OUTPUT_FOLDERS]
+    _save(data)
+    return data[_RECENT_OUTPUT_FOLDERS_KEY]
+
+
+@_serialized
+def prune_recent_output_folders() -> list[str]:
+    """Forget the folders that are no longer there (deleted, a drive
+    unplugged); saves only when something was dropped. Returns what is left."""
+    folders = get_recent_output_folders()
+    kept = [f for f in folders if os.path.isdir(f)]
+    if kept != folders:
+        data = _load()
+        data[_RECENT_OUTPUT_FOLDERS_KEY] = kept
+        _save(data)
+    return kept
 
 
 def get_ink_width() -> int:

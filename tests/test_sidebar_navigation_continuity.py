@@ -26,7 +26,7 @@ PAGES = {
 }
 HOME_CSS = (FRONTEND / "pages" / "home.css").read_text(encoding="utf-8")
 THEME_CSS = (FRONTEND / "shared" / "theme.css").read_text(encoding="utf-8")
-SIDEBAR_ICONS = ("logo", "recent", "all_pdfs", "favorites", "settings")
+SIDEBAR_ICONS = ("logo", "recent", "all_pdfs", "favorites", "tools", "settings")
 
 
 def _squash(svg):

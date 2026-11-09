@@ -26,12 +26,33 @@ function buildRemoveBtn(entry) {
   return removeBtn;
 }
 
-// The chips over the thumbnail's corner: Remove (Recent only — a favorite may
-// not be listed there at all, and unstarring is the star's job), then the star
-// at the very corner, where a favorited one stays visible at rest.
-function buildCardActions(entry) {
+// "⋯": the list row's menu (recent-list.js) — Open, Show in folder, the file
+// tools and, in Recent, Remove — so the grid reaches everything the list does
+// without a chip for each.
+function buildCardMoreBtn(entry, card) {
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "card-action-btn recent-more-btn";
+  more.dataset.tooltip = "More";
+  more.setAttribute("aria-label", `More actions for ${entry.name}`);
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("aria-expanded", "false");
+  more.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    toggleRowMenu(more, card, entry, recentCardMenuHandlers, homeSection);
+  });
+  mountIcon(more, "more");
+  return more;
+}
+
+// The chips over the thumbnail's corner: "⋯", Remove (Recent only — a
+// favorite may not be listed there at all, and unstarring is the star's job),
+// then the star at the very corner, where a favorited one stays visible at
+// rest.
+function buildCardActions(entry, card) {
   const actions = document.createElement("div");
   actions.className = "card-actions";
+  actions.appendChild(buildCardMoreBtn(entry, card));
   if (homeSection === "recent") actions.appendChild(buildRemoveBtn(entry));
   const favBtn = buildFavoriteBtn(entry, entry.name, toggleFavorite);
   favBtn.classList.add("card-action-btn");
@@ -59,7 +80,7 @@ function buildCard(entry) {
   const thumb = document.createElement("div");
   thumb.className = "recent-thumb";
   mountThumbnail(thumb, entry);
-  thumb.appendChild(buildCardActions(entry));
+  thumb.appendChild(buildCardActions(entry, card));
   card.appendChild(thumb);
 
   const title = document.createElement("div");

@@ -24,7 +24,9 @@ from pathlib import Path
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 BROWSER_JS = FRONTEND / "js" / "file-browser.js"
 BROWSER_CSS = FRONTEND / "shared" / "file-browser.css"
-DIALOG_PAGES = (FRONTEND / "index.html", FRONTEND / "pages" / "reading.html")
+# The Open dialog's markup is Home's; the Save-As dialog's is built by
+# file-browser.js (`SAVE_AS_MARKUP`), for the reader and Home's file tools.
+DIALOG_PAGES = (FRONTEND / "index.html", FRONTEND / "js" / "file-browser.js")
 
 
 def _strip_comments(text: str) -> str:

@@ -26,6 +26,9 @@ SOURCES = sorted((SRC / "lector").rglob("*.py"))
 PYMUPDF_NAMES = {"pymupdf", "fitz"}
 PYMUPDF_ALLOWED = {
     "lector/features/annotations/highlighter.py",
+    # The file tools' engine: it runs only in the OCR worker process, and
+    # docs/ARCHITECTURE.md § "File tools" records why it is its own module.
+    "lector/features/file_tools/engine.py",
     "lector/features/home/recent.py",
     "lector/features/reading/document.py",
     "lector/features/reading/ocr.py",
@@ -117,7 +120,7 @@ class ScannerTests(unittest.TestCase):
 
 
 class PyMuPDFStaysWhereItIsTests(unittest.TestCase):
-    def test_only_the_five_known_modules_import_pymupdf(self):
+    def test_only_the_known_modules_import_pymupdf(self):
         for name, imports in _imports_by_file().items():
             if name in PYMUPDF_ALLOWED:
                 continue

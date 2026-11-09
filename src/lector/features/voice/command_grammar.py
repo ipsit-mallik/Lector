@@ -76,6 +76,12 @@ EXIT_FOCUS_MODE = "EXIT_FOCUS_MODE"
 FIT_WIDTH = "FIT_WIDTH"
 FIT_PAGE = "FIT_PAGE"
 ACTUAL_SIZE = "ACTUAL_SIZE"
+# The file tools (Milestone F1): each opens its dialog; formats, levels and
+# page ranges are then chosen by mouse or keyboard, "confirm" and "cancel"
+# and a number by voice (router.FILE_TOOL).
+COMPRESS_FILE = "COMPRESS_FILE"
+MAKE_SEARCHABLE = "MAKE_SEARCHABLE"
+EXPORT_IMAGES = "EXPORT_IMAGES"
 
 # Phrasings per intent, each ordered most-explicit first. Order is load
 # bearing: `fuzzy.best_match` breaks ties by taking the earliest candidate,
@@ -141,6 +147,13 @@ PHRASES: dict[str, tuple[str, ...]] = {
     HIGHLIGHT_MODE: ("highlight mode",),
     UNDERLINE_MODE: ("underline mode",),
     STRIKETHROUGH_MODE: ("strike through mode",),
+    # The file tools. Measured against every other reader and global phrase:
+    # the closest is "export pages" to "show pages" and "next page" (0.58), and
+    # "compress this file" to "save the file" (0.50), all under the match
+    # threshold. None opens anything written: each only opens its dialog.
+    COMPRESS_FILE: ("compress this file", "compress", "make it smaller"),
+    MAKE_SEARCHABLE: ("make this searchable", "make searchable"),
+    EXPORT_IMAGES: ("export as images", "export pages", "save as images"),
 }
 
 # The style each "… mode" command chooses (the highlight tool's styles).

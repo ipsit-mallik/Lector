@@ -8,6 +8,33 @@
 // Enter does nothing, the safe default. It is a modal voice scope of its own,
 // so only "confirm replace" / "replace it" / "cancel" are heard while it is up.
 
+// The reader's Save a copy and the file tools' Change… (reader and Home) ask
+// this, so the markup lives here once, like the password dialog's. Static:
+// the name and folder are set later as text.
+const REPLACE_CONFIRM_MARKUP = `
+  <div class="dialog-scrim dialog-scrim--enter voice-dialog" id="replaceConfirmScrim" hidden>
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="replaceConfirmTitle" tabindex="-1">
+      <div class="dialog-body">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="folder"></div>
+          <div>
+            <p class="dialog-title" id="replaceConfirmTitle">Replace this file?</p>
+            <p class="dialog-desc" id="replaceConfirmDesc"></p>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <span class="hint">Say “confirm replace”, or “cancel” to pick another name.</span>
+        <button class="btn btn-secondary" id="replaceConfirmCancelBtn">Cancel</button>
+        <button class="btn" id="replaceConfirmBtn">Replace</button>
+      </div>
+    </div>
+  </div>`;
+if (!document.getElementById("replaceConfirmScrim")) {
+  document.body.insertAdjacentHTML("beforeend", REPLACE_CONFIRM_MARKUP);
+  if (typeof mountIcons === "function") mountIcons(document.getElementById("replaceConfirmScrim"));
+}
+
 const ReplaceDialog = (() => {
   const scrim = document.getElementById("replaceConfirmScrim");
   const card = scrim.querySelector(".dialog-card");

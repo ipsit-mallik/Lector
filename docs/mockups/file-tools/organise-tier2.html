@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tier 2 · Organise pages</title>
+<script src="./dc-lite.js"></script>
+</head>
+<body>
+<template data-dc>
+<helmet>
+<style>
+body{margin:0}
+.ib{width:32px;height:32px;border:0;padding:0;background:transparent;border-radius:6px;color:var(--ts);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1),color .12s cubic-bezier(.2,.8,.2,1)}
+.ib:hover{background:var(--hover);color:var(--tp)}
+.ib.on{background:var(--accentSoft);color:var(--accentStrong)}
+.ib:disabled{color:var(--tt);background:transparent;cursor:default}
+.rb{width:40px;height:40px;border:0;padding:0;background:transparent;border-radius:8px;color:var(--ts);display:flex;align-items:center;justify-content:center}
+.tb{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--tp);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1)}
+.tb svg{color:var(--ts)}
+.tb:hover{background:var(--hover)}
+.tb:disabled{color:var(--tt);cursor:default;background:transparent}
+.tb:disabled svg{color:var(--tt)}
+.tb.danger:hover:not(:disabled){color:var(--danger)}
+.tb.danger:hover:not(:disabled) svg{color:var(--danger)}
+.mi{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 10px;border:0;background:transparent;border-radius:6px;font:inherit;font-size:13.5px;color:var(--tp);text-align:left;cursor:pointer;box-sizing:border-box}
+.mi:hover{background:var(--hover)}
+.mi svg{color:var(--ts);flex:none}
+.btn{height:36px;padding:0 16px;border:0;border-radius:8px;background:var(--accent);color:var(--onAccent);font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+.btn:hover{background:var(--accentHover)}
+.btn.danger{background:var(--danger);color:var(--onAccent)}
+.btn.danger:hover{background:var(--dangerHover)}
+.btn2{height:36px;padding:0 14px;border:1px solid var(--borderStrong);border-radius:8px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px;font-weight:500;cursor:pointer}
+.btn2:hover{background:var(--inputHover)}
+.th{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 10px 8px;border:0;border-radius:10px;background:transparent;font:inherit;color:var(--ts);cursor:pointer;transition:background-color .12s cubic-bezier(.2,.8,.2,1)}
+.th:hover{background:var(--hover)}
+.th .paper{transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s cubic-bezier(.2,.8,.2,1)}
+.th:hover .paper{box-shadow:var(--shadow2)}
+.th.sel{background:var(--selFill)}
+.th.sel .num{color:var(--accentStrong);font-weight:600}
+.th .hov{opacity:0;transition:opacity .12s}
+.th:hover .hov{opacity:1}
+.th.drag{opacity:.4}
+.mini{width:28px;height:28px;border:0;border-radius:6px;background:var(--input);color:var(--ts);box-shadow:var(--shadow1),0 0 0 1px var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.mini:hover{color:var(--tp)}
+.mini.del:hover{color:var(--danger)}
+.opt{display:flex;gap:12px;align-items:center;width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--input);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box;color:var(--tp)}
+.opt:hover{border-color:var(--borderStrong)}
+.opt.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--selFill)}
+.field{height:36px;box-sizing:border-box;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px}
+.loc{display:flex;align-items:center;gap:8px;width:100%;height:36px;box-sizing:border-box;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--tp);font:inherit;font-size:13.5px;text-align:left;cursor:pointer;transition:border-color .12s cubic-bezier(.2,.8,.2,1)}
+.loc:hover{border-color:var(--borderStrong)}
+.loc[aria-expanded="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.lmi{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:4px 10px;border:0;border-radius:6px;background:transparent;color:var(--tp);font:inherit;font-size:13.5px;text-align:left;cursor:pointer;box-sizing:border-box}
+.lmi:hover{background:var(--hover)}
+.lmi[aria-selected="true"]{background:var(--accentSoft)}
+.namebox{display:flex;align-items:center;min-width:0;height:36px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;background:var(--input)}
+.namebox:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+@keyframes up{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+.upmenu{animation:up .14s cubic-bezier(.2,.8,.2,1);transform-origin:bottom left}
+@media (prefers-reduced-motion: reduce){.upmenu{animation:none}}
+.field:focus{outline:2px solid var(--accent);outline-offset:1px}
+.tlink{border:0;background:transparent;padding:0 4px;height:28px;border-radius:6px;color:var(--toastAccent);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.tlink:hover{text-decoration:underline}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes rise{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+.menu{animation:rise .14s cubic-bezier(.2,.8,.2,1);transform-origin:top right}
+.card{animation:pop .2s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion: reduce){.menu,.card{animation:none}.th .paper{transition:none}}
+</style>
+</helmet>
+<div style="{{vars}} position: relative; width: 1280px; height: 800px; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); color: var(--tp); font-family: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif; font-size: 13.5px;">
+
+<sc-if value="{{reading}}" hint-placeholder-val="{{true}}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
+<div style="height: 48px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 24px 0 16px; background: var(--s1); border-bottom: 1px solid var(--border);">
+<button class="ib" aria-label="Outline and pages"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M9 4.5v15"></path></svg></button>
+<span style="font-size: 12.5px; color: var(--ts); padding: 0 8px;">‹ Library</span>
+<span style="font-family: Charter, Georgia, serif; font-size: 15px;">Annual Report 2025</span>
+<span style="flex: 1;"></span>
+<span style="color: var(--tm); font-size: 13px;">Page 4 of 12</span>
+<span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
+<span style="font-size: 13px; color: var(--tp); width: 76px; text-align: center;">100%</span>
+<span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
+<button class="ib" aria-label="Focus mode"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
+<button class="ib {{moreCls}}" onClick="{{toggleMenu}}" aria-label="More" aria-haspopup="menu" aria-expanded="{{menu}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="18.5" cy="12" r="1.7"></circle></svg></button>
+</div>
+<div style="flex: 1; min-height: 0; display: flex;">
+<div style="flex: 1; display: flex; justify-content: center; padding-top: 24px; overflow: hidden;">
+<div style="width: 520px; height: 736px; flex: none; background: var(--paper); box-shadow: var(--shadowPage); box-sizing: border-box; padding: 72px 64px; display: flex; flex-direction: column; gap: 12px;">
+<div style="height: 14px; width: 52%; border-radius: 3px; background: var(--ink); opacity: .55; margin-bottom: 14px;"></div>
+<sc-for list="{{lines}}" as="ln" hint-placeholder-count="12"><div style="{{ln.s}}"></div></sc-for>
+</div>
+</div>
+<div style="width: 56px; flex: none; background: var(--s1); border-left: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--ts);">
+<span class="rb"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M15 4l5 5-9 9H6v-5z"></path><path d="M4 21h16"></path></svg></span>
+<span class="rb"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 010 10h-3"></path></svg></span>
+<span class="rb"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg></span>
+</div>
+</div>
+<sc-if value="{{menu}}" hint-placeholder-val="{{true}}">
+<div class="menu" role="menu" aria-label="File" style="position: absolute; top: 52px; right: 16px; width: 272px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: var(--input); box-shadow: var(--shadow3); border: 1px solid var(--edge); display: flex; flex-direction: column; gap: 2px; z-index: 5;">
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v5h7V4M8 20v-6h8v6"></path></svg><span style="flex: 1;">Save</span><span style="font-size: 12px; color: var(--tm);">Ctrl+S</span></button>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="1.5"></rect><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"></path></svg><span style="flex: 1;">Save a copy…</span><span style="font-size: 12px; color: var(--tm);">Ctrl+Shift+S</span></button>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3M4 12h16"></path></svg><span style="flex: 1;">Compress…</span></button>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H6v18h6"></path><path d="M13 3l5 5v3"></path><circle cx="16.5" cy="16.5" r="3.5"></circle><path d="M19 19l2.5 2.5"></path></svg><span style="flex: 1;">Make searchable…</span></button>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><circle cx="9" cy="10" r="1.8"></circle><path d="M20.5 16l-5-5-9 8.5"></path></svg><span style="flex: 1;">Export as images…</span></button>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="mi" role="menuitem" onClick="{{enter}}" style="background: var(--hover);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="4" width="6.5" height="7" rx="1"></rect><rect x="4" y="13" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="13" width="6.5" height="7" rx="1"></rect></svg><span style="flex: 1;">Organise pages…</span><span style="font-size: 12px; color: var(--tm);">Ctrl+Shift+O</span></button>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="mi" role="menuitem"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg><span style="flex: 1;">Show in folder</span></button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{organising}}" hint-placeholder-val="{{false}}">
+<div style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
+<div style="height: 48px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--s1); border-bottom: 1px solid var(--border);">
+<span style="width: 32px; height: 32px; border-radius: 8px; background: var(--accentSoft); color: var(--accentStrong); display: flex; align-items: center; justify-content: center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="4" width="6.5" height="7" rx="1"></rect><rect x="4" y="13" width="6.5" height="7" rx="1"></rect><rect x="13.5" y="13" width="6.5" height="7" rx="1"></rect></svg></span>
+<span style="font-family: Charter, Georgia, serif; font-size: 17px;">Organise pages</span>
+<span style="color: var(--tm); font-size: 13px;">Annual Report 2025</span>
+<span style="flex: 1;"></span>
+<button class="ib" onClick="{{undo}}" disabled="{{noUndo}}" aria-label="Undo" title="Undo (Ctrl+Z)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 010 10h-3"></path></svg></button>
+<button class="ib" onClick="{{redo}}" disabled="{{noRedo}}" aria-label="Redo" title="Redo (Ctrl+Y)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H9a5 5 0 000 10h3"></path></svg></button>
+<span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
+<button class="btn" onClick="{{exit}}" title="Back to reading (Esc)">Done</button>
+</div>
+
+<div style="height: 52px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--page);">
+<button class="tb" onClick="{{rotL}}" disabled="{{none}}" title="{{whyOff}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v5h5"></path><path d="M4.5 9A8 8 0 1112 20"></path></svg>Rotate left</button>
+<button class="tb" onClick="{{rotR}}" disabled="{{none}}" title="{{whyOff}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 4v5h-5"></path><path d="M19.5 9A8 8 0 1012 20"></path></svg>Rotate right</button>
+<button class="tb danger" onClick="{{del}}" disabled="{{none}}" title="{{whyOff}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"></path></svg>Delete</button>
+<span style="width: 1px; height: 20px; background: var(--border); margin: 0 8px;"></span>
+<button class="tb" onClick="{{openExtract}}" disabled="{{none}}" title="{{whyOff}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h5"></path><path d="M14 3v4h4v3M15 17h7M19 14l3 3-3 3"></path></svg>Extract…</button>
+<button class="tb" onClick="{{openInsert}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h10a1 1 0 001-1V7z"></path><path d="M14 3v4h4M12 11v6M9 14h6"></path></svg>Insert…</button>
+<span style="flex: 1;"></span>
+<span style="font-size: 13px; color: var(--ts); font-variant-numeric: tabular-nums;">{{selText}}</span>
+<button class="tb" onClick="{{selAll}}">{{selAllLabel}}</button>
+</div>
+
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 20px 28px; box-sizing: border-box;">
+<div role="listbox" aria-multiselectable="true" aria-label="Pages" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px 8px;">
+<sc-for list="{{cards}}" as="c" hint-placeholder-count="12">
+<div style="position: relative;">
+<sc-if value="{{c.dropBefore}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: -6px; top: 10px; bottom: 34px; width: 3px; border-radius: 2px; background: var(--accent);"></span></sc-if>
+<button class="th {{c.cls}}" role="option" aria-selected="{{c.on}}" aria-label="{{c.label}}" onClick="{{c.click}}" draggable="true" onDragStart="{{c.dragStart}}" onDragOver="{{c.dragOver}}" onDrop="{{c.drop}}" onDragEnd="{{c.dragEnd}}" style="width: 100%;">
+<span style="width: 132px; height: 132px; display: flex; align-items: center; justify-content: center;">
+<span class="paper" style="{{c.paper}}">
+<span style="height: 6px; width: 60%; border-radius: 2px; background: var(--ink); opacity: .5;"></span>
+<sc-if value="{{c.pic}}" hint-placeholder-val="{{false}}"><span style="height: 34px; border-radius: 2px; background: #BFCBC4;"></span></sc-if>
+<sc-for list="{{c.lines}}" as="l" hint-placeholder-count="6"><span style="{{l.s}}"></span></sc-for>
+</span>
+</span>
+<span class="num" style="font-size: 12.5px; font-variant-numeric: tabular-nums;">{{c.num}}</span>
+<sc-if value="{{c.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 14px; left: 22px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--onAccent); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--input);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+<sc-if value="{{c.isNew}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 14px; right: 22px; font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accentSoft); color: var(--accentStrong);">New</span></sc-if>
+</button>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="height: 44px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--s1); border-top: 1px solid var(--border);">
+<span style="font-size: 12.5px; color: var(--tm);">Drag to reorder · Ctrl+←/→ moves the selection · Ctrl+A selects all</span>
+<span style="flex: 1;"></span>
+<span style="font-size: 12.5px; color: var(--ts); font-variant-numeric: tabular-nums;">{{footText}}</span>
+<button class="btn2" style="height: 30px; font-size: 12.5px;">What can I say?</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{dlgOpen}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: 10;">
+<div class="card" role="dialog" aria-modal="true" aria-labelledby="ot" style="width: 500px; box-sizing: border-box; border-radius: 16px; background: var(--s2); box-shadow: var(--shadow3), var(--dialogEdge); overflow: visible; display: flex; flex-direction: column;">
+<div style="padding: 24px 32px 0; display: flex; gap: 14px; align-items: flex-start;">
+<div style="{{badgeStyle}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{dlgIcon}}"></path></svg></div>
+<div style="flex: 1;"><p id="ot" style="margin: 0; font-family: Charter, Georgia, serif; font-size: 22px; line-height: 28px;">{{dlgTitle}}</p><p style="margin: 4px 0 0; font-size: 13.5px; line-height: 20px; color: var(--ts);">{{dlgDesc}}</p></div>
+</div>
+<div style="padding: 20px 32px 24px; display: flex; flex-direction: column; gap: 14px;">
+<sc-if value="{{isExtract}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 12px; align-items: center;">
+<span style="font-size: 13px; color: var(--ts);">{{destNameLabel}}</span>
+<div class="namebox"><input value="{{nameStem}}" onInput="{{onStem}}" aria-label="{{destNameLabel}}" spellcheck="false" style="flex: 1; min-width: 0; height: 34px; border: 0; background: transparent; padding: 0 10px; font: inherit; font-size: 13.5px; color: var(--tp); outline: none;"><sc-if value="{{hasExt}}" hint-placeholder-val="{{true}}"><span style="padding-right: 10px; color: var(--tm);">{{nameExt}}</span></sc-if></div>
+<span style="font-size: 13px; color: var(--ts);">Save in</span>
+<div style="position: relative; min-width: 0;">
+<button class="loc" onClick="{{toggleLoc}}" aria-haspopup="listbox" aria-expanded="{{locOpen}}" title="Choose where to save">
+<span style="color: var(--accent); display: flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg></span>
+<span style="font-weight: 600; white-space: nowrap;">{{locName}}</span>
+<span style="flex: 1; min-width: 0; color: var(--tm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{locPath}}</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ts)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10l5 5 5-5"></path></svg>
+</button>
+<sc-if value="{{locOpen}}" hint-placeholder-val="{{false}}">
+<div class="upmenu" role="listbox" aria-label="Save in" style="position: absolute; left: 0; right: 0; bottom: 42px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: var(--input); box-shadow: var(--shadow3); border: 1px solid var(--edge); display: flex; flex-direction: column; gap: 2px; z-index: 20;">
+<sc-for list="{{locs}}" as="l" hint-placeholder-count="4">
+<sc-if value="{{l.hasHead}}" hint-placeholder-val="{{false}}"><div style="padding: 8px 10px 2px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--tm);">{{l.head}}</div></sc-if>
+<button class="lmi" role="option" aria-selected="{{l.on}}" onClick="{{l.pick}}">
+<span style="width: 16px; display: flex; color: var(--accentStrong);"><sc-if value="{{l.on}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if></span>
+<span style="display: flex; flex-direction: column; min-width: 0; flex: 1;"><span style="font-weight: 500;">{{l.name}}</span><span style="font-size: 12px; color: var(--tm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{l.path}}</span></span>
+</button>
+</sc-for>
+<div style="height: 1px; background: var(--border); margin: 4px 6px;"></div>
+<button class="lmi" onClick="{{chooseOther}}"><span style="width: 16px;"></span><span style="color: var(--ts); display: flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"></path></svg></span><span style="font-weight: 500;">Choose another folder…</span></button>
+</div>
+</sc-if>
+</div>
+</div>
+<sc-if value="{{hasHint}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; color: var(--tm); padding-left: 76px;">{{destHint}}</span></sc-if>
+</div>
+<label style="display: flex; align-items: center; gap: 10px; cursor: pointer;"><input type="checkbox" checked="{{alsoDel}}" onChange="{{toggleAlsoDel}}" style="width: 16px; height: 16px; accent-color: var(--accent);"><span>Also delete them from this PDF</span></label>
+</div>
+</sc-if>
+<sc-if value="{{isInsert}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<div style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--input); border: 1px solid var(--border);"><span style="width: 26px; height: 34px; background: var(--paper); box-shadow: 0 0 0 1px var(--border); border-radius: 2px;"></span><span style="flex: 1;">Appendix A — Financials.pdf <span style="color: var(--tm);">· 3 pages</span></span><button class="btn2" style="height: 32px;">Choose…</button></div>
+<div role="radiogroup" aria-label="Where" style="display: flex; flex-direction: column; gap: 8px;">
+<sc-for list="{{wheres}}" as="w" hint-placeholder-count="3">
+<button class="opt {{w.cls}}" role="radio" aria-checked="{{w.on}}" onClick="{{w.pick}}"><span style="{{w.dot}}"></span><span style="flex: 1; font-weight: 500;">{{w.t}}</span><span style="font-size: 12.5px; color: var(--tm);">{{w.d}}</span></button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{isDelete}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: flex-end; gap: 10px; padding: 14px 16px; border-radius: 8px; background: var(--input); border: 1px solid var(--border); flex-wrap: wrap;">
+<sc-for list="{{delThumbs}}" as="d" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><span style="width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;"><span style="{{d.paper}}"></span></span><span style="font-size: 11.5px; color: var(--tm); font-variant-numeric: tabular-nums;">{{d.num}}</span></div>
+</sc-for>
+<sc-if value="{{delMore}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; color: var(--tm); padding-bottom: 22px;">{{delMoreText}}</span></sc-if>
+</div>
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>Undo brings them back. The PDF on disk doesn't change until you save.</span></div>
+</div>
+</sc-if>
+</div>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 14px 32px; background: var(--s1); border-top: 1px solid var(--border); border-radius: 0 0 16px 16px;"><button class="btn2" onClick="{{closeDlg}}">Cancel</button><button class="btn {{primaryCls}}" onClick="{{confirmDlg}}">{{dlgPrimary}}</button></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{toastOn}}" hint-placeholder-val="{{false}}">
+<div class="card" role="status" style="position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 8px 0 16px; border-radius: 10px; background: var(--tp); color: var(--bg); box-shadow: var(--shadow2); font-size: 13px; z-index: 8; white-space: nowrap;">
+<span>{{toastText}}</span>
+<sc-if value="{{toastUndo}}" hint-placeholder-val="{{false}}"><button class="tlink" onClick="{{undo}}">Undo</button></sc-if>
+<button class="ib" onClick="{{hideToast}}" aria-label="Dismiss" style="color: var(--bg); width: 28px; height: 28px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+</sc-if>
+
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark","sepia"],"default":"light"},"startIn":{"editor":"enum","options":["reader menu","organise pages"],"default":"reader menu"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  themes() { return {
+    light: { bg:'#E7E2D9', s1:'#EFEAE2', page:'#F6F3EE', s2:'#F6F3EE', input:'#FFFDF9', inputHover:'#F4F0E9', tp:'#161A18', ts:'#4A4F49', tm:'#616560', tt:'#807C76', border:'#D2CCC2', borderStrong:'#A8A6A0', edge:'#D2CCC2', accent:'#3E6259', accentHover:'#33534B', accentStrong:'#2C463F', accentSoft:'rgba(62,98,89,.14)', selFill:'rgba(62,98,89,.12)', onAccent:'#F6F3EE', danger:'#B44137', dangerHover:'#9C372E', dangerSoft:'rgba(180,65,55,.12)', hover:'rgba(22,26,24,.06)', overlay:'rgba(12,10,8,.55)', shadow1:'0 1px 2px rgba(40,30,20,.08)', shadow2:'0 2px 6px rgba(40,30,20,.10), 0 10px 24px rgba(40,30,20,.16)', shadow3:'0 4px 12px rgba(40,30,20,.10), 0 24px 56px rgba(40,30,20,.24)', dialogEdge:'0 0 0 0 transparent', shadowPage:'0 1px 3px rgba(40,30,20,.14), 0 4px 14px rgba(40,30,20,.08)', paper:'#FFFFFF', ink:'#2A2E2B', line:'#DAD6CF', toastAccent:'#A9D4C6' },
+    dark: { bg:'#171512', s1:'#25211C', page:'#1C1916', s2:'#302B25', input:'#3A352E', inputHover:'#454039', tp:'#EDE8DF', ts:'#C5BFB2', tm:'#B4ACA2', tt:'#928B81', border:'rgba(255,255,255,.08)', borderStrong:'#4A453C', edge:'rgba(255,255,255,.06)', accent:'#6FA394', accentHover:'#7FB3A4', accentStrong:'#7FB3A4', accentSoft:'rgba(111,163,148,.16)', selFill:'rgba(111,163,148,.18)', onAccent:'#1C1916', danger:'#E68A80', dangerHover:'#EE9C93', dangerSoft:'rgba(230,138,128,.16)', hover:'rgba(237,232,223,.06)', overlay:'rgba(0,0,0,.65)', shadow1:'inset 0 1px 0 rgba(255,255,255,.05)', shadow2:'0 10px 24px rgba(0,0,0,.5)', shadow3:'0 24px 56px rgba(0,0,0,.55)', dialogEdge:'0 0 0 1px rgba(255,255,255,.06)', shadowPage:'0 2px 10px rgba(0,0,0,.5)', paper:'#E6E3DE', ink:'#2A2E2B', line:'#CBC7C0', toastAccent:'#2C463F' },
+    sepia: { bg:'#F1E7D0', s1:'#EDE2C8', page:'#F8F0DE', s2:'#F8F0DE', input:'#FEFAF1', inputHover:'#F6EEDD', tp:'#3B2F20', ts:'#5B4C38', tm:'#716249', tt:'#867B66', border:'#DDCBA0', borderStrong:'#C9B78E', edge:'#DDCBA0', accent:'#4F6B5C', accentHover:'#43594D', accentStrong:'#37483E', accentSoft:'rgba(79,107,92,.14)', selFill:'rgba(79,107,92,.12)', onAccent:'#F8F0DE', danger:'#AA4137', dangerHover:'#93372E', dangerSoft:'rgba(170,65,55,.12)', hover:'rgba(59,47,32,.06)', overlay:'rgba(30,22,12,.5)', shadow1:'0 1px 2px rgba(80,55,20,.08)', shadow2:'0 2px 6px rgba(80,55,20,.10), 0 10px 24px rgba(80,55,20,.16)', shadow3:'0 4px 12px rgba(80,55,20,.12), 0 24px 56px rgba(80,55,20,.24)', dialogEdge:'0 0 0 0 transparent', shadowPage:'0 1px 3px rgba(80,55,20,.16), 0 4px 14px rgba(80,55,20,.08)', paper:'#FFFDF7', ink:'#3B2F20', line:'#E2D8C4', toastAccent:'#B8DBD0' }
+  }; }
+  constructor(p) {
+    super(p);
+    const pages = [];
+    for (let i = 1; i <= 12; i++) pages.push({ id: 'p' + i, orig: i, rot: i === 7 ? 90 : 0, pic: i === 3 || i === 7 || i === 10, isNew: false });
+    this.state = { mode: p.startIn === 'organise pages' ? 'organise' : 'reading', menu: true, pages, sel: ['p4', 'p5', 'p6'], anchor: 'p4', past: [], future: [], changes: 0, dlg: null, where: 'after', alsoDel: false, toast: null, toastUndo: false, dragId: null, overId: null };
+  }
+  destVals(key, stem, ext, originPath, originLabel, hint, nameLabel) {
+    const s = this.state;
+    const stems = s.stems || {};
+    const v = stems[key] != null ? stems[key] : stem;
+    const places = [{ k: 'orig', name: originLabel, folder: originPath.split('\\').pop(), path: originPath }];
+    if (s.extraLoc) places.push({ k: 'extra', name: 'Lector notes', folder: 'Lector notes', path: 'D:\\Projects\\Lector notes', head: 'Recent' });
+    [['desktop', 'Desktop'], ['documents', 'Documents'], ['downloads', 'Downloads']].forEach(([k, n], i) => places.push({ k, name: n, folder: n, path: 'C:\\Users\\…\\' + n, head: i === 0 ? 'On this PC' : '' }));
+    const cur = places.find((x) => x.k === (s.loc || 'orig')) || places[0];
+    return {
+      destNameLabel: nameLabel, nameStem: v, nameExt: ext, hasExt: !!ext,
+      onStem: (e) => this.setState({ stems: { ...stems, [key]: e.target.value } }),
+      locName: cur.folder, locPath: cur.k === 'orig' ? originLabel.toLowerCase() : cur.path,
+      locOpen: !!s.locOpen, toggleLoc: () => this.setState({ locOpen: !s.locOpen }),
+      locs: places.map((x) => ({ name: x.name, path: x.path, on: x === cur, head: x.head || '', hasHead: !!x.head, pick: () => this.setState({ loc: x.k, locOpen: false }) })),
+      chooseOther: () => this.setState({ extraLoc: true, loc: 'extra', locOpen: false }),
+      destHint: hint, hasHint: !!hint,
+      fullName: v + ext,
+      savedClause: cur.k === 'orig' ? ', ' + originLabel.toLowerCase() : cur.k === 'desktop' ? ' on the Desktop' : ' in ' + cur.folder
+    };
+  }
+  commit(pages, extra) {
+    const s = this.state;
+    this.setState({ pages, past: s.past.concat([{ pages: s.pages, sel: s.sel }]), future: [], changes: s.changes + 1, ...extra });
+  }
+  renderVals() {
+    const TH = this.themes(); const T = TH[this.props.theme] || TH.light;
+    const vars = Object.keys(T).map((k) => '--' + k + ': ' + T[k] + ';').join(' ');
+    const s = this.state;
+    const selSet = new Set(s.sel);
+    const n = s.sel.length;
+    const idx = (id) => s.pages.findIndex((p) => p.id === id);
+    const selIdx = s.pages.map((p, i) => (selSet.has(p.id) ? i : -1)).filter((i) => i >= 0);
+    const rangeText = (ix) => { if (!ix.length) return ''; const a = ix[0] + 1, b = ix[ix.length - 1] + 1; return ix.length === b - a + 1 ? (a === b ? 'page ' + a : 'pages ' + a + '–' + b) : ix.length + ' pages'; };
+    const rotate = (d) => this.commit(s.pages.map((p) => (selSet.has(p.id) ? { ...p, rot: (p.rot + d + 360) % 360 } : p)), { toast: null });
+    const widths = [100, 92, 100, 78, 0, 100, 96, 64];
+    let newCount = 0;
+    const cards = s.pages.map((p, i) => {
+      const on = selSet.has(p.id);
+      const land = p.rot % 180 !== 0;
+      const paper = 'width: 92px; height: 120px; box-sizing: border-box; padding: 12px 10px; background: var(--paper); box-shadow: ' + (on ? '0 0 0 2px var(--accent), var(--shadow1)' : 'var(--shadow1), 0 0 0 1px var(--border)') + '; display: flex; flex-direction: column; gap: 5px; transform: rotate(' + p.rot + 'deg);' + (p.isNew ? ' background: linear-gradient(var(--paper), var(--paper)) padding-box;' : '');
+      return {
+        num: String(i + 1), on, isNew: p.isNew, pic: p.pic,
+        label: 'Page ' + (i + 1) + (p.rot ? ', rotated ' + p.rot + '°' : '') + (on ? ', selected' : ''),
+        cls: (on ? 'sel' : '') + (s.dragId === p.id ? ' drag' : ''),
+        paper,
+        dropBefore: s.dragId && s.overId === p.id && s.dragId !== p.id,
+        lines: widths.map((w) => ({ s: w === 0 ? 'height: 4px;' : 'height: 3px; border-radius: 2px; background: var(--line); width: ' + w + '%;' })),
+        click: (e) => {
+          if (e.shiftKey && s.anchor) {
+            const a = idx(s.anchor), b = i; const lo = Math.min(a, b), hi = Math.max(a, b);
+            this.setState({ sel: s.pages.slice(lo, hi + 1).map((x) => x.id) });
+          } else if (e.ctrlKey || e.metaKey) {
+            this.setState({ sel: on ? s.sel.filter((x) => x !== p.id) : s.sel.concat([p.id]), anchor: p.id });
+          } else this.setState({ sel: [p.id], anchor: p.id });
+        },
+        dragStart: (e) => { try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id); } catch (x) {} this.setState({ dragId: p.id, sel: on ? s.sel : [p.id] }); },
+        dragOver: (e) => { e.preventDefault(); if (this.state.overId !== p.id) this.setState({ overId: p.id }); },
+        drop: (e) => {
+          e.preventDefault();
+          const moving = this.state.sel.length && this.state.sel.includes(this.state.dragId) ? this.state.sel : [this.state.dragId];
+          if (!this.state.dragId || moving.includes(p.id)) { this.setState({ dragId: null, overId: null }); return; }
+          const mv = new Set(moving);
+          const rest = s.pages.filter((x) => !mv.has(x.id));
+          const at = rest.findIndex((x) => x.id === p.id);
+          const block = s.pages.filter((x) => mv.has(x.id));
+          const next = rest.slice(0, at).concat(block, rest.slice(at));
+          this.commit(next, { dragId: null, overId: null, toast: 'Moved ' + (block.length === 1 ? '1 page' : block.length + ' pages'), toastUndo: true });
+        },
+        dragEnd: () => this.setState({ dragId: null, overId: null })
+      };
+    });
+    const insertNew = () => {
+      const add = [1, 2, 3].map((k) => ({ id: 'n' + Date.now() + k, orig: 0, rot: 0, pic: k === 2, isNew: true }));
+      let at = s.pages.length;
+      if (s.where === 'before' && selIdx.length) at = selIdx[0];
+      if (s.where === 'after' && selIdx.length) at = selIdx[selIdx.length - 1] + 1;
+      const next = s.pages.slice(0, at).concat(add, s.pages.slice(at));
+      this.commit(next, { dlg: null, sel: add.map((x) => x.id), toast: 'Inserted 3 pages from Appendix A — Financials.pdf', toastUndo: true });
+    };
+    const dot = (on) => 'flex: none; width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: ' + (on ? '5px solid var(--accent)' : '1.5px solid var(--tt)') + '; background: var(--input);';
+    const isExtract = s.dlg === 'extract', isInsert = s.dlg === 'insert', isDelete = s.dlg === 'delete';
+    const pagesWord = n === 1 ? '1 page' : n + ' pages';
+    const dv = this.destVals('extract', 'Annual Report 2025 (' + rangeText(selIdx) + ')', '.pdf', 'D:\\Reports', 'Beside the original', '', 'Name');
+    return {
+      ...dv,
+      vars,
+      reading: s.mode === 'reading', organising: s.mode === 'organise',
+      menu: s.menu, moreCls: s.menu ? 'on' : '', toggleMenu: () => this.setState({ menu: !s.menu }),
+      enter: () => this.setState({ mode: 'organise', menu: false }),
+      exit: () => this.setState({ mode: 'reading', menu: false, toast: s.changes ? 'Page changes are unsaved — Ctrl+S saves them with your highlights' : null, toastUndo: false }),
+      lines: [100, 96, 100, 88, 100, 93, 62, 0, 100, 97, 100, 91, 100, 70].map((w) => ({ s: w === 0 ? 'height: 10px;' : 'height: 8px; border-radius: 3px; background: var(--line); width: ' + w + '%;' })),
+      cards,
+      none: n === 0, whyOff: n === 0 ? 'Select pages first' : '',
+      selText: n ? n + ' of ' + s.pages.length + ' selected' : s.pages.length + ' pages',
+      selAllLabel: n === s.pages.length ? 'Select none' : 'Select all',
+      selAll: () => this.setState({ sel: n === s.pages.length ? [] : s.pages.map((p) => p.id) }),
+      rotL: () => rotate(-90), rotR: () => rotate(90),
+      del: () => {
+        if (n >= s.pages.length) { this.setState({ toast: 'A PDF needs at least one page. Leave one unselected.', toastUndo: false }); return; }
+        this.setState({ dlg: 'delete', toast: null });
+      },
+      undo: () => { if (!s.past.length) return; const prev = s.past[s.past.length - 1]; this.setState({ pages: prev.pages, sel: prev.sel, past: s.past.slice(0, -1), future: [{ pages: s.pages, sel: s.sel }].concat(s.future), changes: Math.max(0, s.changes - 1), toast: null }); },
+      redo: () => { if (!s.future.length) return; const nx = s.future[0]; this.setState({ pages: nx.pages, sel: nx.sel, future: s.future.slice(1), past: s.past.concat([{ pages: s.pages, sel: s.sel }]), changes: s.changes + 1 }); },
+      noUndo: !s.past.length, noRedo: !s.future.length,
+      openExtract: () => this.setState({ dlg: 'extract', alsoDel: false }),
+      openInsert: () => this.setState({ dlg: 'insert', where: selIdx.length ? 'after' : 'end' }),
+      dlgOpen: !!s.dlg, isExtract, isInsert, isDelete,
+      dlgTitle: isDelete ? 'Delete ' + pagesWord + '?' : isExtract ? 'Extract ' + pagesWord : 'Insert pages',
+      dlgDesc: isDelete ? (rangeText(selIdx).charAt(0).toUpperCase() + rangeText(selIdx).slice(1)) + (n === 1 ? ' is' : ' are') + ' removed from Annual Report 2025.' : isExtract ? 'Saves ' + rangeText(selIdx) + ' as a new PDF.' : 'Adds pages from another PDF or from images.',
+      badgeStyle: 'width: 40px; height: 40px; flex: none; border-radius: 10px; display: flex; align-items: center; justify-content: center; ' + (isDelete ? 'background: var(--dangerSoft); color: var(--danger);' : 'background: var(--accentSoft); color: var(--accentStrong);'),
+      primaryCls: isDelete ? 'danger' : '',
+      delThumbs: s.pages.map((p, i) => ({ p, i })).filter((x) => selSet.has(x.p.id)).slice(0, 6).map((x) => ({ num: String(x.i + 1), paper: 'width: 36px; height: 46px; background: var(--paper); box-shadow: 0 0 0 1px var(--border), var(--shadow1); transform: rotate(' + x.p.rot + 'deg);' })),
+      delMore: n > 6, delMoreText: '+' + (n - 6) + ' more',
+      dlgIcon: isDelete ? 'M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13' : isExtract ? 'M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h5M14 3v4h4v3M15 17h7M19 14l3 3-3 3' : 'M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h10a1 1 0 001-1V7zM14 3v4h4M12 11v6M9 14h6',
+      exName: 'Annual Report 2025 (' + rangeText(selIdx) + ').pdf',
+      alsoDel: s.alsoDel, toggleAlsoDel: () => this.setState({ alsoDel: !s.alsoDel }),
+      wheres: [['before', 'Before the selection', selIdx.length ? 'before page ' + (selIdx[0] + 1) : ''], ['after', 'After the selection', selIdx.length ? 'after page ' + (selIdx[selIdx.length - 1] + 1) : ''], ['end', 'At the end', 'after page ' + s.pages.length]]
+        .filter((w) => selIdx.length || w[0] === 'end')
+        .map(([v, t, d]) => ({ t, d, on: s.where === v, cls: s.where === v ? 'sel' : '', dot: dot(s.where === v), pick: () => this.setState({ where: v }) })),
+      dlgPrimary: isDelete ? 'Delete ' + pagesWord : isExtract ? 'Extract' : 'Insert 3 pages',
+      closeDlg: () => this.setState({ dlg: null, locOpen: false, loc: 'orig' }),
+      confirmDlg: () => {
+        if (isInsert) { insertNew(); return; }
+        if (isDelete) { this.commit(s.pages.filter((p) => !selSet.has(p.id)), { dlg: null, sel: [], toast: 'Deleted ' + pagesWord, toastUndo: true }); return; }
+        const msg = 'Saved ' + dv.fullName + dv.savedClause;
+        if (s.alsoDel && n < s.pages.length) this.commit(s.pages.filter((p) => !selSet.has(p.id)), { dlg: null, sel: [], toast: msg + ' and removed them here', toastUndo: true });
+        else this.setState({ dlg: null, toast: msg, toastUndo: false });
+      },
+      footText: s.pages.length + ' pages' + (s.changes ? ' · ' + s.changes + (s.changes === 1 ? ' unsaved change' : ' unsaved changes') : ''),
+      toastOn: !!s.toast, toastText: s.toast || '', toastUndo: s.toastUndo && s.past.length > 0,
+      hideToast: () => this.setState({ toast: null })
+    };
+  }
+}
+</script>
+</body>
+</html>
