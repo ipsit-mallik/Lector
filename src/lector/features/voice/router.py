@@ -109,6 +109,10 @@ PASSWORD_PROMPT = "password_prompt"
 # images, Convert to PDF, choosing a PDF) and the close gatekeeper's "Stop it
 # and close?" while a file job runs.
 FILE_TOOL = "file_tool"
+# Milestone F2: Organise pages, while its grid replaces the reader. Not modal:
+# the globals ("undo", "what can I say", "go home") still reach the page, which
+# decides what they mean there.
+ORGANISE = "organise"
 
 # Every context a page or dialog may declare itself as, via `Api.set_voice_context`.
 # Extendable: 8.6-8.9 add screens that need no new entry here beyond what is
@@ -116,7 +120,7 @@ FILE_TOOL = "file_tool"
 CONTEXTS: tuple[str, ...] = (
     HOME, READING, SETTINGS, SAVE_DIALOG, OPEN_DIALOG, PICKER, DICTATION,
     REMOVE_CONFIRM, SAVE_CONFIRM, REFERENCE, OVERWRITE_CONFIRM, REPLACE_CONFIRM,
-    PASSWORD_PROMPT, FILE_TOOL,
+    PASSWORD_PROMPT, FILE_TOOL, ORGANISE,
 )
 
 # What a fresh `VoiceEngine`/`Api` should behave as before any page has made
@@ -434,6 +438,17 @@ FILE_TOOL_PHRASES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Milestone F2: Organise pages. "done" applies the page changes and goes back
+# to reading (the Done button); "cancel" is the Cancel button, which leaves
+# without applying them (asking first when there are changes). The rest of
+# Organise's commands (select, rotate, delete) come with F2.10.
+ORGANISE_DONE = "ORGANISE_DONE"
+
+ORGANISE_PHRASES: dict[str, tuple[str, ...]] = {
+    ORGANISE_DONE: ("done", "exit organise", "back to reading"),
+    CANCEL: ("cancel",),
+}
+
 # Modal scopes that do not let screen-level globals through (Milestone 8.12),
 # mapped to the few they do. Every other context matches the whole global set
 # first, so "open settings" or "quit" resolved behind these dialogs and was
@@ -483,6 +498,7 @@ _PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT = _flatten_p
     PASSWORD_PROMPT_PHRASES
 )
 _FILE_TOOL_ORDERED_PHRASES, _FILE_TOOL_PHRASE_TO_INTENT = _flatten_phrases(FILE_TOOL_PHRASES)
+_ORGANISE_ORDERED_PHRASES, _ORGANISE_PHRASE_TO_INTENT = _flatten_phrases(ORGANISE_PHRASES)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
 # except `READING` (which delegates to `command_grammar` instead) and
@@ -505,6 +521,7 @@ _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     REPLACE_CONFIRM: (_REPLACE_CONFIRM_ORDERED_PHRASES, _REPLACE_CONFIRM_PHRASE_TO_INTENT),
     PASSWORD_PROMPT: (_PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT),
     FILE_TOOL: (_FILE_TOOL_ORDERED_PHRASES, _FILE_TOOL_PHRASE_TO_INTENT),
+    ORGANISE: (_ORGANISE_ORDERED_PHRASES, _ORGANISE_PHRASE_TO_INTENT),
 }
 
 
@@ -552,6 +569,7 @@ _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     REPLACE_CONFIRM: _vocabulary_from_phrases(REPLACE_CONFIRM_PHRASES),
     PASSWORD_PROMPT: _vocabulary_from_phrases(PASSWORD_PROMPT_PHRASES),
     FILE_TOOL: sorted(set(_vocabulary_from_phrases(FILE_TOOL_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
+    ORGANISE: _vocabulary_from_phrases(ORGANISE_PHRASES),
 }
 
 

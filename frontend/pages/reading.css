@@ -1,6 +1,7 @@
 @import "../shared/theme.css";
 @import "../shared/components.css";
 @import "../shared/reference.css";
+@import "organise.css";
 
 html, body { height: 100%; }
 
@@ -1327,6 +1328,12 @@ html, body { height: 100%; }
 .file-menu-item:focus-visible { background-color: var(--state-hover); }
 .file-menu-item:focus-visible { outline-offset: -2px; }
 .file-menu-item:active { background-color: var(--state-pressed); }
+/* Organise pages… on a PDF whose pages can't be changed: dimmed, its tooltip
+   says why, and it does nothing (file-menu.js). */
+.file-menu-item[aria-disabled="true"] { color: var(--text-tertiary); cursor: default; }
+.file-menu-item[aria-disabled="true"] [data-icon] { color: var(--text-tertiary); }
+.file-menu-item[aria-disabled="true"]:hover,
+.file-menu-item[aria-disabled="true"]:active { background-color: transparent; }
 
 .file-menu-item-text {
   flex: 1;

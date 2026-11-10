@@ -487,10 +487,10 @@ class Api:
         size to show it at in CSS pixels (100% is the paper's real size); the
         bitmap itself is drawn for `device_scale` (the web view's
         devicePixelRatio, clamped to 1-4) so it is sharp on a high DPI screen."""
-        pix = self._doc.render_page(index, device_scale)
-        if pix is None:
+        rendered = self._doc.render_page_sized(index, device_scale)
+        if rendered is None:
             return {"image": None, "width": 0, "height": 0}
-        width, height = self._doc.page_css_size(index)
+        pix, width, height = rendered
         return {"image": _pixmap_to_png_b64(pix), "width": width, "height": height}
 
     def get_page_sizes(self) -> list[dict]:
@@ -883,23 +883,28 @@ class Api:
         is, and its own Undo is `organise_undo`."""
         if self._organise is not None:
             return self._after_history_step(None, None)
-        kind = self._doc.undo_kind
-        return self._after_history_step(kind, self._doc.undo_highlight())
+        # The kind comes from the step itself, taken atomically: two quick
+        # Ctrl+Z may reach a page change the page thought was a highlight.
+        return self._after_history_step(*self._doc.step_history(forward=False))
 
     def redo_highlight(self) -> dict:
         if self._organise is not None:
             return self._after_history_step(None, None)
-        kind = self._doc.redo_kind
-        return self._after_history_step(kind, self._doc.redo_highlight())
+        return self._after_history_step(*self._doc.step_history(forward=True))
 
     def _after_pages_changed(self) -> None:
         """The page list just changed under everything that names pages by
         index: the voice viewport is the old document's (the page sends a
-        new one once it has laid out again), and the reading position moved."""
+        new one once it has laid out again), and the reading position moved.
+        The change itself has already happened, so a failure here is logged
+        and never reported as the change failing."""
         self._voice_viewport = []
         self._voice_ocr_pages = []
-        self._refresh_voice_vocabulary()
-        self._remember_position()
+        try:
+            self._refresh_voice_vocabulary()
+            self._remember_position()
+        except Exception:
+            log.exception("Couldn't refresh voice or the reading position after a page change")
 
     def _after_history_step(self, kind: str | None, affected_page: int | None) -> dict:
         pages_changed = kind == page_changes.PAGE_CHANGES and affected_page is not None
@@ -993,6 +998,14 @@ class Api:
         if self._organise is None or self._organise.redo() is None:
             return {"ok": False}
         return self._organise_view()
+
+    def organise_cancel(self) -> dict:
+        """Leave Organise without applying the draft: it is dropped, with
+        the files Insert opened. Nothing in the open document changes, so no
+        snapshot is taken and nothing is recorded."""
+        self._organise = None
+        self._doc.drop_page_sources()
+        return {**self._state(), "pages_changed": False, "history_trimmed": False}
 
     def organise_thumbnail(self, source: str, index: int, width: int) -> dict:
         """A page of the draft, `width` pixels wide (clamped), as the page
@@ -1933,7 +1946,11 @@ class Api:
                 window.evaluate_js("confirmStopFileJob()", callback=_on_job_answer)
                 return False
 
-        if self._closing_confirmed or not self._doc.is_open or not self._doc.is_dirty:
+        # An Organise draft with changes in it is unsaved too: the page
+        # applies it first, then asks the usual question (reading.js).
+        draft_pending = self._organise is not None and self._organise.steps > 0
+        unsaved = self._doc.is_open and (self._doc.is_dirty or draft_pending)
+        if self._closing_confirmed or not unsaved:
             self.shutdown_voice()
             return None
 

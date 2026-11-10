@@ -23,6 +23,9 @@ let fileMenuHooks = {
   save: () => {},
   saveCopy: () => {},
   openTool: () => {},
+  organise: () => {},
+  // Why Organise pages can't be used on this PDF, or null.
+  organiseBlocked: () => null,
   onClose: () => {},
 };
 
@@ -66,6 +69,22 @@ async function showOpenDocumentInFolder() {
   if (error) showToast(error);
 }
 
+// Organise pages… in a group of its own. On a PDF whose pages can't be
+// changed it stays in the menu, dimmed (aria-disabled, so its tooltip still
+// says why), and choosing it does nothing.
+function organiseMenuItem() {
+  const blocked = fileMenuHooks.organiseBlocked();
+  const item = fileMenuItem("organise", "Organise pages…", () => {
+    if (!blocked) fileMenuHooks.organise();
+  }, { shortcut: "Ctrl+Shift+O" });
+  item.dataset.tool = "organise";
+  if (blocked) {
+    item.setAttribute("aria-disabled", "true");
+    item.title = blocked;
+  }
+  return item;
+}
+
 function openFileMenu() {
   const searchable = fileMenuItem("searchable", "Make searchable…", () => fileMenuHooks.openTool("searchable"), {
     sublabel: textlessLine(),
@@ -85,6 +104,8 @@ function openFileMenu() {
       fileMenuItem("compress", "Compress…", () => fileMenuHooks.openTool("compress")),
       searchable,
       fileMenuItem("export_images", "Export as images…", () => fileMenuHooks.openTool("export")),
+      buildPopupMenuSeparator("file-menu-separator"),
+      organiseMenuItem(),
       buildPopupMenuSeparator("file-menu-separator"),
       fileMenuItem("folder", "Show in folder", () => showOpenDocumentInFolder()),
     ],

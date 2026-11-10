@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <title>Lector — Reading</title>
   <link rel="stylesheet" href="reading.css">
+  <!-- Before anything is drawn: keeps "Applying page changes…" up across the
+       reload a page change makes (page-change-busy.js). -->
+  <script src="../js/page-change-pending.js"></script>
 </head>
 <body>
   <!-- `.focus-chrome` marks the bars Focus mode hides together (focus-mode.js):
@@ -293,6 +296,59 @@
       </div>
     </div>
 
+    <!-- Organise pages (organise.js, organise-grid.js): replaces the topbar,
+         the body row and everything in it while open; the footer stays, so
+         the mic pill still shows voice is listening. -->
+    <section class="organise-view" id="organiseView" aria-label="Organise pages" hidden>
+      <div class="organise-topbar">
+        <span class="organise-badge" data-icon="organise" aria-hidden="true"></span>
+        <h1 class="organise-title">Organise pages</h1>
+        <span class="organise-doc" id="organiseDocName"></span>
+        <div class="spacer"></div>
+        <button class="icon-btn icon-btn--sm" id="organiseUndoBtn" type="button" data-icon="undo"
+                aria-label="Undo" title="Nothing to undo" aria-disabled="true"></button>
+        <button class="icon-btn icon-btn--sm" id="organiseRedoBtn" type="button" data-icon="redo"
+                aria-label="Redo" title="Nothing to redo" aria-disabled="true"></button>
+        <div class="vline short"></div>
+        <!-- Leaving: Cancel drops the draft (asking first when it has changes,
+             organise-discard.js); Done applies it. -->
+        <button class="btn btn-secondary" id="organiseCancelBtn" type="button"
+                title="Back to reading without changing the pages  (Esc)">Cancel</button>
+        <button class="btn" id="organiseDoneBtn" type="button"
+                title="Apply the page changes and go back to reading">Done</button>
+      </div>
+      <div class="organise-actions" role="toolbar" aria-label="Page actions">
+        <button class="organise-action" id="organiseRotateLeftBtn" type="button" data-needs-selection>
+          <span data-icon="rotate_left" aria-hidden="true"></span>Rotate left
+        </button>
+        <button class="organise-action" id="organiseRotateRightBtn" type="button" data-needs-selection>
+          <span data-icon="rotate_right" aria-hidden="true"></span>Rotate right
+        </button>
+        <!-- `data-later`: built in a later step of Milestone F2 (Delete F2.4,
+             Insert F2.5, Extract F2.6); disabled until then (organise.js). -->
+        <button class="organise-action organise-action--danger" id="organiseDeleteBtn" type="button" data-needs-selection data-later>
+          <span data-icon="remove" aria-hidden="true"></span>Delete
+        </button>
+        <div class="vline short organise-actions-sep"></div>
+        <button class="organise-action" id="organiseExtractBtn" type="button" data-needs-selection data-later>
+          <span data-icon="extract" aria-hidden="true"></span>Extract…
+        </button>
+        <button class="organise-action" id="organiseInsertBtn" type="button" data-later>
+          <span data-icon="insert" aria-hidden="true"></span>Insert…
+        </button>
+        <div class="spacer"></div>
+        <span class="organise-selection" id="organiseSelectionText" aria-live="polite"></span>
+        <button class="organise-action" id="organiseSelectAllBtn" type="button">Select all</button>
+      </div>
+      <div class="organise-scroll" id="organiseScroll">
+        <div class="organise-grid-wrap">
+          <div class="organise-grid" id="organiseGrid" role="listbox" aria-multiselectable="true"
+               aria-label="Pages" aria-orientation="horizontal"></div>
+          <div class="organise-insertion" id="organiseInsertion" aria-hidden="true" hidden></div>
+        </div>
+      </div>
+    </section>
+
     <div class="hline focus-chrome"></div>
     <div class="footer focus-chrome">
       <div class="mic-pill" id="micPill">
@@ -309,6 +365,8 @@
         <span id="fileJobPillLabel"></span>
       </button>
       <span class="highlight-count" id="highlightCount">0 highlights on this page</span>
+      <!-- In Organise pages: "12 pages · 2 unsaved changes" (organise.js). -->
+      <span class="organise-count" id="organiseCount" hidden></span>
       <button class="btn-secondary what-btn" id="referenceFooterBtn"
               title="What can I say?  (?)">What can I say?</button>
     </div>
@@ -374,6 +432,17 @@
     </div>
   </div>
 
+  <!-- "Applying page changes…" (page-change-busy.js): over everything, taking
+       the mouse and keyboard, while Done or Undo/Redo page changes run and
+       until the reader has drawn the changed document. -->
+  <div class="page-change-busy" id="pageChangeBusy" role="alertdialog" aria-modal="true"
+       aria-labelledby="pageChangeBusyLabel" tabindex="-1" hidden>
+    <div class="page-change-busy-card">
+      <span class="spinner" aria-hidden="true"></span>
+      <span id="pageChangeBusyLabel">Applying page changes…</span>
+    </div>
+  </div>
+
   <!-- The in-app Save-As dialog (Milestone 8.7) is built by
        js/file-browser.js's ensureSaveAsDialog(), shared with Home's file
        tools. -->
@@ -414,6 +483,10 @@
   <script src="zoom-control.js"></script>
   <script src="tool-dialogs.js"></script>
   <script src="file-menu.js"></script>
+  <script src="page-change-busy.js"></script>
+  <script src="organise-grid.js"></script>
+  <script src="organise-discard.js"></script>
+  <script src="organise.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>

@@ -357,6 +357,15 @@ def _reading_sections() -> list[dict]:
                      "folder.",
                      "Click ⋯ at the header's right end, then Export as images", _READING),
         ]),
+        _section("organising", "Organising pages", "Works while Organise pages is open.", [
+            _command(_all(router.ORGANISE_PHRASES, router.ORGANISE_DONE),
+                     "Applies your page changes and goes back to reading.",
+                     "Click Done", (router.ORGANISE,)),
+            _command(_all(router.ORGANISE_PHRASES, router.CANCEL),
+                     "Goes back to reading without changing the pages. With changes, "
+                     "asks first: \"confirm\" discards them, \"cancel\" keeps editing.",
+                     "Click Cancel, or press Esc", (router.ORGANISE,)),
+        ]),
         _section("app", "The app itself", "Works in the reader, and on Home where it says so.", [
             _command(_all(p, grammar.SAVE),
                      "Asks how to save — a copy, or over the original. Nothing is "
@@ -453,7 +462,8 @@ def _prompts() -> dict:
 # front of it (see `sections`); the rest keep this order.
 _SECTION_ORDER: tuple[str, ...] = (
     "anywhere", "back_home", "recent", "favorites", "theme", "save", "reopen",
-    "moving", "panel", "focus", "zoom", "highlighting", "undo_redo", "files", "app", "this_list", "prompts",
+    "moving", "panel", "focus", "zoom", "highlighting", "undo_redo", "files", "organising", "app",
+    "this_list", "prompts",
 )
 
 

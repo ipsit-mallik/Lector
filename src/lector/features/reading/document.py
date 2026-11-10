@@ -1,3 +1,4 @@
+import functools
 import logging
 import math
 import os
@@ -8,13 +9,26 @@ import pymupdf
 
 from lector.features.annotations import highlighter
 from lector.features.file_tools import engine as file_tool_engine
-from lector.features.reading import ocr, ocr_cache, open_errors, page_changes, page_plan, safe_write, search
+from lector.features.reading import doc_gate, ocr, ocr_cache, open_errors, page_changes, page_plan, safe_write, search
 from lector.features.reading.open_errors import OpenError
 from lector.features.reading.outline import OutlineEntry, outline_tree
 from lector.features.reading.safe_write import SaveError
 from lector.shared import highlight_options
 
 log = logging.getLogger(__name__)
+
+def _reads(method):
+    """A method that reads the open document's pages: it waits while a page
+    change is applied, undone or redone, and the change waits for it
+    (`doc_gate.py`)."""
+
+    @functools.wraps(method)
+    def read(self, *args, **kwargs):
+        with self._gate.reading():
+            return method(self, *args, **kwargs)
+
+    return read
+
 
 @dataclass
 class _HighlightRef:
@@ -225,6 +239,8 @@ class PdfDocument:
         # Bridge calls each run on their own thread, so two saves (Ctrl+S
         # pressed twice, or a close during a save) must not interleave.
         self._save_lock = threading.Lock()
+        # Page reads (`@_reads`) and page changes, kept apart (doc_gate.py).
+        self._gate = doc_gate.DocGate()
 
     def open(self, path: str, password: str | None = None):
         """Open `path`, unlocking it with `password` if it has one. Raises
@@ -233,7 +249,7 @@ class PdfDocument:
         doc, needed_password = _open_checked(path, password)
         # Never in the middle of a save, which closes and reopens the PDF
         # around moving the new file into place.
-        with self._save_lock:
+        with self._gate.changing(), self._save_lock:
             self._switch_to(doc, path, password if needed_password else None)
 
     def _switch_to(self, doc: "pymupdf.Document", path: str, password: str | None) -> None:
@@ -266,10 +282,12 @@ class PdfDocument:
         self.drop_page_sources()
 
     def close(self):
-        self.drop_page_sources()
-        if self._doc:
-            self._doc.close()
-            self._doc = None
+        # As a change: no page read is left holding the closed document.
+        with self._gate.changing():
+            self.drop_page_sources()
+            if self._doc:
+                self._doc.close()
+                self._doc = None
         with self._ocr_lock:
             # A job still running for the closed PDF is then dropped.
             self._generation += 1
@@ -339,18 +357,22 @@ class PdfDocument:
         from adding one."""
         return math.ceil(length - 1e-6)
 
+    @_reads
     def page_css_size(self, index: int) -> tuple[int, int]:
         """Page `index`'s size on screen in CSS pixels at the current zoom."""
         rect = self._doc[index].rect
         scale = self.css_scale()
         return (self._css_px(rect.width * scale), self._css_px(rect.height * scale))
 
+    @_reads
     def render_page(self, index: int, device_scale: float = 1.0):
         """Page `index` as a bitmap for a screen with `device_scale` device
         pixels per CSS pixel (the web view's devicePixelRatio), so it is
         drawn 1:1 with the screen's pixels at its CSS size
         (`page_css_size`), down to MAX_RENDER_PIXELS."""
-        if not self._doc:
+        # A page past the end: a request made before a page change shortened
+        # the document (the strip's look-ahead), answered after it.
+        if not self._doc or not 0 <= index < len(self._doc):
             return None
         page = self._doc[index]
         scale = self.css_scale() * min(max(float(device_scale), 1.0), 4.0)
@@ -359,6 +381,17 @@ class PdfDocument:
             scale *= (self.MAX_RENDER_PIXELS / area) ** 0.5
         return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
 
+    @_reads
+    def render_page_sized(self, index: int, device_scale: float = 1.0):
+        """`render_page` and `page_css_size` from one read of the document,
+        so a page change can't fall between them: (pixmap, width, height),
+        or None for a page that isn't there."""
+        pix = self.render_page(index, device_scale)
+        if pix is None:
+            return None
+        return (pix, *self.page_css_size(index))
+
+    @_reads
     def render_thumbnail(self, index: int, width_px: int):
         """Page `index` scaled to `width_px` pixels wide, whatever the zoom —
         for the outline panel's Pages tab and the progress bar's hover
@@ -372,6 +405,7 @@ class PdfDocument:
         scale = max(1, width_px) / page.rect.width if page.rect.width else 1
         return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
 
+    @_reads
     def outline(self) -> list[OutlineEntry]:
         """The PDF's bookmarks as a nested tree (see outline.py); [] when it
         has none."""
@@ -379,6 +413,7 @@ class PdfDocument:
             return []
         return outline_tree(self._doc.get_toc(simple=True), len(self._doc))
 
+    @_reads
     def page_sizes(self) -> list[tuple[int, int]]:
         """Page dimensions in CSS pixels at the current zoom, without
         rendering pixmaps.
@@ -395,6 +430,7 @@ class PdfDocument:
             for page in self._doc
         ]
 
+    @_reads
     def search(self, needle: str, start: int, end: int | None) -> dict:
         """One time-boxed slice of a find-in-document search (see search.py)."""
         if not self._doc:
@@ -408,6 +444,7 @@ class PdfDocument:
     def chars_on_current_page(self) -> list[highlighter.Char]:
         return self.chars_on_page(self._page_index)
 
+    @_reads
     def chars_on_page(self, page_index: int) -> list[highlighter.Char]:
         if not self._doc:
             return []
@@ -419,6 +456,7 @@ class PdfDocument:
     def words_on_current_page(self) -> list[highlighter.Word]:
         return self.words_on_page(self._page_index)
 
+    @_reads
     def words_on_page(self, page_index: int) -> list[highlighter.Word]:
         if not self._doc:
             return []
@@ -427,6 +465,7 @@ class PdfDocument:
             return list(ocr_text[1])
         return highlighter.words_on_page(self._doc[page_index])
 
+    @_reads
     def page_size_points(self, page_index: int) -> tuple[float, float]:
         """A page's size in PDF points (i.e. at zoom 1.0).
 
@@ -441,6 +480,7 @@ class PdfDocument:
         rect = self._doc[page_index].rect
         return (rect.width, rect.height)
 
+    @_reads
     def as_shown(self, page_index: int, rects) -> list[pymupdf.Rect]:
         """`rects` moved from where MuPDF reports text to where the reader sees it.
 
@@ -456,6 +496,7 @@ class PdfDocument:
         to_shown = self._doc[page_index].rotation_matrix
         return [pymupdf.Rect(rect) * to_shown for rect in rects]
 
+    @_reads
     def words_as_shown(self, page_index: int) -> list[highlighter.Word]:
         """`words_on_page`, each box `as_shown`, in the same order: for
         telling which words are in a region of the page the reader sees."""
@@ -463,6 +504,7 @@ class PdfDocument:
         shown = self.as_shown(page_index, [w.rect for w in words])
         return [replace(word, rect=rect) for word, rect in zip(words, shown)]
 
+    @_reads
     def highlight_char_indices(
         self,
         page_index: int,
@@ -490,6 +532,7 @@ class PdfDocument:
         selected = highlighter.chars_between(chars, start_idx, end_idx)
         return self._commit_highlight(page_index, selected, color, style, opacity)
 
+    @_reads
     def highlight_word_indices(
         self,
         page_index: int,
@@ -549,6 +592,7 @@ class PdfDocument:
         strike-through is placed on the lines' baselines), else nothing."""
         return self.chars_on_page(page_index) if highlighter.needs_text(shape) else []
 
+    @_reads
     def add_ink_stroke(
         self,
         page_index: int,
@@ -621,11 +665,13 @@ class PdfDocument:
             for stroke in shape.strokes
         ]
 
+    @_reads
     def highlights_on_page(self, page_index: int) -> list[highlighter.Highlight]:
         if not self._doc or not 0 <= page_index < len(self._doc):
             return []
         return highlighter.highlights_on_page(self._doc[page_index])
 
+    @_reads
     def text_in_rects(self, page_index: int, rects) -> str:
         """The page text inside `rects`, one line each, joined into one line."""
         if not self._doc or not 0 <= page_index < len(self._doc):
@@ -645,6 +691,7 @@ class PdfDocument:
     # Scanned pages (OCR)                                                  #
     # ------------------------------------------------------------------ #
 
+    @_reads
     def ocr_status(self, page_index: int) -> str | None:
         """Where a page stands on OCR (one of `ocr`'s statuses), or None for
         a page with its own text layer or nothing on it to read.
@@ -668,6 +715,7 @@ class PdfDocument:
                     self._ocr_status[page_index] = ocr.NEEDED
             return self._ocr_status[page_index]
 
+    @_reads
     def begin_ocr(self, page_index: int) -> ocr.OcrJob | None:
         """Mark a scanned page as being read and return the job that reads
         it, or None when there is nothing to start: a page with a text layer,
@@ -752,6 +800,7 @@ class PdfDocument:
                 return page, annot
         return None
 
+    @_reads
     def set_highlight_color(self, page_index: int, xref: int, color: str) -> bool:
         """Recolour an existing highlight. False if there is no such highlight,
         the colour is not in the palette, or it already is that colour."""
@@ -771,6 +820,7 @@ class PdfDocument:
         self._record(_Edit(page_index, self._ref(xref), (), _Look(before, shape), _Look(after, shape)))
         return True
 
+    @_reads
     def set_highlight_appearance(
         self,
         page_index: int,
@@ -822,6 +872,7 @@ class PdfDocument:
         self._record(_Edit(page_index, ref, (), _Look(rgb, shape), _Look(rgb, new), gesture))
         return True
 
+    @_reads
     def remove_highlight(self, page_index: int, xref: int) -> bool:
         """Delete an existing highlight, undoably. False if there is none."""
         found = self._load_highlight(page_index, xref)
@@ -904,28 +955,46 @@ class PdfDocument:
         removal, or one applied set of page changes. Returns the page index
         it was on (for page changes, the page the reader is now on), or None
         if there's nothing to undo."""
-        if not self._undo_stack:
-            return None
-        edit = self._undo_stack.pop()
-        if isinstance(edit, page_changes.PageChange):
-            return self._step_page_change(edit, self._undo_stack, self._redo_stack, forward=False)
-        self._move_highlight(edit, edit.after, edit.before)
-        self._redo_stack.append(edit)
-        self._dirty = True
-        return edit.page_index
+        return self.step_history(forward=False)[1]
 
     def redo_highlight(self) -> int | None:
         """Re-applies the most recently undone change. Returns the page
         index it was on, or None if there's nothing to redo."""
-        if not self._redo_stack:
-            return None
-        edit = self._redo_stack.pop()
-        if isinstance(edit, page_changes.PageChange):
-            return self._step_page_change(edit, self._redo_stack, self._undo_stack, forward=True)
-        self._move_highlight(edit, edit.before, edit.after)
-        self._undo_stack.append(edit)
-        self._dirty = True
-        return edit.page_index
+        return self.step_history(forward=True)[1]
+
+    def step_history(self, *, forward: bool) -> tuple[str | None, int | None]:
+        """Undo (or, `forward`, redo) the most recent change and say what it
+        was: (`page_changes.HIGHLIGHT` or `PAGE_CHANGES`, the page index it
+        was on; for page changes the page the reader is now on), or
+        (None, None) when there is nothing to take back.
+
+        Taken as a change of the document, under the gate and the save lock:
+        reads already running end first, and the entry is popped, applied
+        and pushed in one piece, so two steps (Ctrl+Z pressed twice) or an
+        open arriving meanwhile can never interleave. On a failure the entry
+        goes back where it was."""
+        if forward:
+            source, target = self._redo_stack, self._undo_stack
+        else:
+            source, target = self._undo_stack, self._redo_stack
+        with self._gate.changing(), self._save_lock:
+            if not source:
+                return None, None
+            edit = source.pop()
+            if isinstance(edit, page_changes.PageChange):
+                page = self._step_page_change(edit, source, target, forward=forward)
+                return page_changes.PAGE_CHANGES, page
+            try:
+                if forward:
+                    self._move_highlight(edit, edit.before, edit.after)
+                else:
+                    self._move_highlight(edit, edit.after, edit.before)
+            except BaseException:
+                source.append(edit)
+                raise
+            target.append(edit)
+            self._dirty = True
+            return page_changes.HIGHLIGHT, edit.page_index
 
     def highlight_count_on_current_page(self) -> int:
         if not self._doc:
@@ -935,6 +1004,7 @@ class PdfDocument:
     def highlight_count_total(self) -> int:
         return sum(self.highlight_counts().values())
 
+    @_reads
     def highlight_counts(self) -> dict[int, int]:
         """How many highlights each page has, for the pages that have any —
         including ones not saved yet, since this reads the open document."""
@@ -947,6 +1017,7 @@ class PdfDocument:
     # Page changes (Organise pages, Milestone F2)                          #
     # ------------------------------------------------------------------ #
 
+    @_reads
     def page_change_block(self) -> str | None:
         """None when this PDF's pages may be changed; otherwise why not
         (`page_changes.NOT_LOADED`, `RESTRICTED`). MuPDF doesn't enforce a
@@ -983,6 +1054,7 @@ class PdfDocument:
         for doc in sources.values():
             doc.close()
 
+    @_reads
     def render_plan_thumbnail(self, source: str, index: int, width_px: int):
         """A page of the plan, `width_px` wide, as it is now (Organise turns
         it on screen): the open document's own page, or one of a source
@@ -1011,14 +1083,18 @@ class PdfDocument:
         ("Page changes"). False when it would change nothing. Raises
         ValueError for a plan that isn't this document's, or one that may
         not be applied (`page_change_block`); on any failure the document is
-        as it was."""
-        if self.page_change_block() is not None:
-            raise ValueError("this PDF's pages can't be changed")
-        if page_plan.is_unchanged(plan, len(self._doc)):
-            return False
-        pages = self._plan_pages(plan)
-        order = tuple(page.index if page.source == page_plan.DOC else None for page in plan)
-        with self._save_lock:
+        as it was.
+
+        Every page read already running ends first and new ones wait (the
+        gate), and the plan is checked against the document inside the same
+        lock that applies it, so nothing can change it in between."""
+        with self._gate.changing(), self._save_lock:
+            if self.page_change_block() is not None:
+                raise ValueError("this PDF's pages can't be changed")
+            if page_plan.is_unchanged(plan, len(self._doc)):
+                return False
+            pages = self._plan_pages(plan)
+            order = tuple(page.index if page.source == page_plan.DOC else None for page in plan)
             held = self._capture_state()
             try:
                 file_tool_engine.apply_page_plan(self._doc, pages, self._page_sources)
@@ -1035,25 +1111,25 @@ class PdfDocument:
             self._record(page_changes.PageChange(held, order))
             self._pages_changed = True
             self._after_page_change(page_changes.page_after(order, self._page_index))
-        self._trim_history()
+            self._trim_history()
         return True
 
     def _step_page_change(
         self, change: page_changes.PageChange, source: list, target: list, *, forward: bool
     ) -> int:
-        """Undo (or redo) `change`, which has just been popped off `source`:
-        swap the open document with the state it holds, then put it on
-        `target`. Back on `source` if the swap fails."""
+        """Undo (or redo) `change`, just popped off `source`, with the gate
+        and the save lock held (`step_history`): swap the open document with
+        the state it holds, then put it on `target`. Back on `source`, and
+        the document as it was, if the swap fails."""
         locate = page_changes.page_after if forward else page_changes.page_before
         try:
-            with self._save_lock:
-                current = self._capture_state()
-                index = locate(change.order, self._page_index)
-                # The last step that can fail: until it has succeeded the
-                # open document and `change.held` are as they were.
-                self._restore_state(change.held)
-                change.held = current
-                self._after_page_change(index)
+            current = self._capture_state()
+            index = locate(change.order, self._page_index)
+            # The last step that can fail: until it has succeeded the open
+            # document and `change.held` are as they were.
+            self._restore_state(change.held)
+            change.held = current
+            self._after_page_change(index)
         except BaseException:
             source.append(change)
             raise
@@ -1118,6 +1194,7 @@ class PdfDocument:
     # File tools (features/file_tools/)                                    #
     # ------------------------------------------------------------------ #
 
+    @_reads
     def snapshot(self) -> tuple[bytes, str | None]:
         """The document as it is now, unsaved highlights included, as PDF
         bytes for a file tool to work on, and the password they need (held
@@ -1128,12 +1205,14 @@ class PdfDocument:
             data = self._doc.tobytes(deflate=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
             return data, self._password
 
+    @_reads
     def describe_for_tools(self, page_index: int) -> dict:
         """What a tool dialog shows about the open document (see
         `file_tools.engine.describe_document`), using the per-page "has a
         text layer" answers already cached here, so it never runs OCR."""
         return file_tool_engine.describe_document(self._doc, page_index, self._is_scanned)
 
+    @_reads
     def unsaved_highlight_count(self) -> int:
         """How many more highlights the open document has than its file on
         disk: what a tool's "Includes your N unsaved highlights" counts.
@@ -1151,6 +1230,7 @@ class PdfDocument:
             saved.close()
         return max(0, self.highlight_count_total() - on_disk)
 
+    @_reads
     def textless_pages(self) -> list[int]:
         """The pages with no text layer that show an image, worked out once
         per page and cached for as long as the document is open."""
@@ -1158,6 +1238,7 @@ class PdfDocument:
             return []
         return [i for i in range(len(self._doc)) if self._is_scanned(i)]
 
+    @_reads
     def ocr_words(self, page_index: int) -> list | None:
         """The words OCR read on a scanned page (in memory, or cached from an
         earlier session) in `ocr.recognize`'s form, or None if it hasn't been
@@ -1186,7 +1267,7 @@ class PdfDocument:
         break its signature. Raises SaveError; on any failure the file on
         disk is as it was and the highlights stay open, unsaved.
         """
-        with self._save_lock:
+        with self._gate.changing(), self._save_lock:
             if self._doc.get_sigflags() > 0:
                 raise SaveError(safe_write.SIGNED)
             safe_write.check_writable(self._path)
@@ -1205,7 +1286,7 @@ class PdfDocument:
         already exist (the reader has confirmed replacing it). Never the open
         PDF itself under another spelling: on a Mac that could unlink it
         before writing. Raises SaveError."""
-        with self._save_lock:
+        with self._gate.changing(), self._save_lock:
             if self.is_open_document(new_path):
                 raise SaveError(safe_write.IS_OPEN_DOCUMENT)
             # KEEP, as overwrite: MuPDF's default writes a copy without its

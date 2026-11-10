@@ -68,6 +68,15 @@ class TokenContrastTests(unittest.TestCase):
                     ratio = contrast(theme.token(theme_name, "surface-page"), theme.token(theme_name, fill))
                     self.assertGreaterEqual(ratio, TEXT_AA)
 
+    def test_button_label_on_danger(self):
+        # --on-danger is the page colour too (theme.css): the danger button
+        # (Delete pages, Discard changes) at rest, hovered and pressed.
+        for theme_name in theme.THEME_ORDER:
+            for fill in ("danger", "danger-hover", "danger-pressed"):
+                with self.subTest(theme=theme_name, fill=fill):
+                    ratio = contrast(theme.token(theme_name, "surface-page"), theme.token(theme_name, fill))
+                    self.assertGreaterEqual(ratio, TEXT_AA)
+
     def test_voice_badge_numeral(self):
         self.assertGreaterEqual(contrast(ON_VOICE, VOICE_FILL), TEXT_AA)
         css = theme.THEME_CSS.read_text(encoding="utf-8")

@@ -171,6 +171,9 @@
   --star: #9A6B00;
   --highlight: #F7DE7A;
   --danger: #B44137;
+  /* The danger button's hover and press (components.css .btn--danger). */
+  --danger-hover: #9E372E;
+  --danger-pressed: #8A3028;
   /* The edge on a highlight swatch, so the light ones (yellow, green) keep
    * their outline on the light chrome around them. */
   --swatch-edge: rgba(22, 26, 24, 0.24);
@@ -251,6 +254,9 @@
   --star: #F0B93A;
   --highlight: #6B5A24;
   --danger: #E68A80;
+  /* The danger button's hover and press (components.css .btn--danger). */
+  --danger-hover: #EE9F96;
+  --danger-pressed: #DA7A70;
   /* On dark chrome every swatch already stands out; the edge only crisps it. */
   --swatch-edge: rgba(0, 0, 0, 0.35);
 
@@ -326,6 +332,9 @@
   --star: #966700;
   --highlight: #E8C468;
   --danger: #AA4137;
+  /* The danger button's hover and press (components.css .btn--danger). */
+  --danger-hover: #943830;
+  --danger-pressed: #80302A;
   /* Warm, like sepia's shadows: the yellow swatch is closest to this chrome. */
   --swatch-edge: rgba(59, 47, 32, 0.30);
 
@@ -369,6 +378,9 @@
   /* The page colour: in dark the darkest surface a label can take, so it
    * clears 4.5:1 on every accent fill, pressed included. */
   --on-accent: var(--surface-page);
+  /* The same on a danger button (Delete, Discard): 5.1:1 or more on every
+     danger fill (tests/test_theme_tokens.py). */
+  --on-danger: var(--surface-page);
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --voice-soft: color-mix(in srgb, var(--voice) 14%, transparent);
   --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);

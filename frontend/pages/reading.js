@@ -84,9 +84,15 @@ function updateChrome() {
 // having nothing for it (state.can_undo / can_redo), not unsaved changes:
 // after a save there may still be edits to take back. aria-disabled rather
 // than disabled, so the button keeps its tooltip saying why.
+// Named after what they would take back: a highlight, or a set of page
+// changes applied with Done in Organise pages (one step either way).
 function updateUndoButtons() {
-  setUndoButton(undoBtn, state.can_undo, "Undo highlight  (Ctrl+Z)", "Nothing to undo");
-  setUndoButton(redoBtn, state.can_redo, "Redo highlight  (Ctrl+Y)", "Nothing to redo");
+  const undoWhat = state.undo_kind === "page_changes" ? "page changes" : "highlight";
+  const redoWhat = state.redo_kind === "page_changes" ? "page changes" : "highlight";
+  undoBtn.setAttribute("aria-label", `Undo ${undoWhat}`);
+  redoBtn.setAttribute("aria-label", `Redo ${redoWhat}`);
+  setUndoButton(undoBtn, state.can_undo, `Undo ${undoWhat}  (Ctrl+Z)`, "Nothing to undo");
+  setUndoButton(redoBtn, state.can_redo, `Redo ${redoWhat}  (Ctrl+Y)`, "Nothing to redo");
 }
 
 function setUndoButton(button, enabled, title, emptyTitle) {
@@ -1155,16 +1161,43 @@ function applyWheelZoom() {
   setZoomPct(pct);
 }
 
-async function undo() {
-  if (!state.can_undo) return;
-  state = await callApi("undo_highlight");
-  await afterAnnotationChange(state.affected_page);
+// A highlight's undo redraws its page; a set of page changes rearranges the
+// whole document, so it runs under "Applying page changes…" and the reader
+// reloads on the result (page-change-busy.js).
+// Steps run one after another, each deciding from the state the one before
+// left (Ctrl+Z pressed twice must not send two "highlight" undos when the
+// second reaches a page change). The backend says what each step really took
+// back (`pages_changed`), and that decides how the page follows.
+let historyQueue = Promise.resolve();
+
+function stepHistory(forward) {
+  historyQueue = historyQueue.then(async () => {
+    const can = forward ? state.can_redo : state.can_undo;
+    if (!can || isPageChangeBusy() || isOrganiseOpen()) return;
+    const method = forward ? "redo_highlight" : "undo_highlight";
+    const kind = forward ? state.redo_kind : state.undo_kind;
+    if (kind === "page_changes") {
+      await runPageChange(() => callApi(method));
+      return;
+    }
+    const next = await callApi(method);
+    if (next.pages_changed) {
+      // It reached a page change after all: the reader reloads onto it.
+      await runPageChange(async () => next);
+      return;
+    }
+    state = next;
+    await afterAnnotationChange(state.affected_page);
+  }).catch((err) => console.error("Undo/redo failed:", err));
+  return historyQueue;
 }
 
-async function redo() {
-  if (!state.can_redo) return;
-  state = await callApi("redo_highlight");
-  await afterAnnotationChange(state.affected_page);
+function undo() {
+  return stepHistory(false);
+}
+
+function redo() {
+  return stepHistory(true);
 }
 
 // Undo/redo only ever affect the one page whose highlight was added/removed
@@ -1306,7 +1339,27 @@ async function cycleTheme() {
 // file tools' Change… uses it too.
 const saveAsDialog = ensureSaveAsDialog("reading");
 
+// Every way of leaving the reader (Library, another PDF, the window closing)
+// asks this first. An Organise draft is applied before the question, so the
+// question covers it; staying after all (Cancel) reloads the reader onto the
+// changed pages, which the view behind the draft no longer shows.
 async function promptSaveIfDirty(allowDiscard) {
+  if (!isOrganiseOpen()) return askToSaveIfDirty(allowDiscard);
+  const applied = await applyOrganiseBeforeLeaving();
+  if (!applied) return false;
+  if (applied.state) state = applied.state;
+  const leaving = await askToSaveIfDirty(allowDiscard);
+  if (!leaving && applied.changed) {
+    // Its "older changes" toast, if any, was already shown when it applied.
+    await runPageChange(
+      async () => ({ ...state, pages_changed: true, history_trimmed: false }),
+      { unsavedNote: state.is_dirty },
+    );
+  }
+  return leaving;
+}
+
+async function askToSaveIfDirty(allowDiscard) {
   if (!state.is_dirty) return true;
 
   const behavior = await callApi("get_save_behavior");
@@ -1385,6 +1438,43 @@ async function openToolOutput(path) {
   if (!(await openPdf(path))) return;
   window.location.reload();
 }
+
+// Home sets this before opening a PDF to organise it (F2.7).
+const OPEN_ORGANISE_NOTE = "lector-open-organise";
+
+// Organise pages (organise.js): the More menu, Ctrl+Shift+O, Home's Tools
+// page and Recent menus (through a note this page reads on load). What the
+// reader has open over the page goes first, and Focus mode, which would hide
+// the footer and its mic pill.
+function startOrganise() {
+  if (document.querySelector(".dialog-scrim:not([hidden])") || isPageChangeBusy()) return;
+  if (state.organise_blocked) {
+    showToast(state.organise_blocked);
+    return;
+  }
+  openOrganise();
+}
+
+configureOrganise({
+  title: () => state.title || "",
+  onOpen: () => {
+    setHighlightMode(false);
+    closeHighlightEditor();
+    closeHighlightOptions();
+    closeZoomPopover();
+    if (isFindBarOpen()) closeFindBar();
+    if (isOutlinePickerActive()) endOutlinePicker();
+    if (isFocusMode()) setFocusMode(false);
+    // The footer's hint is cut short at narrow widths: the whole of it here.
+    micHint.title = ORGANISE_HINT;
+    voice.rest();
+  },
+  onClose: () => {
+    micHint.title = "";
+    voice.rest();
+    pageArea.focus({ preventScroll: true });
+  },
+});
 
 // Compress, Make searchable, Export as images (tool-dialogs.js), for the PDF
 // as it is on screen.
@@ -1545,6 +1635,16 @@ document.addEventListener("keydown", () => {
 }, true);
 
 document.addEventListener("keydown", (ev) => {
+  // Organise pages has keys of its own (organise.js); none of the reader's
+  // reach the page behind it — H, U and S included.
+  if (isOrganiseOpen()) return;
+  // Ctrl+Shift+O: Organise pages (the More menu shows it). With Shift held,
+  // `ev.key` is "O", so the Open shortcut's lower-case "o" below never sees it.
+  if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === "o") {
+    ev.preventDefault();
+    if (!ev.repeat && !dialogOpenAtKey) startOrganise();
+    return;
+  }
   // Focus mode's key works from anywhere in the reader, the find box included,
   // but not behind a dialog.
   if (ev.key === "F11") {
@@ -1691,6 +1791,8 @@ configureFileMenu({
   save: () => saveFromMenu(),
   saveCopy: () => saveCopy(),
   openTool: (tool) => openTool(tool),
+  organise: () => startOrganise(),
+  organiseBlocked: () => state.organise_blocked || null,
   onClose: () => settleFocusPeek(),
 });
 ToolDialog.configure({
@@ -2004,6 +2106,20 @@ const VOICE_ACTIONS = {
   OPEN_PDF: () => leaveReadingTo("../index.html", { openDialog: true }),
 };
 
+// While Organise pages is open: "done" and "cancel" are its two buttons, Undo
+// and Redo are its own, and leaving goes through the same apply-then-ask
+// route as the back button.
+const ORGANISE_VOICE_ACTIONS = {
+  ORGANISE_DONE: () => finishOrganise(),
+  CANCEL: () => cancelOrganise(),
+  UNDO: () => organiseUndo(),
+  REDO: () => organiseRedo(),
+  HELP: () => openCommandReference(),
+  GO_HOME: () => goHome(),
+  GO_RECENT: () => goHome(),
+  CLOSE_APP: () => closeApp(),
+};
+
 // The voice "toggle progress bar"; Settings > Reading is its mouse and
 // keyboard route. The same stored setting either way.
 async function toggleProgressBar() {
@@ -2030,6 +2146,9 @@ async function leaveReadingTo(url, { openDialog = false } = {}) {
 // open document, after the same unsaved-highlights check as leaving. Not while
 // a dialog is up: the reader is mid-decision about something else.
 onFileDrop(async (path) => {
+  // Not while page changes are being applied (the card takes keys and clicks,
+  // not drops from the OS).
+  if (isPageChangeBusy()) return;
   if (document.querySelector(".dialog-scrim:not([hidden])")) {
     showToast("Close this window first, then drop the file again.");
     return;
@@ -2049,6 +2168,8 @@ window.addEventListener("lector:command", (ev) => {
   // didn't ask to go, and the mic pill already shows what was heard so they
   // can see why nothing happened.
   if (!command) return;
+  // Nothing happens behind "Applying page changes…".
+  if (isPageChangeBusy()) return;
   // DIALOG_PICK/DIALOG_UP/CANCEL/DIALOG_CONFIRM only ever arrive while the
   // Save-As dialog is the active voice context (router.py scopes them
   // there), so it is checked first — neither VOICE_ACTIONS nor the dialog
@@ -2078,6 +2199,11 @@ window.addEventListener("lector:command", (ev) => {
     ToolDialog.handleCommand(command);
     return;
   }
+  // "confirm" discards, "cancel" keeps editing (Organise's discard question).
+  if (OrganiseDiscardDialog.isOpen()) {
+    OrganiseDiscardDialog.handleCommand(command);
+    return;
+  }
   // SAVE_COPY/SAVE_OVERWRITE/DONT_SAVE/CANCEL only ever arrive while the
   // Save-changes confirmation is the active voice context (router.py scopes
   // them there via SAVE_CONFIRM, Milestone 8.9) — checked next for the same
@@ -2088,7 +2214,9 @@ window.addEventListener("lector:command", (ev) => {
   }
   // A spoken number or "cancel" while the outline or pages are numbered.
   if (handleOutlinePickerCommand(command)) return;
-  const action = VOICE_ACTIONS[command.intent];
+  // In Organise pages only what still makes sense there acts; its own
+  // commands come with its voice context (Milestone F2.10).
+  const action = isOrganiseOpen() ? ORGANISE_VOICE_ACTIONS[command.intent] : VOICE_ACTIONS[command.intent];
   if (!action) return;
   // A dialog owns the view while it is open; a page turn behind it would be
   // invisible and would apply to a document the reader is mid-decision about.
@@ -2123,6 +2251,8 @@ function setMicHint(text) {
 // they actually have: "Hold Space to talk" is useless advice for someone who
 // switched push-to-talk off in favour of the wake phrase.
 function idleHint(wake, pushToTalk) {
+  // Organise pages' footer says how its grid works instead.
+  if (isOrganiseOpen()) return ORGANISE_HINT;
   if (wake && pushToTalk) return "Hold Space, or say “Hey Lector”";
   if (wake) return "Say “Hey Lector” to start";
   return "Hold Space to talk";
@@ -2219,7 +2349,10 @@ function renderMicState({ state: micState, text, error, command, clarify, ocr, w
 
 const voice = initVoice(renderMicState, computeVoiceViewport);
 
-(async function init() {
+// Whatever init() does (draws the document, finds none and goes home, or
+// fails), a page change's busy card comes down after it: it must never stay
+// up taking every key and click.
+async function init() {
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
@@ -2262,4 +2395,22 @@ const voice = initVoice(renderMicState, computeVoiceViewport);
   await initHighlightColors();
   await initHighlightOptions(await callApi("get_highlight_options"), state.highlight_color);
   await refresh();
+}
+
+(async () => {
+  try {
+    await init();
+  } catch (err) {
+    console.error("The reader couldn't start:", err);
+  } finally {
+    // Back from a page change: the busy card comes down now the document is
+    // drawn (or the reader gave up drawing it).
+    await finishPageChangeAfterReload();
+  }
+  // Sent here to organise (Home's Tools page and Recent menus), once the
+  // card is down so Organise isn't refused as busy.
+  if (state.is_open && sessionStorage.getItem(OPEN_ORGANISE_NOTE)) {
+    sessionStorage.removeItem(OPEN_ORGANISE_NOTE);
+    startOrganise();
+  }
 })();

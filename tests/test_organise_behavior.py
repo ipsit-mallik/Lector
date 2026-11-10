@@ -1,0 +1,598 @@
+"""Behaviour of Organise pages' view (frontend/pages/organise.js,
+organise-grid.js) and "Applying page changes…" (page-change-busy.js).
+
+Run under Node with a small stand-in DOM: the grid laid out 7 columns wide
+(148px cells, 8px column gap, 12px row gap, as organise.css lays it out at
+1280px), an IntersectionObserver the test fires by hand, and a `callApi`
+standing in for Python's draft (Api.organise_*) whose thumbnail and Done
+replies the test can hold back. What is pinned here:
+
+* selecting with click, Ctrl+click, Shift+click and the background; the
+  action bar's disabled states and the selection line;
+* the keyboard: roving focus, Shift+arrows, Space, Ctrl+←/→, Ctrl+A,
+  Delete, Ctrl+Z;
+* dragging: an unselected page is selected first, the drop lands in the
+  right gap (the insertion bar shows it), a block dropped on itself does
+  nothing;
+* thumbnails: lazy, three at a time, drawn once per page, none started once
+  Done has begun;
+* Done: no changes leaves at once with no busy card; changes put the card up
+  before Python has answered, then reload the reader with the note; keys do
+  nothing behind the card.
+
+Skipped when Node is not installed.
+"""
+import json
+import os
+import shutil
+import subprocess
+import unittest
+from pathlib import Path
+
+PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
+SCRIPTS = [PAGES / "page-change-busy.js", PAGES / "organise-grid.js", PAGES / "organise.js"]
+
+HARNESS = r"""
+const fs = require("fs");
+const vm = require("vm");
+
+const COLS = 7, CELL_W = 148, CELL_H = 168, GAP_X = 8, GAP_Y = 12;
+const docListeners = { capture: {}, bubble: {} };
+const byId = {};
+let activeElement = null;
+let root = null;
+
+function makeEl(tag, id) {
+  const listeners = {};
+  const classes = new Set();
+  const el = {
+    tagName: tag.toUpperCase(), id, parentNode: null, children: [], attrs: {}, dataset: {},
+    textContent: "", hidden: false, tabIndex: 0, src: "", title: "",
+    style: { setProperty(k, v) { this[k] = v; } },
+    classList: {
+      add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+      toggle: (c, on) => { if (on === undefined ? !classes.has(c) : on) classes.add(c); else classes.delete(c); },
+      contains: (c) => classes.has(c),
+    },
+    set className(v) { classes.clear(); v.split(/\s+/).filter(Boolean).forEach((c) => classes.add(c)); },
+    get className() { return [...classes].join(" "); },
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+    removeAttribute(k) { delete this.attrs[k]; },
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    listeners,
+    appendChild(kid) {
+      if (kid.isFragment) { const kids = kid.children.slice(); kid.children = []; kids.forEach((k) => this.appendChild(k)); return kid; }
+      if (kid.parentNode) kid.parentNode.children.splice(kid.parentNode.children.indexOf(kid), 1);
+      kid.parentNode = this;
+      this.children.push(kid);
+      return kid;
+    },
+    append(...kids) { kids.forEach((k) => this.appendChild(k)); },
+    replaceChildren(...kids) { this.children.forEach((k) => { k.parentNode = null; }); this.children = []; kids.forEach((k) => this.appendChild(k)); },
+    get lastElementChild() { return this.children[this.children.length - 1] || null; },
+    get isConnected() { for (let n = this; n; n = n.parentNode) if (n === root) return true; return false; },
+    contains(other) { for (let n = other; n; n = n.parentNode) if (n === this) return true; return false; },
+    focus() { activeElement = this; },
+    scrollIntoView() {},
+    get offsetWidth() { return 3; },
+    get offsetTop() { return this.layout().top; },
+    getBoundingClientRect() {
+      const l = this.layout();
+      return { left: l.left, top: l.top, right: l.left + l.width, bottom: l.top + l.height, width: l.width, height: l.height };
+    },
+    layout() {
+      if (this.parentNode && this.parentNode.id === "organiseGrid") {
+        const i = this.parentNode.children.indexOf(this);
+        const col = i % COLS, row = Math.floor(i / COLS);
+        return { left: col * (CELL_W + GAP_X), top: row * (CELL_H + GAP_Y), width: CELL_W, height: CELL_H };
+      }
+      if (this.id === "organiseScroll") return { left: 0, top: 0, width: 1100, height: 600 };
+      return { left: 0, top: 0, width: 1100, height: 2000 };
+    },
+    querySelectorAll(sel) {
+      const out = [];
+      const attr = { "[data-needs-selection]": "needs", "[data-later]": "later" }[sel];
+      const walk = (n) => n.children.forEach((k) => { if (attr && attr in k.dataset) out.push(k); walk(k); });
+      walk(this);
+      return out;
+    },
+  };
+  if (id) byId[id] = el;
+  return el;
+}
+
+root = makeEl("div", "root");
+function add(parent, tag, id, dataset = {}) { const el = makeEl(tag, id); Object.assign(el.dataset, dataset); parent.appendChild(el); return el; }
+const readingView = add(root, "div", "readingView");
+const view = add(readingView, "section", "organiseView");
+view.hidden = true;
+["organiseDocName", "organiseSelectionText"].forEach((id) => add(view, "span", id));
+["organiseUndoBtn", "organiseRedoBtn", "organiseCancelBtn", "organiseDoneBtn", "organiseSelectAllBtn"].forEach((id) => add(view, "button", id));
+add(view, "button", "organiseInsertBtn", { later: "" });
+["organiseRotateLeftBtn", "organiseRotateRightBtn"].forEach((id) => add(view, "button", id, { needs: "" }));
+["organiseDeleteBtn", "organiseExtractBtn"].forEach((id) => add(view, "button", id, { needs: "", later: "" }));
+const scroller = add(view, "div", "organiseScroll");
+const grid = add(scroller, "div", "organiseGrid");
+add(scroller, "div", "organiseInsertion").hidden = true;
+add(root, "span", "organiseCount").hidden = true;
+add(root, "div", "pageChangeBusy").hidden = true;
+
+const htmlClasses = new Set();
+const document = {
+  getElementById: (id) => byId[id] || null,
+  createElement: (tag) => makeEl(tag),
+  createDocumentFragment: () => { const f = makeEl("fragment"); f.isFragment = true; return f; },
+  querySelector: (sel) => (sel === ".reading-view" ? readingView : null),
+  documentElement: { classList: { add: (c) => htmlClasses.add(c), remove: (c) => htmlClasses.delete(c), contains: (c) => htmlClasses.has(c) } },
+  body: makeEl("body"),
+  addEventListener(type, fn, capture) { const bag = capture ? docListeners.capture : docListeners.bubble; (bag[type] = bag[type] || []).push(fn); },
+};
+
+function dispatch(target, type, props = {}) {
+  let stopped = false, immediate = false;
+  const ev = {
+    type, target, key: "", ctrlKey: false, shiftKey: false, metaKey: false, altKey: false, repeat: false,
+    clientX: 0, clientY: 0, relatedTarget: null, defaultPrevented: false,
+    dataTransfer: { setData() {}, effectAllowed: "", dropEffect: "" },
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { stopped = true; },
+    stopImmediatePropagation() { stopped = true; immediate = true; },
+    ...props,
+  };
+  for (const fn of docListeners.capture[type] || []) { fn(ev); if (immediate) return ev; }
+  for (let n = target; n && !stopped; n = n.parentNode) {
+    for (const fn of n.listeners[type] || []) { fn(ev); if (immediate) return ev; }
+  }
+  if (!stopped) for (const fn of docListeners.bubble[type] || []) { fn(ev); if (immediate) return ev; }
+  return ev;
+}
+
+const observed = [];
+class FakeObserver { constructor(cb) { this.cb = cb; } observe(el) { observed.push({ el, obs: this }); } unobserve() {} }
+let gridObserver = null;
+function intersectAll() {
+  const batch = observed.splice(0);
+  gridObserver = gridObserver || (batch.find((b) => b.obs) || {}).obs;
+  if (batch.length && gridObserver) gridObserver.cb(batch.map(({ el }) => ({ target: el, isIntersecting: true })));
+}
+
+// Python's draft, as far as this view can tell.
+let pagesNow = Array.from({ length: 12 }, (_, i) => ({ key: `doc:${i}`, source: "doc", index: i, turn: 0, new: false }));
+let steps = 0;
+const calls = [];
+const held = { thumbnails: [], done: null };
+let holdThumbnails = false, holdDone = false, actionReply = null, doneReply = null;
+function draft(extra = {}) {
+  return { ok: true, pages: pagesNow.map((p) => ({ ...p })), can_undo: steps > 0, can_redo: false, steps, ...extra };
+}
+function moveTo(positions, gap) {
+  const block = positions.map((i) => pagesNow[i]);
+  const rest = pagesNow.filter((_, i) => !positions.includes(i));
+  const at = gap - positions.filter((i) => i < gap).length;
+  pagesNow = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+  return block.map((_, k) => at + k);
+}
+function callApi(method, ...args) {
+  calls.push([method, ...args]);
+  if (method === "organise_begin") return Promise.resolve(draft({ page_index: 2 }));
+  if (method === "organise_thumbnail") {
+    const reply = { image: "AAAA", width: 85, height: 120 };
+    if (!holdThumbnails) return Promise.resolve(reply);
+    return new Promise((resolve) => held.thumbnails.push(() => resolve(reply)));
+  }
+  if (method === "organise_action") {
+    if (actionReply) return Promise.resolve(actionReply);
+    steps += 1;
+    const [kind, a] = args;
+    if (kind === "move") return Promise.resolve(draft({ changed: true, selection: moveTo(a.positions, a.gap) }));
+    if (kind === "shift") {
+      const lo = a.positions[0], hi = a.positions[a.positions.length - 1];
+      const gap = a.step < 0 ? Math.max(lo - 1, 0) : Math.min(hi + 2, pagesNow.length);
+      return Promise.resolve(draft({ changed: true, selection: moveTo(a.positions, gap) }));
+    }
+    return Promise.resolve(draft({ changed: true, selection: a.positions }));
+  }
+  if (method === "organise_undo") { steps = Math.max(0, steps - 1); return Promise.resolve(draft()); }
+  if (method === "organise_cancel") { steps = 0; return Promise.resolve({ is_open: true, pages_changed: false }); }
+  if (method === "organise_done") {
+    if (doneReply === "reject") return Promise.reject(new Error("bridge"));
+    const reply = doneReply || { is_open: true, pages_changed: steps > 0, history_trimmed: false };
+    if (!holdDone) return Promise.resolve(reply);
+    return new Promise((resolve) => { held.done = () => resolve(reply); });
+  }
+  return Promise.resolve({ ok: true });
+}
+
+// organise-discard.js, as organise.js sees it: the test answers it.
+const discard = { asked: [], open: false, answer: null };
+const OrganiseDiscardDialog = {
+  open: (opts) => { discard.asked.push(opts); discard.open = true; return new Promise((r) => { discard.answer = (v) => { discard.open = false; r(v); }; }); },
+  isOpen: () => discard.open,
+};
+
+const toasts = [];
+const storage = {};
+const deleted = [];
+let reloads = 0;
+const context = vm.createContext({
+  document, console, setTimeout, clearTimeout,
+  window: { location: { reload: () => { reloads += 1; } }, addEventListener() {} },
+  sessionStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); }, removeItem: (k) => { delete storage[k]; } },
+  IntersectionObserver: FakeObserver,
+  requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
+  getComputedStyle: () => ({ columnGap: "8px" }),
+  devicePixelRatio: 1,
+  callApi, mountIcon: () => {}, mountIcons: () => {}, OrganiseDiscardDialog,
+  showToast: (text, opts = {}) => { toasts.push({ text, action: opts.actionLabel || null }); return () => {}; },
+  __deleted: deleted,
+});
+for (const file of process.argv.slice(1)) vm.runInContext(fs.readFileSync(file, "utf8"), context);
+vm.runInContext(
+  "configureOrganise({ title: () => 'Annual Report', onDelete: (p) => __deleted.push(p) });" +
+  "this.__api = { openOrganise, isOrganiseOpen, finishOrganise, cancelOrganise };",
+  context
+);
+const api = context.__api;
+const tick = () => new Promise((r) => setTimeout(r, 0));
+async function settle() { for (let i = 0; i < 6; i++) await tick(); }
+const cell = (i) => grid.children[i];
+const selectedPositions = () => grid.children.map((c, i) => (c.attrs["aria-selected"] === "true" ? i : -1)).filter((i) => i >= 0);
+const key = (target, k, mods = {}) => dispatch(target, "keydown", { key: k, ...mods });
+const actions = () => calls.filter((c) => c[0] === "organise_action").map((c) => [c[1], c[2]]);
+const spot = (i) => { const r = cell(i).getBoundingClientRect(); return { left: r.left + 20, right: r.right - 20, y: r.top + 60 }; };
+
+const scenarios = {
+  async selection() {
+    await api.openOrganise(); await settle();
+    const out = {
+      title: byId.organiseDocName.textContent, viewShown: !view.hidden,
+      organising: readingView.classList.contains("is-organising"), count: byId.organiseCount.textContent,
+    };
+    out.idle = {
+      text: byId.organiseSelectionText.textContent,
+      rotate: [byId.organiseRotateLeftBtn.attrs["aria-disabled"], byId.organiseRotateLeftBtn.title],
+      insert: byId.organiseInsertBtn.attrs["aria-disabled"] || null,
+    };
+    dispatch(cell(3), "click"); out.click = selectedPositions();
+    dispatch(cell(5), "click", { ctrlKey: true }); out.ctrlClick = selectedPositions();
+    dispatch(cell(7), "click", { shiftKey: true }); out.shiftClick = selectedPositions();
+    out.text = byId.organiseSelectionText.textContent;
+    out.rotateNow = byId.organiseRotateLeftBtn.attrs["aria-disabled"];
+    dispatch(cell(5), "click", { ctrlKey: true }); out.ctrlOff = selectedPositions();
+    dispatch(grid, "click"); out.background = selectedPositions();
+    out.after = byId.organiseSelectionText.textContent;
+    dispatch(byId.organiseSelectAllBtn, "click");
+    out.all = selectedPositions().length; out.label = byId.organiseSelectAllBtn.textContent;
+    dispatch(byId.organiseSelectAllBtn, "click"); out.none = selectedPositions().length;
+    out.cell = [cell(0).attrs["aria-label"], cell(0).attrs.role, cell(3).attrs["aria-label"]];
+    return out;
+  },
+  async keyboard() {
+    await api.openOrganise(); await settle();
+    const out = { focus: grid.children.indexOf(activeElement) };
+    key(activeElement, "ArrowRight"); out.right = grid.children.indexOf(activeElement);
+    key(activeElement, "ArrowRight", { shiftKey: true });
+    key(activeElement, "ArrowRight", { shiftKey: true });
+    out.shift = selectedPositions();
+    key(activeElement, " "); out.space = selectedPositions();
+    key(activeElement, "ArrowDown"); out.down = grid.children.indexOf(activeElement);
+    key(activeElement, "ArrowUp"); out.up = grid.children.indexOf(activeElement);
+    key(activeElement, "Home"); out.home = grid.children.indexOf(activeElement);
+    key(activeElement, "End"); out.end = grid.children.indexOf(activeElement);
+    dispatch(cell(3), "click"); dispatch(cell(4), "click", { shiftKey: true });
+    key(activeElement, "ArrowRight", { ctrlKey: true }); await settle();
+    out.ctrlArrow = actions()[0]; out.moved = selectedPositions();
+    const last = toasts[toasts.length - 1];
+    out.toast = last && [last.text, last.action];
+    key(activeElement, "Delete"); out.deleteAsked = deleted[0];
+    key(activeElement, "a", { ctrlKey: true }); out.ctrlA = selectedPositions().length;
+    key(activeElement, "z", { ctrlKey: true }); await settle();
+    out.undo = calls.some((c) => c[0] === "organise_undo");
+    out.count = byId.organiseCount.textContent;
+    return out;
+  },
+  async drag() {
+    await api.openOrganise(); await settle();
+    dispatch(cell(3), "click"); dispatch(cell(4), "click", { shiftKey: true });
+    dispatch(cell(8), "dragstart");
+    const out = { draggingSelected: selectedPositions(), faded: cell(8).classList.contains("is-dragging") };
+    const p = spot(1);
+    dispatch(grid, "dragover", { clientX: p.left, clientY: p.y });
+    const bar = byId.organiseInsertion;
+    out.bar = { shown: !bar.hidden, left: bar.style.left };
+    dispatch(grid, "drop", { clientX: p.left, clientY: p.y }); await settle();
+    out.move = actions()[0];
+    out.order = grid.children.slice(0, 3).map((c) => c.dataset.key);
+    out.barAfterDrop = bar.hidden;
+    out.fadedAfterDrop = grid.children.some((c) => c.classList.contains("is-dragging"));
+    // A block dropped back on itself: nothing to do.
+    dispatch(cell(3), "click"); dispatch(cell(4), "click", { shiftKey: true });
+    dispatch(cell(3), "dragstart");
+    const q = spot(4);
+    dispatch(grid, "dragover", { clientX: q.right, clientY: q.y });
+    dispatch(grid, "drop", { clientX: q.right, clientY: q.y }); await settle();
+    out.selfDrop = actions().length;
+    // Past the right half of a row's last page: after it.
+    dispatch(cell(0), "dragstart");
+    const r = spot(6);
+    dispatch(grid, "dragover", { clientX: r.right, clientY: r.y });
+    out.rowEndBar = bar.style.left;
+    dispatch(grid, "drop", { clientX: r.right, clientY: r.y }); await settle();
+    out.rowEnd = actions()[1];
+    return out;
+  },
+  async thumbnails() {
+    holdThumbnails = true;
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    const thumbCalls = () => calls.filter((c) => c[0] === "organise_thumbnail");
+    const out = { first: thumbCalls().length, args: thumbCalls()[0] };
+    held.thumbnails.shift()(); await settle();
+    out.afterOne = thumbCalls().length;
+    const paper = cell(0).children[0].children[0];
+    out.painted = [paper.children[0].src.startsWith("data:image/png"), paper.style.width, paper.children[0].hidden];
+    while (held.thumbnails.length) { held.thumbnails.shift()(); await settle(); }
+    out.total = thumbCalls().length;
+    dispatch(cell(11), "click");
+    dispatch(cell(11), "dragstart");
+    const p = spot(0);
+    dispatch(grid, "drop", { clientX: p.left, clientY: p.y }); await settle();
+    intersectAll(); await settle();
+    out.afterMove = thumbCalls().length;
+    out.movedPainted = cell(0).children[0].children[0].children[0].src.startsWith("data:image/png");
+    return out;
+  },
+  async doneWithoutChanges() {
+    await api.openOrganise(); await settle();
+    await api.finishOrganise(); await settle();
+    return {
+      done: calls.filter((c) => c[0] === "organise_done").length, busyShown: !byId.pageChangeBusy.hidden,
+      open: api.isOrganiseOpen(), viewHidden: view.hidden,
+      organising: readingView.classList.contains("is-organising"), reloads,
+    };
+  },
+  async doneWithChanges() {
+    holdDone = true; holdThumbnails = true;
+    await api.openOrganise(); await settle();
+    dispatch(cell(2), "click");
+    dispatch(byId.organiseRotateRightBtn, "click"); await settle();
+    const out = { rotate: actions()[0], count: byId.organiseCount.textContent };
+    intersectAll(); await settle();
+    const thumbsBefore = calls.filter((c) => c[0] === "organise_thumbnail").length;
+    dispatch(byId.organiseDoneBtn, "click");
+    out.busyAtOnce = !byId.pageChangeBusy.hidden;
+    out.ariaBusy = document.body.attrs["aria-busy"];
+    out.doneAsked = calls.filter((c) => c[0] === "organise_done").length;
+    while (held.thumbnails.length) { held.thumbnails.shift()(); await settle(); }
+    out.thumbsStartedAfterDone = calls.filter((c) => c[0] === "organise_thumbnail").length - thumbsBefore;
+    const before = calls.length;
+    const ev = key(cell(0), "z", { ctrlKey: true }); await settle();
+    out.keyBlocked = [ev.defaultPrevented, calls.length - before];
+    held.done(); await settle();
+    out.reloads = reloads;
+    out.note = JSON.parse(storage["lector-page-change"] || "null");
+    out.busyStill = !byId.pageChangeBusy.hidden;
+    return out;
+  },
+  async cancelWithout() {
+    await api.openOrganise(); await settle();
+    const viaKey = { esc: key(cell(0), "Escape").defaultPrevented };
+    await settle();
+    viaKey.open = api.isOrganiseOpen();
+    await api.openOrganise(); await settle();
+    dispatch(byId.organiseCancelBtn, "click"); await settle();
+    return {
+      viaKey, viaButtonOpen: api.isOrganiseOpen(), asked: discard.asked.length,
+      cancels: calls.filter((c) => c[0] === "organise_cancel").length,
+      done: calls.filter((c) => c[0] === "organise_done").length,
+      busy: !byId.pageChangeBusy.hidden, reloads,
+      contexts: calls.filter((c) => c[0] === "set_voice_context").map((c) => c[1]),
+    };
+  },
+  async cancelWith() {
+    await api.openOrganise(); await settle();
+    dispatch(cell(2), "click");
+    dispatch(byId.organiseRotateRightBtn, "click"); await settle();
+    dispatch(cell(5), "click");
+    dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
+    const out = {};
+    key(cell(0), "Escape"); await settle();
+    out.escAsked = discard.asked.slice();
+    out.openWhileAsking = api.isOrganiseOpen();
+    discard.answer(false); await settle();  // Keep editing
+    out.afterKeep = { open: api.isOrganiseOpen(), steps: byId.organiseCount.textContent, cancels: calls.filter((c) => c[0] === "organise_cancel").length, focus: grid.children.indexOf(activeElement) };
+    dispatch(byId.organiseCancelBtn, "click"); await settle();
+    out.buttonAsked = discard.asked.length;
+    // A second Cancel while it is asking does nothing.
+    dispatch(byId.organiseCancelBtn, "click"); await settle();
+    out.askedOnce = discard.asked.length;
+    discard.answer(true); await settle();  // Discard changes
+    out.afterDiscard = {
+      open: api.isOrganiseOpen(), cancels: calls.filter((c) => c[0] === "organise_cancel").length,
+      done: calls.filter((c) => c[0] === "organise_done").length, busy: !byId.pageChangeBusy.hidden, reloads,
+      context: calls.filter((c) => c[0] === "set_voice_context").map((c) => c[1]).pop(),
+      viewHidden: view.hidden,
+    };
+    return out;
+  },
+  async doneFails() {
+    // One failure mode per run (FAIL_MODE), on a fresh page: no thumbnail is
+    // drawn before Done, so any drawn after it shows the grid isn't frozen.
+    await api.openOrganise(); await settle();
+    dispatch(cell(2), "click");
+    dispatch(byId.organiseRotateRightBtn, "click"); await settle();
+    doneReply = process.env.FAIL_MODE === "reject" ? "reject" : { error: "Couldn't apply the page changes." };
+    dispatch(byId.organiseDoneBtn, "click"); await settle();
+    intersectAll(); await settle();
+    return {
+      open: api.isOrganiseOpen(), busy: !byId.pageChangeBusy.hidden, reloads,
+      toast: toasts[toasts.length - 1] && toasts[toasts.length - 1].text,
+      thumbsAfter: calls.filter((c) => c[0] === "organise_thumbnail").length,
+    };
+  },
+  async refusals() {
+    await api.openOrganise(); await settle();
+    dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
+    const out = { disabledClick: actions().length };
+    dispatch(cell(1), "click");
+    out.later = ["organiseDeleteBtn", "organiseExtractBtn", "organiseInsertBtn"].map((id) => [byId[id].attrs["aria-disabled"], byId[id].title]);
+    key(activeElement, "Delete");
+    dispatch(byId.organiseDeleteBtn, "click"); await settle();
+    out.deleteDid = deleted.length;
+    dispatch(cell(0), "click");
+    actionReply = { ok: false, reason: "every_page" };
+    dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
+    out.toast = toasts.map((t) => t.text);
+    out.arg = actions()[0];
+    out.stillSelected = selectedPositions();
+    return out;
+  },
+};
+
+scenarios[process.env.SCENARIO]().then(
+  (out) => process.stdout.write(JSON.stringify(out)),
+  (err) => { process.stderr.write(String(err && err.stack)); process.exit(1); },
+);
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OrganiseViewBehaviourTests(unittest.TestCase):
+    def run_scenario(self, name: str, **env) -> dict:
+        result = subprocess.run(
+            ["node", "-e", HARNESS, *map(str, SCRIPTS)],
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
+            env={**os.environ, "SCENARIO": name, **env},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_selecting_with_the_mouse(self):
+        out = self.run_scenario("selection")
+        self.assertEqual(out["title"], "Annual Report")
+        self.assertTrue(out["viewShown"])
+        self.assertTrue(out["organising"])
+        self.assertEqual(out["count"], "12 pages")
+        # Insert works without a selection, but not until F2.5.
+        self.assertEqual(out["idle"], {"text": "12 pages", "rotate": ["true", "Select pages first"], "insert": "true"})
+        self.assertEqual(out["click"], [3])
+        self.assertEqual(out["ctrlClick"], [3, 5])
+        self.assertEqual(out["shiftClick"], [5, 6, 7])  # from the last click, Ctrl or not
+        self.assertEqual(out["text"], "3 of 12 selected")
+        self.assertEqual(out["rotateNow"], "false")
+        self.assertEqual(out["ctrlOff"], [6, 7])
+        self.assertEqual(out["background"], [])
+        self.assertEqual(out["after"], "12 pages")
+        self.assertEqual((out["all"], out["label"], out["none"]), (12, "Select none", 0))
+        self.assertEqual(out["cell"], ["Page 1", "option", "Page 4"])
+
+    def test_the_keyboard(self):
+        out = self.run_scenario("keyboard")
+        self.assertEqual(out["focus"], 2)  # the page being read
+        self.assertEqual(out["right"], 3)
+        self.assertEqual(out["shift"], [3, 4, 5])
+        self.assertEqual(out["space"], [3, 4])
+        self.assertEqual(out["down"], 11)  # a row down, kept on the last page
+        self.assertEqual(out["up"], 4)
+        self.assertEqual(out["home"], 0)
+        self.assertEqual(out["end"], 11)
+        self.assertEqual(out["ctrlArrow"], ["shift", {"positions": [3, 4], "step": 1}])
+        self.assertEqual(out["moved"], [4, 5])
+        self.assertEqual(out["toast"], ["Moved 2 pages", "Undo"])
+        self.assertNotIn("deleteAsked", out)  # the Delete key waits for F2.4 too
+        self.assertEqual(out["ctrlA"], 12)
+        self.assertTrue(out["undo"])
+        self.assertEqual(out["count"], "12 pages")  # the move undone
+
+    def test_dragging(self):
+        out = self.run_scenario("drag")
+        self.assertEqual(out["draggingSelected"], [8])  # an unselected page is selected first
+        self.assertTrue(out["faded"])
+        self.assertTrue(out["bar"]["shown"])
+        self.assertEqual(out["bar"]["left"], "150.5px")  # in the column gap left of page 2
+        self.assertEqual(out["move"], ["move", {"positions": [8], "gap": 1}])
+        self.assertEqual(out["order"], ["doc:0", "doc:8", "doc:1"])
+        self.assertTrue(out["barAfterDrop"])
+        self.assertFalse(out["fadedAfterDrop"])
+        self.assertEqual(out["selfDrop"], 1)  # dropped on itself: no second call
+        self.assertEqual(out["rowEndBar"], f"{6 * 156 + 148 + 4 - 1.5}px")
+        self.assertEqual(out["rowEnd"], ["move", {"positions": [0], "gap": 7}])
+
+    def test_thumbnails_are_lazy_three_at_a_time_and_drawn_once(self):
+        out = self.run_scenario("thumbnails")
+        self.assertEqual(out["first"], 3)
+        self.assertEqual(out["args"], ["organise_thumbnail", "doc", 0, 120])
+        self.assertEqual(out["afterOne"], 4)
+        self.assertEqual(out["painted"], [True, "85px", False])
+        self.assertEqual(out["total"], 12)
+        self.assertEqual(out["afterMove"], 12)  # moving pages draws nothing again
+        self.assertTrue(out["movedPainted"])
+
+    def test_done_without_changes_just_leaves(self):
+        out = self.run_scenario("doneWithoutChanges")
+        self.assertEqual(out, {
+            "done": 1, "busyShown": False, "open": False, "viewHidden": True, "organising": False, "reloads": 0,
+        })
+
+    def test_done_with_changes_shows_the_card_first_blocks_keys_and_reloads(self):
+        out = self.run_scenario("doneWithChanges")
+        self.assertEqual(out["rotate"], ["rotate", {"positions": [2], "degrees": 90}])
+        self.assertEqual(out["count"], "12 pages · 1 unsaved change")
+        self.assertTrue(out["busyAtOnce"])  # before Python has answered
+        self.assertEqual(out["ariaBusy"], "true")
+        self.assertEqual(out["doneAsked"], 1)
+        self.assertEqual(out["thumbsStartedAfterDone"], 0)
+        self.assertEqual(out["keyBlocked"], [True, 0])
+        self.assertEqual(out["reloads"], 1)
+        self.assertEqual(out["note"], {"unsaved": True, "trimmed": False})
+        self.assertTrue(out["busyStill"])  # until the reloaded page has drawn
+
+    def test_cancel_and_esc_without_changes_leave_at_once(self):
+        out = self.run_scenario("cancelWithout")
+        self.assertEqual(out["viaKey"], {"esc": True, "open": False})
+        self.assertFalse(out["viaButtonOpen"])
+        self.assertEqual(out["asked"], 0)  # nothing to lose, nothing asked
+        self.assertEqual((out["cancels"], out["done"]), (2, 0))
+        self.assertFalse(out["busy"])
+        self.assertEqual(out["reloads"], 0)
+        self.assertEqual(out["contexts"], ["organise", "reading", "organise", "reading"])
+
+    def test_cancel_and_esc_with_changes_ask_and_keep_editing_or_discard(self):
+        out = self.run_scenario("cancelWith")
+        self.assertEqual(out["escAsked"], [{"changes": 2}])
+        self.assertTrue(out["openWhileAsking"])
+        self.assertEqual(out["afterKeep"], {"open": True, "steps": "12 pages · 2 unsaved changes", "cancels": 0, "focus": 5})
+        self.assertEqual(out["buttonAsked"], 2)
+        self.assertEqual(out["askedOnce"], 2)
+        self.assertEqual(out["afterDiscard"], {
+            "open": False, "cancels": 1, "done": 0, "busy": False, "reloads": 0,
+            "context": "reading", "viewHidden": True,
+        })
+
+    def test_a_failed_done_keeps_the_draft_and_the_grid_working(self):
+        toasts = {
+            "error": "Couldn't apply the page changes.",
+            "reject": "Couldn't apply the page changes. The PDF is as it was; your changes are still here.",
+        }
+        for mode, toast in toasts.items():
+            with self.subTest(mode):
+                out = self.run_scenario("doneFails", FAIL_MODE=mode)
+                self.assertTrue(out["open"])
+                self.assertFalse(out["busy"])
+                self.assertEqual(out["reloads"], 0)
+                self.assertEqual(out["toast"], toast)
+                self.assertGreater(out["thumbsAfter"], 0)  # the grid is not left frozen
+
+    def test_disabled_actions_do_nothing_and_refusals_say_why(self):
+        out = self.run_scenario("refusals")
+        self.assertEqual(out["disabledClick"], 0)
+        self.assertEqual(out["later"], [["true", "Coming in a later step"]] * 3)  # even with a page selected
+        self.assertEqual(out["deleteDid"], 0)  # neither the button nor the Delete key
+        self.assertEqual(out["arg"], ["rotate", {"positions": [0], "degrees": -90}])
+        self.assertEqual(out["toast"], ["A PDF needs at least one page. Leave one unselected."])
+        self.assertEqual(out["stillSelected"], [0])
+
+
+if __name__ == "__main__":
+    unittest.main()

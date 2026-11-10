@@ -226,6 +226,34 @@ class OrganiseApiTests(_ApiCase):
             with self.subTest(kind=kind, args=args):
                 self.assertFalse(self.api.organise_action(kind, args)["ok"])
 
+    def test_cancel_drops_the_draft_and_changes_nothing(self):
+        self.api.organise_begin()
+        self.api.organise_action("delete", {"positions": [0, 1]})
+        self.api.organise_action("rotate", {"positions": [0], "degrees": 90})
+        with mock.patch.object(self.api._doc, "snapshot") as snapshot, \
+                mock.patch.object(self.api._doc, "_capture_state") as capture:
+            state = self.api.organise_cancel()
+        snapshot.assert_not_called()
+        capture.assert_not_called()
+        self.assertFalse(state["pages_changed"])
+        self.assertEqual(state["page_count"], 5)
+        self.assertFalse(state["is_dirty"])
+        self.assertFalse(state["can_undo"])
+        self.assertEqual(self.api.organise_begin()["steps"], 0)  # a fresh draft next time
+        self.assertIsNone(self.api.handle_window_closing())  # nothing left to ask about
+
+    def test_closing_with_changes_in_the_draft_asks_the_page_first(self):
+        # The document isn't dirty yet (nothing applied), but the draft is
+        # unsaved work: the page applies it, then asks the usual question.
+        window = api_module.webview.windows[0]
+        self.api.organise_begin()
+        self.assertIsNone(self.api.handle_window_closing())  # an untouched draft: close
+        self.api._closing_confirmed = False
+        self.api.organise_action("delete", {"positions": [0]})
+        self.assertFalse(self.api.get_state()["is_dirty"])
+        self.assertIs(self.api.handle_window_closing(), False)
+        self.assertIn("promptSaveIfDirty", window.evaluate_js.call_args[0][0])
+
     def test_opening_another_pdf_drops_the_draft(self):
         self.api.organise_begin()
         self.api.organise_action("delete", {"positions": [0]})
