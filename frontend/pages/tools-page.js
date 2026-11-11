@@ -1,11 +1,13 @@
 // Home's Tools page (docs/PRD.md § "Post-v1: file tools"): every file tool
-// as a card, in sections. Tier 1 is one section, "Shrink and convert"; Tier 2
-// will add "Pages" by adding an entry to TOOL_SECTIONS, nothing else.
+// as a card, in sections: Tier 1's "Shrink and convert" and Tier 2's "Pages".
 //
-// Compress, Make searchable and Export work on one PDF, so they first ask
-// which ("<Tool> — choose a PDF": the five most recent, or Browse); Convert
-// to PDF opens its own dialog straight away. home.js owns what a card does
-// (`buildToolsPage(onTool)`) and the Open dialog Browse uses.
+// Compress, Make searchable, Export and Organise pages work on one PDF, so
+// they first ask which ("<Tool> — choose a PDF": the five most recent, or
+// Browse); Convert to PDF opens its own dialog straight away. home.js owns
+// what a card does (`buildToolsPage(onTool)`) and the Open dialog Browse
+// uses. A card whose step of Milestone F2 hasn't landed yet (`later`) is
+// shown dimmed, with "Coming in a later step" as its tooltip, and does
+// nothing.
 //
 // Built with DOM calls and textContent: file names come from the reader's
 // disk.
@@ -33,9 +35,40 @@ const TOOL_SECTIONS = [
       },
     ],
   },
+  {
+    id: "pages",
+    title: "Pages",
+    subtitle: "Rearrange whole pages and files. What is on each page never changes.",
+    tools: [
+      {
+        id: "organise",
+        name: "Organise pages",
+        icon: "organise",
+        desc: "Rotate, delete, reorder, extract or insert pages.",
+      },
+      // Combine files (F2.8) and Split (F2.9).
+      { id: "combine", name: "Combine files", icon: "combine", desc: "Join several PDFs and images into one PDF.", later: true },
+      {
+        id: "split",
+        name: "Split",
+        icon: "split",
+        desc: "Break a PDF into several, by page ranges or every N pages.",
+        later: true,
+      },
+    ],
+  },
 ];
 
-const TOOL_NAMES = { compress: "Compress", searchable: "Make searchable", export: "Export as images" };
+const TOOL_NAMES = {
+  compress: "Compress",
+  searchable: "Make searchable",
+  export: "Export as images",
+  organise: "Organise pages",
+  split: "Split",
+};
+
+// A tool card or menu item whose own step of Milestone F2 hasn't landed.
+const TOOL_LATER = "Coming in a later step";
 
 // How many recent PDFs the "choose a PDF" step offers.
 const PICK_RECENT_COUNT = 5;
@@ -72,7 +105,14 @@ function buildToolsPage(onTool) {
       const desc = toolsEl("span", "tool-card-desc", tool.desc);
       desc.id = `toolDesc-${tool.id}`;
       card.append(toolsIcon(tool.icon, "tool-card-icon"), toolsEl("span", "tool-card-name", tool.name), desc);
-      card.addEventListener("click", () => onTool(tool.id));
+      if (tool.later) {
+        // aria-disabled, not disabled, so it keeps its tooltip saying why.
+        card.setAttribute("aria-disabled", "true");
+        card.title = TOOL_LATER;
+      }
+      card.addEventListener("click", () => {
+        if (!tool.later) onTool(tool.id);
+      });
       grid.appendChild(card);
     }
     wrap.append(title, toolsEl("p", "tools-section-sub", section.subtitle), grid);

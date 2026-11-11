@@ -414,8 +414,9 @@ const recentListHandlers = {
     else recentViewListBtn.focus();
   },
   // Compress, Make searchable, Export as images, for this file: its dialog
-  // straight away, no file to pick.
-  onTool: (tool, entry) => ToolDialog.open(tool, entry.path),
+  // straight away, no file to pick. Organise pages: the file in the reader,
+  // with its pages laid out.
+  onTool: (tool, entry) => (tool === "organise" ? openPathToOrganise(entry.path) : ToolDialog.open(tool, entry.path)),
 };
 
 // The grid card's "⋯" opens the same menu; Remove there goes through the same
@@ -437,7 +438,24 @@ async function openToolFromPage(tool) {
     return;
   }
   const path = await PdfPicker.choose(tool);
-  if (path) ToolDialog.open(tool, path);
+  if (!path) return;
+  if (tool === "organise") openPathToOrganise(path);
+  else ToolDialog.open(tool, path);
+}
+
+// What the reader reads on load to open Organise pages (reading.js's
+// OPEN_ORGANISE_NOTE): set once the PDF is open, so a PDF that couldn't be
+// opened leaves no note behind.
+const OPEN_ORGANISE_NOTE = "lector-open-organise";
+
+// Organise pages, from the Tools page or a Recent menu: the PDF is opened
+// as Open does (a protected one asks for its password, a missing one offers
+// Remove from Recent), then the reader opens with its pages laid out. A PDF
+// whose owner forbids changes opens in the reader, which says why.
+async function openPathToOrganise(path) {
+  if (!(await openPdf(path, { onMissing: (message) => offerRemoval(path, message) }))) return;
+  sessionStorage.setItem(OPEN_ORGANISE_NOTE, "1");
+  window.location.href = "pages/reading.html";
 }
 
 function renderToolsSection() {
