@@ -35,7 +35,6 @@ let organiseHooks = {
   title: () => "",
   onOpen: () => {},
   onClose: () => {},
-  onDelete: () => {},
   onExtract: () => {},
   onInsert: () => {},
 };
@@ -161,23 +160,50 @@ function organiseRotate(degrees) {
   if (positions.length) organiseAct("rotate", { positions, degrees });
 }
 
-function organiseDelete() {
+// Delete (the button, the Delete key): always asks first, unless it would
+// leave no page at all, which is refused before the question. Deleting is
+// one step of the draft, which Organise's Undo (or the toast's) takes back.
+async function organiseDelete() {
   const positions = organiseGrid.selectedPositions();
-  if (positions.length && organiseDeleteBtn.getAttribute("aria-disabled") !== "true") {
-    organiseHooks.onDelete(positions);
+  if (!organiseOpen || !positions.length || isPageChangeBusy() || OrganiseDeleteDialog.isOpen()) return;
+  if (positions.length === organiseGrid.pageCount()) {
+    showToast(ORGANISE_REASONS.every_page);
+    return;
   }
+  const confirmed = await OrganiseDeleteDialog.open({
+    pages: positions.map((position) => organiseGrid.pageView(position)),
+    docName: organiseHooks.title(),
+  });
+  if (!confirmed) {
+    organiseGrid.focusCurrent();
+    return;
+  }
+  const view = await organiseAct("delete", { positions });
+  // Focus where the deleted pages were: the page now in the first one's place.
+  if (view && view.ok) organiseGrid.focusPosition(Math.min(positions[0], organiseGrid.pageCount() - 1));
+  if (view && view.ok && view.changed) {
+    showOrganiseUndoToast(`Deleted ${organisePlural(positions.length, "page", "pages")}`);
+  }
+}
+
+// After an Undo or Redo from somewhere that is gone now (the toast's button),
+// the keyboard goes back to the grid rather than being lost.
+function keepOrganiseFocus() {
+  if (!organiseView.contains(document.activeElement)) organiseGrid.focusCurrent();
 }
 
 async function organiseUndo() {
   if (!organiseOpen || !organiseDraft.can_undo || isPageChangeBusy()) return;
   const view = await callApi("organise_undo");
   if (view.ok) showOrganiseDraft(view);
+  keepOrganiseFocus();
 }
 
 async function organiseRedo() {
   if (!organiseOpen || !organiseDraft.can_redo || isPageChangeBusy()) return;
   const view = await callApi("organise_redo");
   if (view.ok) showOrganiseDraft(view);
+  keepOrganiseFocus();
 }
 
 // Applies the draft (Python's organise_done) under the busy card. Null when

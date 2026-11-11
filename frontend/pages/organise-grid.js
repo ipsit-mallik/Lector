@@ -446,6 +446,13 @@ function createOrganiseGrid({ grid, scroller, insertionBar, thumbnail, onMove, o
     allSelected: () => pages.length > 0 && selected.size === pages.length,
     pageCount: () => pages.length,
     focusPosition: (position) => pages[position] && focusCell(pages[position].key),
+    // What the delete confirmation shows of a page: its thumbnail if drawn
+    // (`src`, `width`, `height`, or null), its turn and its number.
+    pageView: (position) => {
+      const page = pages[position];
+      if (!page) return null;
+      return { thumb: thumbs.get(thumbKey(page)) || null, turn: page.turn, number: position + 1 };
+    },
     // Back to the page that had focus (after a dialog over the grid closes).
     focusCurrent: () => focusKey && focusCell(focusKey, { scroll: false }),
     // Done has started: no new thumbnail requests from here on.

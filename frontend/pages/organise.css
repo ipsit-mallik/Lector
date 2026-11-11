@@ -270,6 +270,58 @@
 
 .organise-insertion[hidden] { display: none; }
 
+/* ---- The delete confirmation's pages (organise-discard.js) ------------------ */
+
+/* Up to six of the pages it would delete, as the grid shows them (turned),
+   with their numbers, then "+N more". */
+.organise-delete-strip {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+}
+
+.organise-delete-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.organise-delete-box {
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.organise-delete-paper {
+  display: block;
+  width: 36px;
+  height: 46px;
+  background-color: var(--thumb-paper);
+  box-shadow: var(--shadow-1);
+  outline: 1px solid var(--border);
+  transform: rotate(var(--turn, 0deg));
+}
+
+.organise-delete-paper img { display: block; width: 100%; height: 100%; filter: var(--thumb-filter); }
+
+.organise-delete-num,
+.organise-delete-more {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.organise-delete-more { align-self: center; margin-left: var(--space-1); }
+
 /* ---- Footer ------------------------------------------------------------------ */
 
 .organise-count {
@@ -293,6 +345,10 @@
 .reading-view.is-organising .what-btn { flex: none; white-space: nowrap; }
 
 .organise-count[hidden] { display: none; }
+
+/* Toasts sit above the footer while Organise is open, clear of its hint and
+   count (the reader's 54px footer plus the usual gap). */
+body:has(.reading-view.is-organising) .toast-region { bottom: calc(54px + var(--space-3)); }
 
 /* ---- "Applying page changes…" (page-change-busy.js) ------------------------- */
 

@@ -18,7 +18,7 @@ from lector.features.voice import reference, router  # noqa: E402
 PAGES = ROOT / "frontend" / "pages"
 READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
 ORGANISE_JS = (PAGES / "organise.js").read_text(encoding="utf-8")
-DISCARD_JS = (PAGES / "organise-discard.js").read_text(encoding="utf-8")
+DANGER_JS = (PAGES / "danger-dialog.js").read_text(encoding="utf-8")
 
 
 def _intent(context: str, text: str) -> str | None:
@@ -39,8 +39,8 @@ class OrganiseGrammarTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertEqual(_intent(router.ORGANISE, phrase), intent)
 
-    def test_the_discard_question_hears_confirm_and_cancel_only(self):
-        self.assertIn("file_tool", DISCARD_JS)
+    def test_the_danger_questions_hear_confirm_and_cancel_only(self):
+        self.assertIn('createVoiceScope("file_tool")', DANGER_JS)
         self.assertEqual(_intent(router.FILE_TOOL, "confirm"), router.TOOL_CONFIRM)
         self.assertEqual(_intent(router.FILE_TOOL, "cancel"), router.CANCEL)
         self.assertIsNone(_intent(router.FILE_TOOL, "done"))
@@ -62,11 +62,13 @@ class OrganiseVoiceWiringTests(unittest.TestCase):
         button = re.search(r'organiseCancelBtn\.addEventListener\("click", \(\) => (\w+)\(\)\)', ORGANISE_JS)
         self.assertEqual(button.group(1), "cancelOrganise")
 
-    def test_the_discard_question_takes_spoken_answers_before_organise_does(self):
+    def test_the_danger_questions_take_spoken_answers_before_organise_does(self):
+        # Discard and Delete: "confirm" is the danger button, "cancel" the safe one.
         handler = READING_JS[READING_JS.index('window.addEventListener("lector:command"'):]
-        self.assertLess(handler.index("OrganiseDiscardDialog.isOpen()"), handler.index("ORGANISE_VOICE_ACTIONS"))
-        self.assertRegex(DISCARD_JS, r'command\.intent === "TOOL_CONFIRM"\) close\(true\)')
-        self.assertRegex(DISCARD_JS, r'command\.intent === "CANCEL"\) close\(false\)')
+        questions = handler.index("[OrganiseDiscardDialog, OrganiseDeleteDialog]")
+        self.assertLess(questions, handler.index("ORGANISE_VOICE_ACTIONS"))
+        self.assertRegex(DANGER_JS, r'command\.intent === "TOOL_CONFIRM"\) close\(true\)')
+        self.assertRegex(DANGER_JS, r'command\.intent === "CANCEL"\) close\(false\)')
 
     def test_organise_claims_its_context_and_gives_it_back(self):
         self.assertIn('callApi("set_voice_context", "organise")', ORGANISE_JS)

@@ -590,7 +590,7 @@ Rotate, delete, reorder, extract and insert pages (`docs/PRD.md` § "Post-v1: fi
 - **Inserted pages:** a "New" pill at the top right (`--text-xs` 600, `--accent-soft` / `--accent-strong`, fully rounded) until Done.
 - **Dragging:** the dragged cells at 40%, and a 3px `--accent` insertion bar, rounded, in the column gap where they will land, from the page's top to above its number. Near the grid's top or bottom edge (56px) it scrolls, faster the closer the pointer.
 - **Footer:** the mic pill; the hint "Drag to reorder · Ctrl+←/→ moves the selection · Ctrl+A selects all" (cut with an ellipsis at narrow widths, the whole of it in its tooltip); at the right "12 pages · 2 unsaved changes" in `--text-sm` tabular figures, and What can I say?.
-- **Toasts:** the shared toast. A move says "Moved 3 pages" with Undo.
+- **Toasts:** the shared toast, raised above the footer while Organise is open (54px plus `--space-3`) so it never covers the hint or the count. A move says "Moved 3 pages", a delete "Deleted 3 pages", each with Undo; after an Undo from a toast, the keyboard goes back to the grid.
 - **"Applying page changes…":** while Done, Undo page changes or Redo page changes run, a card on the `--overlay` scrim over everything: `--surface-2`, `--radius-lg`, `--shadow-3` plus `--dialog-edge`, an 18px `--accent` spinner and the words in `--text-md`. It is up within a frame of the click, takes the mouse and keyboard, and stays until the reader has drawn the changed document.
 
 ### Danger dialog
@@ -603,6 +603,8 @@ A question whose answer loses something: "Discard page changes?" (Organise's Can
 - a modal voice scope of the file tools' grammar: "confirm" is the danger button, "cancel" the safe one.
 
 Discard's copy: "Discard page changes?", "Your N changes to the pages won't be applied. The document stays as it was." ("Your change…" for one), the info line above, Keep editing and Discard changes.
+
+Delete's (F2.4): the badge is the `remove` icon; "Delete 3 pages?" ("Delete 1 page?"), "Pages 4–6 are removed from <document>." — one run of pages as a range, one page as "Page 4 is removed…", a scattered selection as "5 pages are removed…". Under it a strip on `--surface-1` with a `--border` edge and `--radius-md`: up to six of the pages, each its thumbnail fitted into 36×46 in a 52px box, turned as the grid shows it, `--thumb-paper` under it and a 1px `--border` outline, with its number under it in `--text-xs` tabular figures, then "+N more". The info line "Undo brings them back. The PDF on disk doesn't change until you save.", Cancel and "Delete 3 pages". Every page selected is refused before the question with the toast "A PDF needs at least one page. Leave one unselected." After deleting, the toast "Deleted 3 pages" with Undo, and focus on the page now where the first deleted one was. Shared code: `pages/danger-dialog.js` (`createDangerDialog`), the two questions in `pages/organise-discard.js`.
 
 ## Accessibility baseline
 

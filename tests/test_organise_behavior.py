@@ -30,7 +30,9 @@ import unittest
 from pathlib import Path
 
 PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
-SCRIPTS = [PAGES / "page-change-busy.js", PAGES / "organise-grid.js", PAGES / "organise.js"]
+SCRIPTS = [PAGES / name for name in (
+    "page-change-busy.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise.js",
+)]
 
 HARNESS = r"""
 const fs = require("fs");
@@ -111,7 +113,8 @@ view.hidden = true;
 ["organiseUndoBtn", "organiseRedoBtn", "organiseCancelBtn", "organiseDoneBtn", "organiseSelectAllBtn"].forEach((id) => add(view, "button", id));
 add(view, "button", "organiseInsertBtn", { later: "" });
 ["organiseRotateLeftBtn", "organiseRotateRightBtn"].forEach((id) => add(view, "button", id, { needs: "" }));
-["organiseDeleteBtn", "organiseExtractBtn"].forEach((id) => add(view, "button", id, { needs: "", later: "" }));
+add(view, "button", "organiseDeleteBtn", { needs: "" });
+add(view, "button", "organiseExtractBtn", { needs: "", later: "" });
 const scroller = add(view, "div", "organiseScroll");
 const grid = add(scroller, "div", "organiseGrid");
 add(scroller, "div", "organiseInsertion").hidden = true;
@@ -120,12 +123,16 @@ add(root, "div", "pageChangeBusy").hidden = true;
 
 const htmlClasses = new Set();
 const document = {
-  getElementById: (id) => byId[id] || null,
+  getElementById: (id) => {
+    if (byId[id]) return byId[id];
+    const walk = (n) => { for (const k of n.children) { if (k.id === id) return k; const f = walk(k); if (f) return f; } return null; };
+    return walk(root);
+  },
   createElement: (tag) => makeEl(tag),
   createDocumentFragment: () => { const f = makeEl("fragment"); f.isFragment = true; return f; },
   querySelector: (sel) => (sel === ".reading-view" ? readingView : null),
   documentElement: { classList: { add: (c) => htmlClasses.add(c), remove: (c) => htmlClasses.delete(c), contains: (c) => htmlClasses.has(c) } },
-  body: makeEl("body"),
+  body: add(root, "div", "body"),
   addEventListener(type, fn, capture) { const bag = capture ? docListeners.capture : docListeners.bubble; (bag[type] = bag[type] || []).push(fn); },
 };
 
@@ -204,12 +211,26 @@ function callApi(method, ...args) {
   return Promise.resolve({ ok: true });
 }
 
-// organise-discard.js, as organise.js sees it: the test answers it.
-const discard = { asked: [], open: false, answer: null };
-const OrganiseDiscardDialog = {
-  open: (opts) => { discard.asked.push(opts); discard.open = true; return new Promise((r) => { discard.answer = (v) => { discard.open = false; r(v); }; }); },
-  isOpen: () => discard.open,
-};
+// The real danger dialogs (danger-dialog.js, organise-discard.js); these
+// read and answer them as the reader would.
+function question(id) {
+  const scrim = document.getElementById(id);
+  const card = scrim.children[0];
+  const [body, footer] = card.children;
+  const [, extra, info] = body.children;
+  const [, safe, danger] = footer.children;
+  return {
+    open: !scrim.hidden,
+    title: document.getElementById(`${id}Title`).textContent,
+    desc: document.getElementById(`${id}Desc`).textContent,
+    info: info.children[1].textContent,
+    safe: safe.textContent, danger: danger.textContent,
+    focused: activeElement === safe ? "safe" : activeElement === danger ? "danger" : null,
+    strip: extra.children[0] ? extra.children[0].children.map((k) => (k.children.length ? k.children[1].textContent : k.textContent)) : [],
+    answer: (yes) => dispatch(yes ? danger : safe, "click"),
+  };
+}
+const discard = { get open() { return question("organiseDiscard").open; } };
 
 const toasts = [];
 const storage = {};
@@ -223,13 +244,14 @@ const context = vm.createContext({
   requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
   getComputedStyle: () => ({ columnGap: "8px" }),
   devicePixelRatio: 1,
-  callApi, mountIcon: () => {}, mountIcons: () => {}, OrganiseDiscardDialog,
+  callApi, mountIcon: () => {}, mountIcons: () => {},
+  createVoiceScope: () => ({ enter() {}, leave() {} }), trapFocus: () => () => {},
   showToast: (text, opts = {}) => { toasts.push({ text, action: opts.actionLabel || null }); return () => {}; },
   __deleted: deleted,
 });
 for (const file of process.argv.slice(1)) vm.runInContext(fs.readFileSync(file, "utf8"), context);
 vm.runInContext(
-  "configureOrganise({ title: () => 'Annual Report', onDelete: (p) => __deleted.push(p) });" +
+  "configureOrganise({ title: () => 'Annual Report' });" +
   "this.__api = { openOrganise, isOrganiseOpen, finishOrganise, cancelOrganise };",
   context
 );
@@ -285,7 +307,8 @@ const scenarios = {
     out.ctrlArrow = actions()[0]; out.moved = selectedPositions();
     const last = toasts[toasts.length - 1];
     out.toast = last && [last.text, last.action];
-    key(activeElement, "Delete"); out.deleteAsked = deleted[0];
+    key(activeElement, "Delete"); out.deleteAsked = question("organiseDelete").title;
+    question("organiseDelete").answer(false); await settle();
     key(activeElement, "a", { ctrlKey: true }); out.ctrlA = selectedPositions().length;
     key(activeElement, "z", { ctrlKey: true }); await settle();
     out.undo = calls.some((c) => c[0] === "organise_undo");
@@ -383,7 +406,7 @@ const scenarios = {
     await api.openOrganise(); await settle();
     dispatch(byId.organiseCancelBtn, "click"); await settle();
     return {
-      viaKey, viaButtonOpen: api.isOrganiseOpen(), asked: discard.asked.length,
+      viaKey, viaButtonOpen: api.isOrganiseOpen(), asked: Number(discard.open),
       cancels: calls.filter((c) => c[0] === "organise_cancel").length,
       done: calls.filter((c) => c[0] === "organise_done").length,
       busy: !byId.pageChangeBusy.hidden, reloads,
@@ -398,16 +421,21 @@ const scenarios = {
     dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
     const out = {};
     key(cell(0), "Escape"); await settle();
-    out.escAsked = discard.asked.slice();
+    const asked = question("organiseDiscard");
+    out.escAsked = { open: asked.open, title: asked.title, desc: asked.desc, info: asked.info, safe: asked.safe, danger: asked.danger, focused: asked.focused };
     out.openWhileAsking = api.isOrganiseOpen();
-    discard.answer(false); await settle();  // Keep editing
+    question("organiseDiscard").answer(false); await settle();  // Keep editing
     out.afterKeep = { open: api.isOrganiseOpen(), steps: byId.organiseCount.textContent, cancels: calls.filter((c) => c[0] === "organise_cancel").length, focus: grid.children.indexOf(activeElement) };
     dispatch(byId.organiseCancelBtn, "click"); await settle();
-    out.buttonAsked = discard.asked.length;
+    out.buttonAsked = discard.open;
     // A second Cancel while it is asking does nothing.
     dispatch(byId.organiseCancelBtn, "click"); await settle();
-    out.askedOnce = discard.asked.length;
-    discard.answer(true); await settle();  // Discard changes
+    out.askedOnce = discard.open;
+    // Esc in the question is Keep editing, and doesn't reach Organise.
+    key(cell(0), "Escape"); await settle();
+    out.escInQuestion = { open: discard.open, organise: api.isOrganiseOpen() };
+    dispatch(byId.organiseCancelBtn, "click"); await settle();
+    question("organiseDiscard").answer(true); await settle();  // Discard changes
     out.afterDiscard = {
       open: api.isOrganiseOpen(), cancels: calls.filter((c) => c[0] === "organise_cancel").length,
       done: calls.filter((c) => c[0] === "organise_done").length, busy: !byId.pageChangeBusy.hidden, reloads,
@@ -431,15 +459,52 @@ const scenarios = {
       thumbsAfter: calls.filter((c) => c[0] === "organise_thumbnail").length,
     };
   },
+  async deleteFlow() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    const out = {};
+    dispatch(cell(3), "click"); dispatch(cell(5), "click", { shiftKey: true });
+    dispatch(byId.organiseDeleteBtn, "click"); await settle();
+    const q = question("organiseDelete");
+    out.asked = { open: q.open, title: q.title, desc: q.desc, info: q.info, safe: q.safe, danger: q.danger, focused: q.focused, strip: q.strip };
+    q.answer(false); await settle();
+    out.afterCancel = { open: question("organiseDelete").open, actions: actions().length, selected: selectedPositions(), focus: grid.children.indexOf(activeElement) };
+    key(activeElement, "Delete"); await settle();
+    out.keyAsks = question("organiseDelete").open;
+    question("organiseDelete").answer(true); await settle();
+    out.deleted = actions()[0];
+    const last = toasts[toasts.length - 1];
+    out.toast = [last.text, last.action];
+    out.count = byId.organiseCount.textContent;
+    // A scattered selection, one page, and more than six.
+    dispatch(cell(0), "click"); dispatch(cell(2), "click", { ctrlKey: true }); dispatch(cell(7), "click", { ctrlKey: true });
+    dispatch(byId.organiseDeleteBtn, "click"); await settle();
+    out.scattered = [question("organiseDelete").title, question("organiseDelete").desc];
+    question("organiseDelete").answer(false); await settle();
+    dispatch(cell(1), "click");
+    dispatch(byId.organiseDeleteBtn, "click"); await settle();
+    out.single = [question("organiseDelete").title, question("organiseDelete").desc, question("organiseDelete").danger];
+    question("organiseDelete").answer(false); await settle();
+    dispatch(cell(0), "click"); dispatch(cell(7), "click", { shiftKey: true });
+    dispatch(byId.organiseDeleteBtn, "click"); await settle();
+    out.many = question("organiseDelete").strip;
+    question("organiseDelete").answer(false); await settle();
+    // Every page selected: refused before the question.
+    const before = toasts.length;
+    key(activeElement, "a", { ctrlKey: true });
+    dispatch(byId.organiseDeleteBtn, "click"); await settle();
+    out.everyPage = { asked: question("organiseDelete").open, toast: toasts.slice(before).map((t) => t.text) };
+    return out;
+  },
   async refusals() {
     await api.openOrganise(); await settle();
     dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
     const out = { disabledClick: actions().length };
     dispatch(cell(1), "click");
-    out.later = ["organiseDeleteBtn", "organiseExtractBtn", "organiseInsertBtn"].map((id) => [byId[id].attrs["aria-disabled"], byId[id].title]);
+    out.later = ["organiseExtractBtn", "organiseInsertBtn"].map((id) => [byId[id].attrs["aria-disabled"], byId[id].title]);
     key(activeElement, "Delete");
     dispatch(byId.organiseDeleteBtn, "click"); await settle();
-    out.deleteDid = deleted.length;
+    out.deleteNow = byId.organiseDeleteBtn.attrs["aria-disabled"];
     dispatch(cell(0), "click");
     actionReply = { ok: false, reason: "every_page" };
     dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
@@ -500,7 +565,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertEqual(out["ctrlArrow"], ["shift", {"positions": [3, 4], "step": 1}])
         self.assertEqual(out["moved"], [4, 5])
         self.assertEqual(out["toast"], ["Moved 2 pages", "Undo"])
-        self.assertNotIn("deleteAsked", out)  # the Delete key waits for F2.4 too
+        self.assertEqual(out["deleteAsked"], "Delete 2 pages?")  # the Delete key asks
         self.assertEqual(out["ctrlA"], 12)
         self.assertTrue(out["undo"])
         self.assertEqual(out["count"], "12 pages")  # the move undone
@@ -560,14 +625,45 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
 
     def test_cancel_and_esc_with_changes_ask_and_keep_editing_or_discard(self):
         out = self.run_scenario("cancelWith")
-        self.assertEqual(out["escAsked"], [{"changes": 2}])
+        self.assertEqual(out["escAsked"], {
+            "open": True,
+            "title": "Discard page changes?",
+            "desc": "Your 2 changes to the pages won’t be applied. The document stays as it was.",
+            "info": "To keep them, choose Keep editing, then Done.",
+            "safe": "Keep editing", "danger": "Discard changes",
+            "focused": "safe",  # Enter by reflex keeps the work
+        })
         self.assertTrue(out["openWhileAsking"])
         self.assertEqual(out["afterKeep"], {"open": True, "steps": "12 pages · 2 unsaved changes", "cancels": 0, "focus": 5})
-        self.assertEqual(out["buttonAsked"], 2)
-        self.assertEqual(out["askedOnce"], 2)
+        self.assertTrue(out["buttonAsked"])
+        self.assertTrue(out["askedOnce"])  # a second Cancel while asking changes nothing
+        self.assertEqual(out["escInQuestion"], {"open": False, "organise": True})
         self.assertEqual(out["afterDiscard"], {
             "open": False, "cancels": 1, "done": 0, "busy": False, "reloads": 0,
             "context": "reading", "viewHidden": True,
+        })
+
+    def test_delete_asks_first_and_is_one_undoable_step(self):
+        out = self.run_scenario("deleteFlow")
+        self.assertEqual(out["asked"], {
+            "open": True,
+            "title": "Delete 3 pages?",
+            "desc": "Pages 4–6 are removed from Annual Report.",
+            "info": "Undo brings them back. The PDF on disk doesn’t change until you save.",
+            "safe": "Cancel", "danger": "Delete 3 pages",
+            "focused": "safe",
+            "strip": ["4", "5", "6"],
+        })
+        self.assertEqual(out["afterCancel"], {"open": False, "actions": 0, "selected": [3, 4, 5], "focus": 5})
+        self.assertTrue(out["keyAsks"])  # the Delete key asks too
+        self.assertEqual(out["deleted"], ["delete", {"positions": [3, 4, 5]}])
+        self.assertEqual(out["toast"], ["Deleted 3 pages", "Undo"])
+        self.assertEqual(out["count"], "12 pages · 1 unsaved change")
+        self.assertEqual(out["scattered"], ["Delete 3 pages?", "3 pages are removed from Annual Report."])
+        self.assertEqual(out["single"], ["Delete 1 page?", "Page 2 is removed from Annual Report.", "Delete 1 page"])
+        self.assertEqual(out["many"], ["1", "2", "3", "4", "5", "6", "+2 more"])
+        self.assertEqual(out["everyPage"], {
+            "asked": False, "toast": ["A PDF needs at least one page. Leave one unselected."],
         })
 
     def test_a_failed_done_keeps_the_draft_and_the_grid_working(self):
@@ -587,8 +683,8 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
     def test_disabled_actions_do_nothing_and_refusals_say_why(self):
         out = self.run_scenario("refusals")
         self.assertEqual(out["disabledClick"], 0)
-        self.assertEqual(out["later"], [["true", "Coming in a later step"]] * 3)  # even with a page selected
-        self.assertEqual(out["deleteDid"], 0)  # neither the button nor the Delete key
+        self.assertEqual(out["later"], [["true", "Coming in a later step"]] * 2)  # even with a page selected
+        self.assertEqual(out["deleteNow"], "false")  # Delete arrived with F2.4
         self.assertEqual(out["arg"], ["rotate", {"positions": [0], "degrees": -90}])
         self.assertEqual(out["toast"], ["A PDF needs at least one page. Leave one unselected."])
         self.assertEqual(out["stillSelected"], [0])

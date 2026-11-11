@@ -2199,10 +2199,13 @@ window.addEventListener("lector:command", (ev) => {
     ToolDialog.handleCommand(command);
     return;
   }
-  // "confirm" discards, "cancel" keeps editing (Organise's discard question).
-  if (OrganiseDiscardDialog.isOpen()) {
-    OrganiseDiscardDialog.handleCommand(command);
-    return;
+  // Organise's two danger questions: "confirm" is the danger answer
+  // (discard, delete), "cancel" the safe one.
+  for (const question of [OrganiseDiscardDialog, OrganiseDeleteDialog]) {
+    if (question.isOpen()) {
+      question.handleCommand(command);
+      return;
+    }
   }
   // SAVE_COPY/SAVE_OVERWRITE/DONT_SAVE/CANCEL only ever arrive while the
   // Save-changes confirmation is the active voice context (router.py scopes
