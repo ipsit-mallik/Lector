@@ -44,12 +44,15 @@ _WINDOWS_KNOWN_FOLDER_IDS = {
 # names a filter; it can't hand in extensions of its own.
 PDF_FILTER = "pdf"
 CONVERT_FILTER = "convert"
+# Organise's Insert…: PDFs and everything Convert takes.
+INSERT_FILTER = "insert"
 # The folder picker ("Choose another folder…" in a file tool's "Save in"
 # menu): folders only, no files at all.
 FOLDER_FILTER = "folder"
 FILTERS = {
     PDF_FILTER: frozenset({PDF_EXTENSION}),
     CONVERT_FILTER: file_tool_formats.CONVERT_EXTENSIONS,
+    INSERT_FILTER: frozenset({PDF_EXTENSION}) | file_tool_formats.CONVERT_EXTENSIONS,
     FOLDER_FILTER: frozenset(),
 }
 
@@ -61,8 +64,9 @@ def list_directory(path: str, kind: str = PDF_FILTER) -> dict:
 
     Non-PDF files are omitted, matching the native dialog's own
     `file_types=("PDF Files (*.pdf)",)` filter; with `kind` "convert", the
-    files listed are the images and e-books Convert to PDF takes instead (an
-    unknown `kind` lists PDFs). A directory that cannot be listed
+    files listed are the images and e-books Convert to PDF takes instead, and
+    with "insert" (Organise's Insert…) PDFs and those both (an unknown `kind`
+    lists PDFs). A directory that cannot be listed
     (permissions, deleted since) reports an `error` string instead of
     raising, so the dialog stays open with an empty list and a message rather
     than crashing the bridge call.

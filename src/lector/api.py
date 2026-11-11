@@ -78,6 +78,10 @@ MAX_CONVERT_INPUTS = 500
 # How long describing a file (in the worker, behind any OCR read) may take.
 DESCRIBE_TIMEOUT_S = 60
 
+# Making an image or e-book into pages for Organise's Insert… (an e-book is
+# laid out first, which can take a while).
+INSERT_CONVERT_TIMEOUT_S = 180
+
 # How long closing waits for a cancelled job to clean up before going on.
 JOB_STOP_WAIT_S = 10
 
@@ -349,10 +353,10 @@ class Api:
         explicit starting path from `get_save_dialog_start()` instead, since
         its default is the current document's folder, not the most recent
         file's. `kind` "convert" lists the images and e-books Convert to PDF
-        takes instead of PDFs; "folder" (the file tools' folder picker) lists
-        folders only."""
+        takes instead of PDFs; "insert" (Organise's Insert…) lists both;
+        "folder" (the file tools' folder picker) lists folders only."""
         folder = path or dialog_browser.default_open_dir()
-        if kind in (dialog_browser.CONVERT_FILTER, dialog_browser.FOLDER_FILTER):
+        if kind in (dialog_browser.CONVERT_FILTER, dialog_browser.INSERT_FILTER, dialog_browser.FOLDER_FILTER):
             return dialog_browser.list_directory(folder, kind)
         return dialog_browser.list_directory(folder)
 
@@ -951,18 +955,23 @@ class Api:
 
     def organise_action(self, kind: str, args: dict) -> dict:
         """One Organise action on the draft: `rotate` (`positions`,
-        `degrees` ±90), `delete` (`positions`), `move` (`positions`, `gap`)
-        or `shift` (`positions`, `step` ±1). Returns the new draft and the
-        pages to select (where the moved pages went). `{ok: False, reason}`
-        for one the plan refuses (`page_plan.EVERY_PAGE`, ...)."""
+        `degrees` ±90), `delete` (`positions`), `move` (`positions`, `gap`),
+        `shift` (`positions`, `step` ±1) or `insert` (`source`, from
+        `organise_add_source`, and `gap`). Returns the new draft and the
+        pages to select (where the moved or inserted pages are). `{ok:
+        False, reason}` for one the plan refuses (`page_plan.EVERY_PAGE`,
+        ...)."""
         if self._organise is None or not isinstance(args, dict):
             return {"ok": False, "reason": page_plan.BAD_POSITIONS}
         plan = self._organise.current
         positions = args.get("positions")
         try:
-            if not isinstance(positions, list):
+            if kind == "insert":
+                new, selection = self._organise_insert(plan, args.get("source"), args.get("gap"))
+            elif not isinstance(positions, list):
                 raise page_plan.PlanError(page_plan.BAD_POSITIONS)
-            new, selection = self._organise_step(plan, kind, positions, args)
+            else:
+                new, selection = self._organise_step(plan, kind, positions, args)
         except page_plan.PlanError as exc:
             return {"ok": False, "reason": exc.reason}
         changed = self._organise.push(new)
@@ -988,6 +997,59 @@ class Api:
         if kind == "shift":
             return page_plan.shift(plan, positions, cls._one_of(args.get("step"), (-1, 1)))
         raise page_plan.PlanError(page_plan.BAD_POSITIONS)
+
+    def _organise_insert(self, plan: page_plan.Plan, source, gap):
+        """Every page of a file `organise_add_source` holds, put in at `gap`."""
+        count = self._doc.page_source_count(source) if isinstance(source, str) else None
+        if count is None:
+            raise page_plan.PlanError(page_plan.BAD_SOURCE)
+        return page_plan.insert(plan, gap, source, count)
+
+    def organise_add_source(self, path: str, password: str | None = None) -> dict:
+        """The file Insert… was pointed at, opened and held until Organise
+        ends (a PDF, unlocked with `password`; an image or e-book made into
+        pages at their own size first, as Convert's "Same as image"). Returns
+        `{ok: True, source, pages, name}`, or `{ok: False, reason, error,
+        name}`: reason "password" asks the page for the password (only held
+        in memory, with the file) and "wrong_password" asks again."""
+        name = os.path.basename(path) if isinstance(path, str) else ""
+
+        def refused(reason: str, error: str) -> dict:
+            return {"ok": False, "reason": reason, "error": error, "name": name}
+
+        if self._organise is None or not isinstance(path, str) or not (password is None or isinstance(password, str)):
+            return refused(open_errors.UNKNOWN, open_errors.MESSAGES[open_errors.UNKNOWN])
+        if not os.path.isfile(path):
+            return refused(open_errors.MISSING, f"Couldn't find {name}. It may have been moved or deleted.")
+        unreadable = refused(open_errors.UNREADABLE, f"Couldn't read {name}. It may be damaged.")
+        try:
+            if tool_formats.extension(path) == dialog_browser.PDF_EXTENSION:
+                data = Path(path).read_bytes()
+            elif tool_formats.is_convertible(path):
+                job = self._ocr.call(tool_engine.convert_to_pdf_bytes, (path,), timeout=INSERT_CONVERT_TIMEOUT_S)
+                data, password = job.result(), None
+            else:
+                return refused(open_errors.NOT_A_PDF, f"{name} can't be inserted. Choose a PDF, an image or an e-book.")
+            source, pages = self._doc.add_page_source(data, password)
+        except open_errors.OpenError as exc:
+            if exc.reason in (open_errors.PASSWORD, open_errors.WRONG_PASSWORD):
+                return refused(exc.reason, exc.message)
+            return unreadable
+        except tool_engine.UnsupportedInput:
+            return unreadable
+        except Exception:
+            log.exception("Couldn't open a file to insert")
+            return unreadable
+        return {"ok": True, "source": source, "pages": pages, "name": name}
+
+    def organise_forget_source(self, source: str) -> dict:
+        """Let go of a file Insert… opened and didn't put in (another was
+        chosen, or the dialog was cancelled). One the draft has pages of, now
+        or in its Undo/Redo, is kept until Organise ends."""
+        if isinstance(source, str) and source != page_plan.DOC:
+            if self._organise is None or not self._organise.uses(source):
+                self._doc.drop_page_source(source)
+        return {"ok": True}
 
     def organise_undo(self) -> dict:
         if self._organise is None or self._organise.undo() is None:

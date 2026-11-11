@@ -1338,6 +1338,9 @@ async function cycleTheme() {
 // file-browser.js module Home's Open dialog uses, in its "save" mode. The
 // file tools' Change… uses it too.
 const saveAsDialog = ensureSaveAsDialog("reading");
+// Organise's Insert… picks its file here (organise.js); voice goes back to
+// Organise's context when it closes.
+const openFileDialog = ensureOpenFileDialog("organise");
 
 // Every way of leaving the reader (Library, another PDF, the window closing)
 // asks this first. An Organise draft is applied before the question, so the
@@ -2178,6 +2181,11 @@ window.addEventListener("lector:command", (ev) => {
     saveAsDialog.handleCommand(command);
     return;
   }
+  // The Open dialog Organise's Insert… chooses a file in (OPEN_DIALOG).
+  if (openFileDialog.isOpen()) {
+    openFileDialog.handleCommand(command);
+    return;
+  }
   // CONFIRM_REPLACE/CANCEL: the "Replace this file?" question the Save-As
   // screen leads to (router.py's REPLACE_CONFIRM scope).
   if (ReplaceDialog.isOpen()) {
@@ -2199,9 +2207,10 @@ window.addEventListener("lector:command", (ev) => {
     ToolDialog.handleCommand(command);
     return;
   }
-  // Organise's two danger questions: "confirm" is the danger answer
-  // (discard, delete), "cancel" the safe one.
-  for (const question of [OrganiseDiscardDialog, OrganiseDeleteDialog]) {
+  // Organise's dialogs. The danger questions: "confirm" is the danger
+  // answer (discard, delete), "cancel" the safe one. Insert: "confirm"
+  // inserts, a number picks the place.
+  for (const question of [OrganiseDiscardDialog, OrganiseDeleteDialog, OrganiseInsertDialog]) {
     if (question.isOpen()) {
       question.handleCommand(command);
       return;

@@ -199,6 +199,67 @@ function ensureSaveAsDialog(restingContext) {
   return _saveAsDialog;
 }
 
+// The in-app Open dialog for a page that has none of its own (the reader:
+// Organise's Insert…, `open({ kind: "insert" })`). Home's Open PDF has its
+// own copy in index.html. Added the first time it is wanted.
+const OPEN_FILE_MARKUP = `
+  <div class="dialog-scrim voice-dialog" id="openFileDialogScrim" hidden>
+    <div class="dialog-card dialog-card--wide">
+      <div class="dialog-body dialog-body--browser">
+        <div class="dialog-header">
+          <div class="dialog-badge" data-icon="folder"></div>
+          <p class="dialog-title">Open</p>
+        </div>
+      </div>
+      <div class="browser-crumbs" id="openFileDialogPath"></div>
+      <div class="browser-panes">
+        <div class="browser-side">
+          <p class="browser-side-label">Quick access</p>
+          <div class="browser-quick" id="openFileDialogQuick"></div>
+          <p class="browser-side-label">This PC</p>
+          <div class="browser-tree" id="openFileDialogTree" role="tree"></div>
+        </div>
+        <div class="browser-main">
+          <div class="search-field browser-search" role="search">
+            <span class="search-field-icon" data-icon="search"></span>
+            <input class="search-field-input" type="text" id="openFileDialogSearch" placeholder="Search this folder…"
+                   autocomplete="off" aria-label="Search this folder">
+            <button class="search-field-clear" type="button" aria-label="Clear search" title="Clear search">
+              <span data-icon="close"></span>
+            </button>
+          </div>
+          <div class="browser-list" id="openFileDialogList"></div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <span class="hint">Click a folder or file, or say its number, or "home" / "desktop" / "documents" / "downloads".</span>
+        <button class="btn btn-secondary" id="openFileDialogCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+
+let _openFileDialog = null;
+function ensureOpenFileDialog(restingContext) {
+  if (_openFileDialog) return _openFileDialog;
+  if (!document.getElementById("openFileDialogScrim")) {
+    document.body.insertAdjacentHTML("beforeend", OPEN_FILE_MARKUP);
+    if (typeof mountIcons === "function") mountIcons(document.getElementById("openFileDialogScrim"));
+  }
+  _openFileDialog = createFileBrowser({
+    scrimId: "openFileDialogScrim",
+    listId: "openFileDialogList",
+    pathId: "openFileDialogPath",
+    quickId: "openFileDialogQuick",
+    treeId: "openFileDialogTree",
+    searchId: "openFileDialogSearch",
+    cancelBtnId: "openFileDialogCancelBtn",
+    mode: "open",
+    voiceContext: "open_dialog",
+    restingContext,
+  });
+  return _openFileDialog;
+}
+
 function createFileBrowser({
   scrimId,
   listId,
@@ -323,7 +384,9 @@ function createFileBrowser({
           ? "No folders here."
           : openOptions.kind === "convert"
             ? "No folders, images or e-books here."
-            : "No folders or PDFs here.";
+            : openOptions.kind === "insert"
+              ? "No folders, PDFs, images or e-books here."
+              : "No folders or PDFs here.";
       listEl.appendChild(empty);
       return;
     }

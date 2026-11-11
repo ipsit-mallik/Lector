@@ -19,6 +19,7 @@ PAGES = ROOT / "frontend" / "pages"
 READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
 ORGANISE_JS = (PAGES / "organise.js").read_text(encoding="utf-8")
 DANGER_JS = (PAGES / "danger-dialog.js").read_text(encoding="utf-8")
+INSERT_JS = (PAGES / "organise-insert.js").read_text(encoding="utf-8")
 
 
 def _intent(context: str, text: str) -> str | None:
@@ -65,10 +66,21 @@ class OrganiseVoiceWiringTests(unittest.TestCase):
     def test_the_danger_questions_take_spoken_answers_before_organise_does(self):
         # Discard and Delete: "confirm" is the danger button, "cancel" the safe one.
         handler = READING_JS[READING_JS.index('window.addEventListener("lector:command"'):]
-        questions = handler.index("[OrganiseDiscardDialog, OrganiseDeleteDialog]")
+        questions = handler.index("[OrganiseDiscardDialog, OrganiseDeleteDialog, OrganiseInsertDialog]")
         self.assertLess(questions, handler.index("ORGANISE_VOICE_ACTIONS"))
         self.assertRegex(DANGER_JS, r'command\.intent === "TOOL_CONFIRM"\) close\(true\)')
         self.assertRegex(DANGER_JS, r'command\.intent === "CANCEL"\) close\(false\)')
+
+    def test_insert_hears_confirm_cancel_and_a_place_number(self):
+        # Insert…: "confirm" inserts, "cancel" cancels, "two" picks the second place.
+        self.assertIn('createVoiceScope("file_tool")', INSERT_JS)
+        self.assertRegex(INSERT_JS, r'command\.intent === "TOOL_CONFIRM"\) confirm\(\)')
+        self.assertRegex(INSERT_JS, r'command\.intent === "CANCEL"\) close\(null\)')
+        self.assertIn('command.intent === "DIALOG_PICK"', INSERT_JS)
+        self.assertEqual(_intent(router.FILE_TOOL, "two"), router.DIALOG_PICK)
+        # Its Open dialog is routed before anything else in Organise.
+        handler = READING_JS[READING_JS.index('window.addEventListener("lector:command"'):]
+        self.assertLess(handler.index("openFileDialog.isOpen()"), handler.index("ORGANISE_VOICE_ACTIONS"))
 
     def test_organise_claims_its_context_and_gives_it_back(self):
         self.assertIn('callApi("set_voice_context", "organise")', ORGANISE_JS)

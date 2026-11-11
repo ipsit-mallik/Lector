@@ -231,13 +231,15 @@ class DialogMarkupTests(unittest.TestCase):
     def test_quick_access_is_a_sibling_of_the_tree_not_inside_its_scroll_area(self):
         for page in DIALOG_PAGES:
             html = page.read_text(encoding="utf-8")
-            side = re.findall(r'<div class="browser-side">(.*?)</div>\s*<div class="browser-main">', html, re.S)
-            self.assertEqual(len(side), 1, page.name)
-            with self.subTest(page=page.name):
-                self.assertRegex(side[0], r'<div class="browser-quick" id="\w+"></div>')
-                # The tree element is empty markup: nothing (Quick Access
-                # included) is nested inside the element that scrolls.
-                self.assertRegex(side[0], r'<div class="browser-tree" id="\w+" role="tree"></div>')
+            sides = re.findall(r'<div class="browser-side">(.*?)</div>\s*<div class="browser-main">', html, re.S)
+            # file-browser.js holds two (Save-As, and the reader's Open).
+            self.assertGreaterEqual(len(sides), 1, page.name)
+            for n, side in enumerate(sides):
+                with self.subTest(page=page.name, dialog=n):
+                    self.assertRegex(side, r'<div class="browser-quick" id="\w+"></div>')
+                    # The tree element is empty markup: nothing (Quick Access
+                    # included) is nested inside the element that scrolls.
+                    self.assertRegex(side, r'<div class="browser-tree" id="\w+" role="tree"></div>')
 
 
 if __name__ == "__main__":

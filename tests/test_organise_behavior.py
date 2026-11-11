@@ -31,7 +31,8 @@ from pathlib import Path
 
 PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
 SCRIPTS = [PAGES / name for name in (
-    "page-change-busy.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise.js",
+    "page-change-busy.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise-insert.js",
+    "organise.js",
 )]
 
 HARNESS = r"""
@@ -111,7 +112,7 @@ const view = add(readingView, "section", "organiseView");
 view.hidden = true;
 ["organiseDocName", "organiseSelectionText"].forEach((id) => add(view, "span", id));
 ["organiseUndoBtn", "organiseRedoBtn", "organiseCancelBtn", "organiseDoneBtn", "organiseSelectAllBtn"].forEach((id) => add(view, "button", id));
-add(view, "button", "organiseInsertBtn", { later: "" });
+add(view, "button", "organiseInsertBtn");
 ["organiseRotateLeftBtn", "organiseRotateRightBtn"].forEach((id) => add(view, "button", id, { needs: "" }));
 add(view, "button", "organiseDeleteBtn", { needs: "" });
 add(view, "button", "organiseExtractBtn", { needs: "", later: "" });
@@ -169,6 +170,7 @@ let pagesNow = Array.from({ length: 12 }, (_, i) => ({ key: `doc:${i}`, source: 
 let steps = 0;
 const calls = [];
 const held = { thumbnails: [], done: null };
+let nextSource = 0;
 let holdThumbnails = false, holdDone = false, actionReply = null, doneReply = null;
 function draft(extra = {}) {
   return { ok: true, pages: pagesNow.map((p) => ({ ...p })), can_undo: steps > 0, can_redo: false, steps, ...extra };
@@ -192,6 +194,12 @@ function callApi(method, ...args) {
     if (actionReply) return Promise.resolve(actionReply);
     steps += 1;
     const [kind, a] = args;
+    if (kind === "insert") {
+      const count = a.source === "insert-0" ? 3 : 1;
+      const added = Array.from({ length: count }, (_, i) => ({ key: `${a.source}:${i}`, source: a.source, index: i, turn: 0, new: true }));
+      pagesNow = [...pagesNow.slice(0, a.gap), ...added, ...pagesNow.slice(a.gap)];
+      return Promise.resolve(draft({ changed: true, selection: added.map((_, i) => a.gap + i) }));
+    }
     if (kind === "move") return Promise.resolve(draft({ changed: true, selection: moveTo(a.positions, a.gap) }));
     if (kind === "shift") {
       const lo = a.positions[0], hi = a.positions[a.positions.length - 1];
@@ -199,6 +207,16 @@ function callApi(method, ...args) {
       return Promise.resolve(draft({ changed: true, selection: moveTo(a.positions, gap) }));
     }
     return Promise.resolve(draft({ changed: true, selection: a.positions }));
+  }
+  if (method === "organise_add_source") {
+    const [path, password] = args;
+    const name = path.split("/").pop();
+    if (name === "junk.pdf") return Promise.resolve({ ok: false, reason: "unreadable", error: "Couldn't read junk.pdf. It may be damaged.", name });
+    if (name === "locked.pdf" && password !== "secret") {
+      return Promise.resolve({ ok: false, reason: password ? "wrong_password" : "password", error: "The password isn't right. Try again.", name });
+    }
+    const source = `insert-${nextSource++}`;
+    return Promise.resolve({ ok: true, source, pages: name === "locked.pdf" ? 1 : 3, name });
   }
   if (method === "organise_undo") { steps = Math.max(0, steps - 1); return Promise.resolve(draft()); }
   if (method === "organise_cancel") { steps = 0; return Promise.resolve({ is_open: true, pages_changed: false }); }
@@ -232,6 +250,33 @@ function question(id) {
 }
 const discard = { get open() { return question("organiseDiscard").open; } };
 
+// Insert…: the Open dialog answers with the next of `picks`; the password
+// box tries "secret".
+const picks = [], browsed = [], passwordAsked = [];
+const openFileDialog = { open: (opts) => { browsed.push(opts); return Promise.resolve(picks.shift() || { cancelled: true }); } };
+const PasswordDialog = {
+  ask: async ({ name, attempt }) => { passwordAsked.push(name); const tried = await attempt("secret"); return tried.done || null; },
+};
+function insertDialog() {
+  const scrim = document.getElementById("organiseInsert");
+  const [body, footer] = scrim.children[0].children;
+  const [, source, places] = body.children;
+  const [, label, choose] = source.children;
+  const [cancel, insert] = footer.children;
+  return {
+    open: !scrim.hidden,
+    title: document.getElementById("organiseInsertTitle").textContent,
+    desc: document.getElementById("organiseInsertDesc").textContent,
+    file: label.children.map((k) => k.textContent).join(" "),
+    places: places.children.map((row) => [row.children[1].children[0].textContent, row.children[2].textContent, row.classList.contains("selected")]),
+    primary: insert.textContent,
+    focused: activeElement === insert ? "insert" : activeElement === choose ? "choose" : null,
+    pick: (i) => dispatch(places.children[i], "click"),
+    choose: () => dispatch(choose, "click"),
+    answer: (yes) => dispatch(yes ? insert : cancel, "click"),
+  };
+}
+
 const toasts = [];
 const storage = {};
 const deleted = [];
@@ -245,7 +290,8 @@ const context = vm.createContext({
   getComputedStyle: () => ({ columnGap: "8px" }),
   devicePixelRatio: 1,
   callApi, mountIcon: () => {}, mountIcons: () => {},
-  createVoiceScope: () => ({ enter() {}, leave() {} }), trapFocus: () => () => {},
+  createVoiceScope: () => ({ enter() {}, leave() { return Promise.resolve(); } }), trapFocus: () => () => {},
+  initRadioCards: () => {}, ensureOpenFileDialog: () => openFileDialog, PasswordDialog,
   showToast: (text, opts = {}) => { toasts.push({ text, action: opts.actionLabel || null }); return () => {}; },
   __deleted: deleted,
 });
@@ -496,12 +542,57 @@ const scenarios = {
     out.everyPage = { asked: question("organiseDelete").open, toast: toasts.slice(before).map((t) => t.text) };
     return out;
   },
+  async insertFlow() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    const out = {};
+    dispatch(cell(3), "click"); dispatch(cell(5), "click", { shiftKey: true });
+    picks.push({ path: "C:/Files/Appendix.pdf" });
+    dispatch(byId.organiseInsertBtn, "click"); await settle();
+    const first = insertDialog();
+    out.browsed = browsed[0];
+    out.asked = { open: first.open, title: first.title, desc: first.desc, file: first.file, places: first.places, primary: first.primary, focused: first.focused };
+    // Choose…: another file, a protected one, unlocked; the first is let go.
+    picks.push({ path: "C:/Files/locked.pdf" });
+    first.choose(); await settle();
+    const second = insertDialog();
+    out.chosenAgain = { open: second.open, file: second.file, primary: second.primary, focused: second.focused, password: passwordAsked.slice() };
+    out.forgot = calls.filter((c) => c[0] === "organise_forget_source").map((c) => c[1]);
+    second.pick(2); // At the end
+    out.endPicked = insertDialog().places.map((p) => p[2]);
+    insertDialog().answer(true); await settle();
+    out.inserted = actions()[0];
+    out.selected = selectedPositions();
+    out.focus = grid.children.indexOf(activeElement);
+    out.newPill = cell(12).classList.contains("is-new");
+    const last = toasts[toasts.length - 1];
+    out.toast = [last.text, last.action];
+    out.count = byId.organiseCount.textContent;
+    out.closed = insertDialog().open;
+    // Nothing selected: only "At the end". Cancel lets the file go.
+    dispatch(grid, "click");
+    picks.push({ path: "C:/Files/Appendix.pdf" });
+    dispatch(byId.organiseInsertBtn, "click"); await settle();
+    out.idlePlaces = insertDialog().places;
+    key(activeElement, "Escape"); await settle();
+    out.escClosed = { open: insertDialog().open, organise: api.isOrganiseOpen(), actions: actions().length };
+    out.forgotAfterCancel = calls.filter((c) => c[0] === "organise_forget_source").map((c) => c[1]);
+    // A file that can't be used: the toast says why, no dialog.
+    picks.push({ path: "C:/Files/junk.pdf" });
+    dispatch(byId.organiseInsertBtn, "click"); await settle();
+    out.junk = { open: insertDialog().open, toast: toasts[toasts.length - 1].text };
+    // The Open dialog cancelled: nothing at all.
+    const before = calls.length;
+    dispatch(byId.organiseInsertBtn, "click"); await settle();
+    out.browseCancelled = calls.slice(before).map((c) => c[0]);
+    return out;
+  },
   async refusals() {
     await api.openOrganise(); await settle();
     dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
     const out = { disabledClick: actions().length };
     dispatch(cell(1), "click");
-    out.later = ["organiseExtractBtn", "organiseInsertBtn"].map((id) => [byId[id].attrs["aria-disabled"], byId[id].title]);
+    out.later = ["organiseExtractBtn"].map((id) => [byId[id].attrs["aria-disabled"], byId[id].title]);
     key(activeElement, "Delete");
     dispatch(byId.organiseDeleteBtn, "click"); await settle();
     out.deleteNow = byId.organiseDeleteBtn.attrs["aria-disabled"];
@@ -539,8 +630,8 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertTrue(out["viewShown"])
         self.assertTrue(out["organising"])
         self.assertEqual(out["count"], "12 pages")
-        # Insert works without a selection, but not until F2.5.
-        self.assertEqual(out["idle"], {"text": "12 pages", "rotate": ["true", "Select pages first"], "insert": "true"})
+        # Insert works without a selection.
+        self.assertEqual(out["idle"], {"text": "12 pages", "rotate": ["true", "Select pages first"], "insert": None})
         self.assertEqual(out["click"], [3])
         self.assertEqual(out["ctrlClick"], [3, 5])
         self.assertEqual(out["shiftClick"], [5, 6, 7])  # from the last click, Ctrl or not
@@ -666,6 +757,41 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
             "asked": False, "toast": ["A PDF needs at least one page. Leave one unselected."],
         })
 
+    def test_insert_asks_where_then_puts_every_page_in_selected(self):
+        out = self.run_scenario("insertFlow")
+        self.assertEqual(out["browsed"], {"dir": None, "kind": "insert", "title": "Insert pages from"})
+        self.assertEqual(out["asked"], {
+            "open": True,
+            "title": "Insert pages",
+            "desc": "Adds pages from another PDF or from images.",
+            "file": "Appendix.pdf · 3 pages",
+            "places": [
+                ["Before the selection", "before page 4", False],
+                ["After the selection", "after page 6", True],  # the default with a selection
+                ["At the end", "after page 12", False],
+            ],
+            "primary": "Insert 3 pages",
+            "focused": "insert",
+        })
+        self.assertEqual(out["chosenAgain"], {
+            "open": True, "file": "locked.pdf · 1 page", "primary": "Insert 1 page", "focused": "choose",
+            "password": ["locked.pdf"],
+        })
+        self.assertEqual(out["forgot"], ["insert-0"])  # the file it replaced
+        self.assertEqual(out["endPicked"], [False, False, True])
+        self.assertEqual(out["inserted"], ["insert", {"source": "insert-1", "gap": 12}])
+        self.assertEqual(out["selected"], [12])
+        self.assertEqual(out["focus"], 12)
+        self.assertTrue(out["newPill"])
+        self.assertEqual(out["toast"], ["Inserted 1 page from locked.pdf", "Undo"])
+        self.assertEqual(out["count"], "13 pages · 1 unsaved change")
+        self.assertFalse(out["closed"])
+        self.assertEqual(out["idlePlaces"], [["At the end", "after page 13", True]])  # the only place
+        self.assertEqual(out["escClosed"], {"open": False, "organise": True, "actions": 1})
+        self.assertEqual(out["forgotAfterCancel"], ["insert-0", "insert-2"])
+        self.assertEqual(out["junk"], {"open": False, "toast": "Couldn't read junk.pdf. It may be damaged."})
+        self.assertEqual(out["browseCancelled"], [])
+
     def test_a_failed_done_keeps_the_draft_and_the_grid_working(self):
         toasts = {
             "error": "Couldn't apply the page changes.",
@@ -683,7 +809,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
     def test_disabled_actions_do_nothing_and_refusals_say_why(self):
         out = self.run_scenario("refusals")
         self.assertEqual(out["disabledClick"], 0)
-        self.assertEqual(out["later"], [["true", "Coming in a later step"]] * 2)  # even with a page selected
+        self.assertEqual(out["later"], [["true", "Coming in a later step"]])  # even with a page selected
         self.assertEqual(out["deleteNow"], "false")  # Delete arrived with F2.4
         self.assertEqual(out["arg"], ["rotate", {"positions": [0], "degrees": -90}])
         self.assertEqual(out["toast"], ["A PDF needs at least one page. Leave one unselected."])

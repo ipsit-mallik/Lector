@@ -1048,6 +1048,20 @@ class PdfDocument:
         self._page_sources[source] = doc
         return source, len(doc)
 
+    def page_source_count(self, source: str) -> int | None:
+        """How many pages a source Insert holds has; None if it holds none
+        by that id."""
+        doc = self._page_sources.get(source)
+        return None if doc is None else len(doc)
+
+    def drop_page_source(self, source: str) -> None:
+        """Let go of one PDF Insert opened (it was chosen, then not put in).
+        As a change, so no thumbnail is still being drawn from it."""
+        with self._gate.changing():
+            doc = self._page_sources.pop(source, None)
+        if doc is not None:
+            doc.close()
+
     def drop_page_sources(self) -> None:
         """Let go of every PDF Insert opened (Organise has ended)."""
         sources, self._page_sources = self._page_sources, {}

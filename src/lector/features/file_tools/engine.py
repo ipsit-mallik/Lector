@@ -452,6 +452,19 @@ def convert_add(job_id: str, path: str, page_size: str) -> int:
         pdf.close()
 
 
+def convert_to_pdf_bytes(path: str) -> bytes:
+    """One file Convert to PDF takes (an image, an e-book) as a PDF's bytes,
+    its pages at their own size (Convert's "Same as image"): what Organise's
+    Insert… puts in. Raises UnsupportedInput."""
+    job_id = f"insert:{path}"
+    convert_open(job_id)
+    try:
+        convert_add(job_id, path, formats.SAME_AS_IMAGE)
+        return _doc(job_id).tobytes(garbage=3, deflate=True)
+    finally:
+        close_job(job_id)
+
+
 def _native_size(page: pymupdf.Page) -> tuple[float, float]:
     """An image page's picture at one pixel per CSS pixel, in points; the
     page's own size if it shows no image."""

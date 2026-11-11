@@ -36,7 +36,6 @@ let organiseHooks = {
   onOpen: () => {},
   onClose: () => {},
   onExtract: () => {},
-  onInsert: () => {},
 };
 let organiseOpen = false;
 let organiseDraft = { pages: [], can_undo: false, can_redo: false, steps: 0 };
@@ -186,6 +185,71 @@ async function organiseDelete() {
   }
 }
 
+// Insert…'s file: chosen in the Open dialog (PDFs, images, e-books) and opened
+// in Python, a protected PDF asking for its password (password-dialog.js;
+// only held in memory, with the file). `Api.organise_add_source`'s answer, or
+// null when cancelled or when the file can't be used (the toast says why).
+async function chooseInsertSource() {
+  const picked = await ensureOpenFileDialog("organise").open({ dir: null, kind: "insert", title: "Insert pages from" });
+  if (!picked || !picked.path || !organiseOpen) return null;
+  let answer = await callApi("organise_add_source", picked.path);
+  if (!answer.ok && answer.reason === "password") {
+    answer = await PasswordDialog.ask({
+      name: answer.name,
+      attempt: async (password) => {
+        const retry = await callApi("organise_add_source", picked.path, password);
+        if (!retry.ok && retry.reason === "wrong_password") return { error: retry.error };
+        return { done: retry };
+      },
+    });
+    if (!answer) return null;
+  }
+  if (!answer.ok) {
+    showToast(answer.error);
+    return null;
+  }
+  return answer;
+}
+
+function forgetInsertSource(source) {
+  callApi("organise_forget_source", source).catch((err) => console.error("organise: letting go of a file", err));
+}
+
+let organiseInserting = false;
+
+// Insert… (always available): a file, then where its pages go, then every
+// page of it is put in as one step of the draft, selected and scrolled to,
+// each with the "New" pill until Done.
+async function organiseInsert() {
+  if (!organiseOpen || organiseInserting || isPageChangeBusy()) return;
+  organiseInserting = true;
+  try {
+    const source = await chooseInsertSource();
+    if (!source || !organiseOpen) {
+      if (source) forgetInsertSource(source.source);
+      if (organiseOpen) organiseGrid.focusCurrent();
+      return;
+    }
+    const chosen = await OrganiseInsertDialog.open({
+      source,
+      positions: organiseGrid.selectedPositions(),
+      total: organiseGrid.pageCount(),
+      choose: chooseInsertSource,
+      forget: forgetInsertSource,
+    });
+    if (!chosen) {
+      organiseGrid.focusCurrent();
+      return;
+    }
+    const view = await organiseAct("insert", { source: chosen.source, gap: chosen.gap });
+    if (view && view.ok && view.changed) {
+      showOrganiseUndoToast(`Inserted ${organisePlural(chosen.pages, "page", "pages")} from ${chosen.name}`);
+    }
+  } finally {
+    organiseInserting = false;
+  }
+}
+
 // After an Undo or Redo from somewhere that is gone now (the toast's button),
 // the keyboard goes back to the grid rather than being lost.
 function keepOrganiseFocus() {
@@ -317,7 +381,7 @@ onOrganiseButton(document.getElementById("organiseRotateLeftBtn"), () => organis
 onOrganiseButton(document.getElementById("organiseRotateRightBtn"), () => organiseRotate(90));
 onOrganiseButton(document.getElementById("organiseDeleteBtn"), () => organiseDelete());
 onOrganiseButton(document.getElementById("organiseExtractBtn"), () => organiseHooks.onExtract(organiseGrid.selectedPositions()));
-onOrganiseButton(document.getElementById("organiseInsertBtn"), () => organiseHooks.onInsert(organiseGrid.selectedPositions()));
+onOrganiseButton(document.getElementById("organiseInsertBtn"), () => organiseInsert());
 onOrganiseButton(organiseUndoBtn, () => organiseUndo());
 onOrganiseButton(organiseRedoBtn, () => organiseRedo());
 organiseDoneBtn.addEventListener("click", () => finishOrganise());

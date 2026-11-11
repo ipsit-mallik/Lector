@@ -173,6 +173,11 @@ class PlanHistory:
         changes" while Organise is open."""
         return self._at
 
+    def uses(self, source: str) -> bool:
+        """Whether any plan here, undone or redoable, has pages of `source`
+        (so the file Insert opened for it must still be held)."""
+        return any(page.source == source for plan in self._plans for page in plan)
+
     def push(self, plan: Plan) -> bool:
         """Make `plan` current, dropping anything that could be redone.
         False (and nothing recorded) when it is the current plan already."""
