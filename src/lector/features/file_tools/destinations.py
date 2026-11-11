@@ -100,6 +100,13 @@ def suggested_stem(tool: str, source: str, folder: str) -> str:
     return naming.free_stem(folder, base_stem(tool, source), extension(tool))
 
 
+def extract_stem(source: str, numbers: list[int], folder: str) -> str:
+    """Extract's Name suggestion: "Report (pages 4–6)", "Report (5 pages)",
+    or the first free "… (2)" in `folder`."""
+    stem = os.path.splitext(os.path.basename(source or ""))[0] or "untitled"
+    return naming.free_stem(folder, f"{stem} ({naming.pages_label(numbers)})", PDF_EXTENSION)
+
+
 def folder_key(path: str) -> str:
     return os.path.normcase(os.path.normpath(os.path.abspath(path)))
 

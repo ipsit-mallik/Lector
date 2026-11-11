@@ -1341,6 +1341,8 @@ const saveAsDialog = ensureSaveAsDialog("reading");
 // Organise's Insert… picks its file here (organise.js); voice goes back to
 // Organise's context when it closes.
 const openFileDialog = ensureOpenFileDialog("organise");
+// Extract…'s "Choose another folder…" (organise-extract.js).
+OrganiseExtractDialog.configure({ saveAs: saveAsDialog });
 
 // Every way of leaving the reader (Library, another PDF, the window closing)
 // asks this first. An Organise draft is applied before the question, so the
@@ -1460,6 +1462,7 @@ function startOrganise() {
 
 configureOrganise({
   title: () => state.title || "",
+  openOutput: (path) => openToolOutput(path),
   onOpen: () => {
     setHighlightMode(false);
     closeHighlightEditor();
@@ -2209,8 +2212,9 @@ window.addEventListener("lector:command", (ev) => {
   }
   // Organise's dialogs. The danger questions: "confirm" is the danger
   // answer (discard, delete), "cancel" the safe one. Insert: "confirm"
-  // inserts, a number picks the place.
-  for (const question of [OrganiseDiscardDialog, OrganiseDeleteDialog, OrganiseInsertDialog]) {
+  // inserts, a number picks the place. Extract: "confirm" extracts, "cancel"
+  // cancels or stops its job.
+  for (const question of [OrganiseDiscardDialog, OrganiseDeleteDialog, OrganiseInsertDialog, OrganiseExtractDialog]) {
     if (question.isOpen()) {
       question.handleCommand(command);
       return;

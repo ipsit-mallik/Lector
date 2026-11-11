@@ -11,7 +11,9 @@ COMPRESS = "compress"
 SEARCHABLE = "searchable"
 EXPORT = "export"
 CONVERT = "convert"
-TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT)
+# Organise pages' Extract… (Milestone F2).
+EXTRACT = "extract"
+TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT, EXTRACT)
 
 # Reasons of the tools' own, beside `safe_write`'s.
 SAME_AS_SOURCE = "same_as_source"
@@ -26,6 +28,7 @@ _WHAT = {
     SEARCHABLE: "make the PDF searchable",
     EXPORT: "export the pages",
     CONVERT: "create the PDF",
+    EXTRACT: "extract the pages",
 }
 
 _DETAIL = {

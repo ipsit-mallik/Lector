@@ -1054,6 +1054,14 @@ class PdfDocument:
         doc = self._page_sources.get(source)
         return None if doc is None else len(doc)
 
+    @_reads
+    def page_source_bytes(self, source: str) -> bytes | None:
+        """A file Insert holds, as PDF bytes for a file job (Extract): already
+        unlocked, so the job needs no password for it; never written as they
+        are. None if it holds none by that id."""
+        doc = self._page_sources.get(source)
+        return None if doc is None else doc.tobytes(deflate=True)
+
     def drop_page_source(self, source: str) -> None:
         """Let go of one PDF Insert opened (it was chosen, then not put in).
         As a change, so no thumbnail is still being drawn from it."""

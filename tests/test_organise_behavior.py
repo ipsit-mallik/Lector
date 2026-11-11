@@ -26,13 +26,14 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
 SCRIPTS = [PAGES / name for name in (
     "page-change-busy.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise-insert.js",
-    "organise.js",
+    "organise-extract.js", "organise.js",
 )]
 
 HARNESS = r"""
@@ -51,7 +52,7 @@ function makeEl(tag, id) {
   const el = {
     tagName: tag.toUpperCase(), id, parentNode: null, children: [], attrs: {}, dataset: {},
     textContent: "", hidden: false, tabIndex: 0, src: "", title: "",
-    style: { setProperty(k, v) { this[k] = v; } },
+    style: { setProperty(k, v) { this[k] = v; }, removeProperty(k) { delete this[k]; } },
     classList: {
       add: (c) => classes.add(c), remove: (c) => classes.delete(c),
       toggle: (c, on) => { if (on === undefined ? !classes.has(c) : on) classes.add(c); else classes.delete(c); },
@@ -93,9 +94,14 @@ function makeEl(tag, id) {
       if (this.id === "organiseScroll") return { left: 0, top: 0, width: 1100, height: 600 };
       return { left: 0, top: 0, width: 1100, height: 2000 };
     },
+    querySelector(sel) {
+      const cls = sel.startsWith(".") ? sel.slice(1) : null;
+      const walk = (n) => { for (const k of n.children) { if (cls && k.classList.contains(cls)) return k; const f = walk(k); if (f) return f; } return null; };
+      return walk(this);
+    },
     querySelectorAll(sel) {
       const out = [];
-      const attr = { "[data-needs-selection]": "needs", "[data-later]": "later" }[sel];
+      const attr = { "[data-needs-selection]": "needs" }[sel];
       const walk = (n) => n.children.forEach((k) => { if (attr && attr in k.dataset) out.push(k); walk(k); });
       walk(this);
       return out;
@@ -115,7 +121,7 @@ view.hidden = true;
 add(view, "button", "organiseInsertBtn");
 ["organiseRotateLeftBtn", "organiseRotateRightBtn"].forEach((id) => add(view, "button", id, { needs: "" }));
 add(view, "button", "organiseDeleteBtn", { needs: "" });
-add(view, "button", "organiseExtractBtn", { needs: "", later: "" });
+add(view, "button", "organiseExtractBtn", { needs: "" });
 const scroller = add(view, "div", "organiseScroll");
 const grid = add(scroller, "div", "organiseGrid");
 add(scroller, "div", "organiseInsertion").hidden = true;
@@ -130,6 +136,7 @@ const document = {
     return walk(root);
   },
   createElement: (tag) => makeEl(tag),
+  createTextNode: (text) => { const n = makeEl("#text"); n.textContent = text; return n; },
   createDocumentFragment: () => { const f = makeEl("fragment"); f.isFragment = true; return f; },
   querySelector: (sel) => (sel === ".reading-view" ? readingView : null),
   documentElement: { classList: { add: (c) => htmlClasses.add(c), remove: (c) => htmlClasses.delete(c), contains: (c) => htmlClasses.has(c) } },
@@ -171,6 +178,7 @@ let steps = 0;
 const calls = [];
 const held = { thumbnails: [], done: null };
 let nextSource = 0;
+let jobCount = 0;
 let holdThumbnails = false, holdDone = false, actionReply = null, doneReply = null;
 function draft(extra = {}) {
   return { ok: true, pages: pagesNow.map((p) => ({ ...p })), can_undo: steps > 0, can_redo: false, steps, ...extra };
@@ -218,6 +226,16 @@ function callApi(method, ...args) {
     const source = `insert-${nextSource++}`;
     return Promise.resolve({ ok: true, source, pages: name === "locked.pdf" ? 1 : 3, name });
   }
+  if (method === "organise_extract_setup") {
+    const [positions] = args;
+    const run = positions.length === 1 ? `page ${positions[0] + 1}` : `pages ${positions[0] + 1}–${positions[positions.length - 1] + 1}`;
+    return Promise.resolve({
+      ok: true, count: positions.length, label: run, every_page: positions.length === pagesNow.length,
+      output: { folder: "C:/Docs", stem: `Annual Report (${run})`, extension: ".pdf" },
+    });
+  }
+  if (method === "check_tool_destination") return Promise.resolve({ ok: true, exists: false, name: `${args[3]}.pdf`, folder: args[2] });
+  if (method === "start_file_job") return Promise.resolve({ ok: true, id: `job-${++jobCount}` });
   if (method === "organise_undo") { steps = Math.max(0, steps - 1); return Promise.resolve(draft()); }
   if (method === "organise_cancel") { steps = 0; return Promise.resolve({ is_open: true, pages_changed: false }); }
   if (method === "organise_done") {
@@ -257,6 +275,38 @@ const openFileDialog = { open: (opts) => { browsed.push(opts); return Promise.re
 const PasswordDialog = {
   ask: async ({ name, attempt }) => { passwordAsked.push(name); const tried = await attempt("secret"); return tried.done || null; },
 };
+// Extract…: FileJobs and the destination block as the dialog sees them; the
+// test plays the job's events.
+const jobListeners = [];
+let watchedJob = null;
+const FileJobs = { subscribe: (fn) => jobListeners.push(fn), watch: (id) => { watchedJob = id; }, current: () => null };
+const emitJob = (event) => jobListeners.forEach((fn) => fn(event));
+function createSaveDestination(opts) {
+  return {
+    element: makeEl("div"), isValid: () => true, value: () => ({ folder: opts.originFolder, name: opts.stem }),
+    showError() {}, isMenuOpen: () => false, closeMenu() {}, setHint() {},
+  };
+}
+function extractDialog() {
+  const scrim = document.getElementById("organiseExtract");
+  const [body, footer] = scrim.children[0].children;
+  const content = body.children[1];
+  const row = content.children.find((k) => k.classList.contains("checkbox-row"));
+  const error = content.children.find((k) => k.classList.contains("organise-extract-error"));
+  const progress = content.children.find((k) => k.classList.contains("job-progress"));
+  return {
+    open: !scrim.hidden,
+    title: document.getElementById("organiseExtractTitle").textContent,
+    desc: document.getElementById("organiseExtractDesc").textContent,
+    check: row ? row.children.map((k) => k.textContent).join("") : null,
+    box: row ? row.children[0] : null,
+    error: error ? error.textContent : null,
+    phase: progress ? progress.children[0].children[0].textContent : null,
+    buttons: footer.children.map((b) => b.textContent),
+    focused: footer.children.indexOf(activeElement),
+    press: (label) => dispatch(footer.children.find((b) => b.textContent === label), "click"),
+  };
+}
 function insertDialog() {
   const scrim = document.getElementById("organiseInsert");
   const [body, footer] = scrim.children[0].children;
@@ -292,10 +342,19 @@ const context = vm.createContext({
   callApi, mountIcon: () => {}, mountIcons: () => {},
   createVoiceScope: () => ({ enter() {}, leave() { return Promise.resolve(); } }), trapFocus: () => () => {},
   initRadioCards: () => {}, ensureOpenFileDialog: () => openFileDialog, PasswordDialog,
-  showToast: (text, opts = {}) => { toasts.push({ text, action: opts.actionLabel || null }); return () => {}; },
+  FileJobs, createSaveDestination, ReplaceDialog: { open: async () => true },
+  plural: (n, one, many) => `${n} ${n === 1 ? one : many}`,
+  savePlaceClause: (where) => (where.startsWith("beside") ? `, ${where}` : ` ${where}`),
+  fileJobFraction: (e) => (e && e.total ? e.current / e.total : null),
+  fileJobPhaseText: (e) => (e && e.phase ? e.phase : "Starting…"),
+  showFileJobOutput: () => {}, isTypingTarget: (t) => Boolean(t) && t.tagName === "INPUT" && t.type === "text",
+  showToast: (text, opts = {}) => {
+    toasts.push({ text, action: opts.actionLabel || null, actions: (opts.actions || []).map((a) => a.label) });
+    return () => {};
+  },
   __deleted: deleted,
 });
-for (const file of process.argv.slice(1)) vm.runInContext(fs.readFileSync(file, "utf8"), context);
+for (const file of process.argv.slice(2)) vm.runInContext(fs.readFileSync(file, "utf8"), context);
 vm.runInContext(
   "configureOrganise({ title: () => 'Annual Report' });" +
   "this.__api = { openOrganise, isOrganiseOpen, finishOrganise, cancelOrganise };",
@@ -587,12 +646,57 @@ const scenarios = {
     out.browseCancelled = calls.slice(before).map((c) => c[0]);
     return out;
   },
+  async extractFlow() {
+    await api.openOrganise(); await settle();
+    const out = {};
+    dispatch(cell(3), "click"); dispatch(cell(5), "click", { shiftKey: true });
+    dispatch(byId.organiseExtractBtn, "click"); await settle();
+    const asked = extractDialog();
+    out.asked = { open: asked.open, title: asked.title, desc: asked.desc, check: asked.check, buttons: asked.buttons, focused: asked.focused, checked: asked.box.checked };
+    // Also delete, then Extract: the job starts and the dialog shows it.
+    asked.box.checked = true; dispatch(asked.box, "change");
+    asked.press("Extract"); await settle();
+    out.started = calls.filter((c) => c[0] === "start_file_job").map((c) => c.slice(1));
+    out.watched = watchedJob;
+    key(activeElement, "Escape"); await settle();
+    emitJob({ id: "job-1", state: "working", phase: "Taking the pages", current: 1, total: 4, unit: "step" });
+    const working = extractDialog();
+    out.working = { open: working.open, phase: working.phase, buttons: working.buttons, actions: actions().length };
+    emitJob({ id: "job-1", state: "done", result: { path: "C:/Docs/Annual Report (pages 4–6).pdf", name: "Annual Report (pages 4–6).pdf", where: "beside the original", pages: 3 } });
+    await settle();
+    out.afterDone = { open: extractDialog().open, deleted: actions()[0], count: byId.organiseCount.textContent };
+    const toast = toasts[toasts.length - 1];
+    out.deleteToast = [toast.text, toast.actions];
+    // One page, nothing deleted: Open and Show in folder.
+    dispatch(cell(0), "click");
+    dispatch(byId.organiseExtractBtn, "click"); await settle();
+    out.single = { title: extractDialog().title, desc: extractDialog().desc, check: extractDialog().check };
+    extractDialog().press("Extract"); await settle();
+    emitJob({ id: "job-2", state: "done", result: { path: "C:/Docs/Annual Report (page 1).pdf", name: "Annual Report (page 1).pdf", where: "in Documents", pages: 1 } });
+    await settle();
+    const saved = toasts[toasts.length - 1];
+    out.savedToast = [saved.text, saved.actions];
+    out.actionsAfterSingle = actions().length;
+    // A failure: the dialog stays, saying why; Esc then cancels it.
+    dispatch(byId.organiseExtractBtn, "click"); await settle();
+    extractDialog().press("Extract"); await settle();
+    emitJob({ id: "job-3", state: "failed", error: "Couldn't extract the pages: the disk is full. The original is unchanged." });
+    await settle();
+    out.failed = { open: extractDialog().open, error: extractDialog().error, buttons: extractDialog().buttons };
+    key(activeElement, "Escape"); await settle();
+    out.escClosed = { open: extractDialog().open, organise: api.isOrganiseOpen() };
+    // Every page selected: nothing to delete, so no box.
+    key(cell(0), "a", { ctrlKey: true });
+    dispatch(byId.organiseExtractBtn, "click"); await settle();
+    out.everyPage = extractDialog().check;
+    return out;
+  },
   async refusals() {
     await api.openOrganise(); await settle();
     dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
     const out = { disabledClick: actions().length };
     dispatch(cell(1), "click");
-    out.later = ["organiseExtractBtn"].map((id) => [byId[id].attrs["aria-disabled"], byId[id].title]);
+    out.extractNow = [byId.organiseExtractBtn.attrs["aria-disabled"], byId.organiseExtractBtn.title];
     key(activeElement, "Delete");
     dispatch(byId.organiseDeleteBtn, "click"); await settle();
     out.deleteNow = byId.organiseDeleteBtn.attrs["aria-disabled"];
@@ -615,9 +719,17 @@ scenarios[process.env.SCENARIO]().then(
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
 class OrganiseViewBehaviourTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # From a file: as `node -e` the harness is past Windows' command-line limit.
+        tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(tmp.cleanup)
+        cls.harness = Path(tmp.name) / "organise-harness.js"
+        cls.harness.write_text(HARNESS, encoding="utf-8")
+
     def run_scenario(self, name: str, **env) -> dict:
         result = subprocess.run(
-            ["node", "-e", HARNESS, *map(str, SCRIPTS)],
+            ["node", str(self.harness), *map(str, SCRIPTS)],
             capture_output=True, text=True, encoding="utf-8", timeout=60,
             env={**os.environ, "SCENARIO": name, **env},
         )
@@ -792,6 +904,38 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertEqual(out["junk"], {"open": False, "toast": "Couldn't read junk.pdf. It may be damaged."})
         self.assertEqual(out["browseCancelled"], [])
 
+    def test_extract_saves_then_deletes_as_one_step_only_when_asked(self):
+        out = self.run_scenario("extractFlow")
+        self.assertEqual(out["asked"], {
+            "open": True, "title": "Extract 3 pages", "desc": "Saves pages 4–6 as a new PDF.",
+            "check": "Also delete them from this PDF", "buttons": ["Cancel", "Extract"], "focused": 1,
+            "checked": False,
+        })
+        self.assertEqual(out["started"], [["extract", "open", {
+            "folder": "C:/Docs", "name": "Annual Report (pages 4–6)", "positions": [3, 4, 5],
+        }]])
+        self.assertEqual(out["watched"], "job-1")  # its end is the dialog's, not FileJobs' toast
+        self.assertEqual(out["working"], {
+            "open": True, "phase": "Taking the pages", "buttons": ["Cancel"], "actions": 0,  # Esc didn't close it
+        })
+        self.assertEqual(out["afterDone"], {
+            "open": False, "deleted": ["delete", {"positions": [3, 4, 5]}], "count": "12 pages · 1 unsaved change",
+        })
+        self.assertEqual(out["deleteToast"], [
+            "Saved Annual Report (pages 4–6).pdf, beside the original and removed them here", ["Undo", "Show in folder"],
+        ])
+        self.assertEqual(out["single"], {
+            "title": "Extract 1 page", "desc": "Saves page 1 as a new PDF.", "check": "Also delete it from this PDF",
+        })
+        self.assertEqual(out["savedToast"], ["Saved Annual Report (page 1).pdf in Documents", ["Open", "Show in folder"]])
+        self.assertEqual(out["actionsAfterSingle"], 1)  # nothing deleted
+        self.assertEqual(out["failed"], {
+            "open": True, "error": "Couldn't extract the pages: the disk is full. The original is unchanged.",
+            "buttons": ["Cancel", "Extract"],
+        })
+        self.assertEqual(out["escClosed"], {"open": False, "organise": True})
+        self.assertIsNone(out["everyPage"])
+
     def test_a_failed_done_keeps_the_draft_and_the_grid_working(self):
         toasts = {
             "error": "Couldn't apply the page changes.",
@@ -809,7 +953,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
     def test_disabled_actions_do_nothing_and_refusals_say_why(self):
         out = self.run_scenario("refusals")
         self.assertEqual(out["disabledClick"], 0)
-        self.assertEqual(out["later"], [["true", "Coming in a later step"]])  # even with a page selected
+        self.assertEqual(out["extractNow"], ["false", ""])  # Extract arrived with F2.6
         self.assertEqual(out["deleteNow"], "false")  # Delete arrived with F2.4
         self.assertEqual(out["arg"], ["rotate", {"positions": [0], "degrees": -90}])
         self.assertEqual(out["toast"], ["A PDF needs at least one page. Leave one unselected."])

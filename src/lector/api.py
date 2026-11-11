@@ -1051,6 +1051,48 @@ class Api:
                 self._doc.drop_page_source(source)
         return {"ok": True}
 
+    def _extract_numbers(self, positions) -> list[int] | None:
+        """The draft's 1-based page numbers at `positions`, or None unless
+        Organise is open and they are pages of its draft."""
+        if self._organise is None or not self._doc.is_open or not isinstance(positions, list):
+            return None
+        try:
+            return [p + 1 for p in page_plan.checked_positions(self._organise.current, positions)]
+        except page_plan.PlanError:
+            return None
+
+    def organise_extract_setup(self, positions: list) -> dict:
+        """What Extract…'s dialog starts with for the pages at `positions`:
+        how many and how they are said ("pages 4–6"), and its Name and "Save
+        in" rows, beside the original. `every_page` says whether the
+        selection is the whole draft (then nothing can be deleted after)."""
+        numbers = self._extract_numbers(positions)
+        if numbers is None:
+            return {"ok": False}
+        path = self._doc.path
+        folder = os.path.dirname(path)
+        return {
+            "ok": True,
+            "count": len(numbers),
+            "label": tool_naming.pages_label(numbers),
+            "every_page": len(numbers) == len(self._organise.current),
+            "output": {
+                "folder": folder,
+                "stem": tool_destinations.extract_stem(path, numbers, folder),
+                "extension": tool_destinations.PDF_EXTENSION,
+            },
+        }
+
+    def suggest_extract_name(self, positions: list, folder: str) -> dict:
+        """Extract's Name suggestion in another folder: the first free name
+        there."""
+        numbers = self._extract_numbers(positions)
+        if numbers is None:
+            return {"stem": ""}
+        if not isinstance(folder, str) or not os.path.isdir(folder):
+            folder = os.path.dirname(self._doc.path)
+        return {"stem": tool_destinations.extract_stem(self._doc.path, numbers, folder)}
+
     def organise_undo(self) -> dict:
         if self._organise is None or self._organise.undo() is None:
             return {"ok": False}
@@ -1429,6 +1471,8 @@ class Api:
         trusts the page: every path, choice and page number is checked."""
         if tool == tool_messages.CONVERT:
             return self._build_convert(options)
+        if tool == tool_messages.EXTRACT:
+            return self._build_extract(source, options)
         if tool not in (tool_messages.COMPRESS, tool_messages.SEARCHABLE, tool_messages.EXPORT):
             raise _BadToolRequest(tool_messages.WORKER_FAILED)
         src = self._tool_job_source(source)
@@ -1463,6 +1507,30 @@ class Api:
             raise _BadToolRequest(tool_messages.WORKER_FAILED)
         dest, where = self._checked_dest(tool_messages.CONVERT, options, inputs, tool_destinations.BESIDE_FIRST_FILE)
         return _with_place(lambda ctx: file_tools.convert(ctx, list(inputs), dest, page_size), where)
+
+    def _build_extract(self, source, options: dict):
+        """Organise's Extract: the draft's pages at `options["positions"]`,
+        as the grid shows them now. The open document's bytes (unsaved
+        highlights included) and each inserted file's go to the job; the
+        draft itself isn't touched."""
+        numbers = self._extract_numbers(options.get("positions"))
+        if source != TOOL_SOURCE_OPEN or numbers is None:
+            raise _BadToolRequest(tool_messages.SOURCE_UNREADABLE)
+        plan = self._organise.current
+        chosen = [plan[n - 1] for n in numbers]
+        pages = [(None if p.source == page_plan.DOC else p.source, p.index, p.turn) for p in chosen]
+        source_data = {}
+        for inserted in {p.source for p in chosen if p.source != page_plan.DOC}:
+            data = self._doc.page_source_bytes(inserted)
+            if data is None:
+                raise _BadToolRequest(tool_messages.SOURCE_UNREADABLE)
+            source_data[inserted] = data
+        dest, where = self._checked_dest(
+            tool_messages.EXTRACT, options, [self._doc.path], tool_destinations.BESIDE_ORIGINAL
+        )
+        data, password = self._doc.snapshot()
+        src = file_tools.Source(self._doc.path, data, password)
+        return _with_place(lambda ctx: file_tools.extract(ctx, src, pages, source_data, dest), where)
 
     def _tool_job_source(self, source) -> "file_tools.Source":
         if source == TOOL_SOURCE_OPEN:

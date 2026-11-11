@@ -11,8 +11,8 @@
 
 const ORGANISE_HINT = "Drag to reorder · Ctrl+←/→ moves the selection · Ctrl+A selects all";
 const ORGANISE_NEEDS_SELECTION = "Select pages first";
-// The actions whose own steps of Milestone F2 haven't landed (`data-later`).
-const ORGANISE_LATER = "Coming in a later step";
+// How long a toast with a file's buttons (Open, Show in folder) stays up.
+const ORGANISE_FILE_TOAST_MS = 8000;
 // Applying failed in a way Python couldn't put in words (the bridge itself).
 const ORGANISE_APPLY_FAILED = "Couldn't apply the page changes. The PDF is as it was; your changes are still here.";
 const ORGANISE_REASONS = {
@@ -35,7 +35,8 @@ let organiseHooks = {
   title: () => "",
   onOpen: () => {},
   onClose: () => {},
-  onExtract: () => {},
+  // Opens a PDF a file job wrote (Extract's Open), as the reader does.
+  openOutput: () => {},
 };
 let organiseOpen = false;
 let organiseDraft = { pages: [], can_undo: false, can_redo: false, steps: 0 };
@@ -74,10 +75,6 @@ function updateOrganiseChrome() {
   for (const button of organiseNeedsSelection) {
     button.setAttribute("aria-disabled", String(!chosen));
     button.title = chosen ? "" : ORGANISE_NEEDS_SELECTION;
-  }
-  for (const button of organiseView.querySelectorAll("[data-later]")) {
-    button.setAttribute("aria-disabled", "true");
-    button.title = ORGANISE_LATER;
   }
   setOrganiseHistoryButton(organiseUndoBtn, organiseDraft.can_undo, "Undo  (Ctrl+Z)", "Nothing to undo");
   setOrganiseHistoryButton(organiseRedoBtn, organiseDraft.can_redo, "Redo  (Ctrl+Y)", "Nothing to redo");
@@ -150,8 +147,13 @@ async function organiseAct(kind, args) {
 }
 
 function showOrganiseUndoToast(text) {
+  showOrganiseToast(text, { actionLabel: "Undo", onAction: () => organiseUndo() });
+}
+
+// One toast of Organise's at a time: a new one takes the last one's place.
+function showOrganiseToast(text, options) {
   if (organiseActionToast) organiseActionToast();
-  organiseActionToast = showToast(text, { actionLabel: "Undo", onAction: () => organiseUndo() });
+  organiseActionToast = showToast(text, options);
 }
 
 function organiseRotate(degrees) {
@@ -182,6 +184,47 @@ async function organiseDelete() {
   if (view && view.ok) organiseGrid.focusPosition(Math.min(positions[0], organiseGrid.pageCount() - 1));
   if (view && view.ok && view.changed) {
     showOrganiseUndoToast(`Deleted ${organisePlural(positions.length, "page", "pages")}`);
+  }
+}
+
+let organiseExtracting = false;
+
+// Extract… (needs a selection): the pages as a new PDF, by a file job, in
+// its dialog (organise-extract.js), the draft untouched. Then "Saved <name>
+// beside the original" with Open and Show in folder; with "Also delete"
+// ticked, the pages are deleted as one step of the draft (no question: the
+// tick was the answer) and the toast offers Undo instead of Open.
+async function organiseExtract() {
+  const positions = organiseGrid.selectedPositions();
+  if (!organiseOpen || !positions.length || organiseExtracting || isPageChangeBusy()) return;
+  organiseExtracting = true;
+  try {
+    const done = await OrganiseExtractDialog.open({ positions });
+    if (!done || !organiseOpen) {
+      if (organiseOpen) organiseGrid.focusCurrent();
+      return;
+    }
+    const { path, name, where } = done.result;
+    const saved = `Saved ${name}${savePlaceClause(where)}`;
+    const showInFolder = { label: "Show in folder", onAction: () => showFileJobOutput(path) };
+    if (done.alsoDelete) {
+      const view = await organiseAct("delete", { positions });
+      if (view && view.ok && view.changed) {
+        organiseGrid.focusPosition(Math.min(positions[0], organiseGrid.pageCount() - 1));
+        showOrganiseToast(`${saved} and removed ${positions.length === 1 ? "it" : "them"} here`, {
+          actions: [{ label: "Undo", onAction: () => organiseUndo() }, showInFolder],
+          durationMs: ORGANISE_FILE_TOAST_MS,
+        });
+        return;
+      }
+    }
+    organiseGrid.focusCurrent();
+    showOrganiseToast(saved, {
+      actions: [{ label: "Open", onAction: () => organiseHooks.openOutput(path) }, showInFolder],
+      durationMs: ORGANISE_FILE_TOAST_MS,
+    });
+  } finally {
+    organiseExtracting = false;
   }
 }
 
@@ -380,7 +423,7 @@ function onOrganiseButton(button, action) {
 onOrganiseButton(document.getElementById("organiseRotateLeftBtn"), () => organiseRotate(-90));
 onOrganiseButton(document.getElementById("organiseRotateRightBtn"), () => organiseRotate(90));
 onOrganiseButton(document.getElementById("organiseDeleteBtn"), () => organiseDelete());
-onOrganiseButton(document.getElementById("organiseExtractBtn"), () => organiseHooks.onExtract(organiseGrid.selectedPositions()));
+onOrganiseButton(document.getElementById("organiseExtractBtn"), () => organiseExtract());
 onOrganiseButton(document.getElementById("organiseInsertBtn"), () => organiseInsert());
 onOrganiseButton(organiseUndoBtn, () => organiseUndo());
 onOrganiseButton(organiseRedoBtn, () => organiseRedo());

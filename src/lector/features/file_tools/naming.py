@@ -21,6 +21,18 @@ MAX_RANGE_CHARS = 500
 _RANGE_PART = re.compile(r"^(\d+)(?:-(\d+))?$")
 
 
+def pages_label(numbers: list[int]) -> str:
+    """Some pages, as Extract's name and the delete question say them (1-based
+    numbers): "page 4", "pages 4–6" for a run, "5 pages" for a scattered
+    selection. Organise's `describePageNumbers` says the same."""
+    ordered = sorted(set(numbers))
+    if len(ordered) == 1:
+        return f"page {ordered[0]}"
+    if ordered[-1] - ordered[0] + 1 == len(ordered):
+        return f"pages {ordered[0]}–{ordered[-1]}"
+    return f"{len(ordered)} pages"
+
+
 def free_file_name(source: str, label: str) -> str:
     """`<name> (label).pdf` beside `source`, or the first free
     `<name> (label) (2).pdf`, (3), …, so the suggestion never names a file

@@ -192,6 +192,27 @@ def apply_page_plan(
             page.set_rotation((page.rotation + turn) % 360)
 
 
+def extract_pages(
+    job_id: str, pages: list[tuple[str | None, int, int]], source_data: dict[str, bytes]
+) -> dict:
+    """Make the job's document (the reader's, as it is in memory) just
+    `pages`, as `apply_page_plan` takes them: Organise's Extract, the
+    selected pages of the draft with their turns, inserted pages included
+    (`source_data`: each inserted file's bytes, unlocked). Returns what the
+    check after writing compares against. The pages left out are written
+    nowhere: the save after this collects their objects (`garbage`)."""
+    doc = _doc(job_id)
+    sources: dict[str, pymupdf.Document] = {}
+    try:
+        for source, data in source_data.items():
+            sources[source] = pymupdf.open("pdf", data)
+        apply_page_plan(doc, pages, sources)
+    finally:
+        for opened in sources.values():
+            opened.close()
+    return {"pages": len(doc), "annots": annotation_summary(doc)}
+
+
 # ---------------------------------------------------------------------- #
 # Writing and checking                                                     #
 # ---------------------------------------------------------------------- #

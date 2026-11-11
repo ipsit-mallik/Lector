@@ -373,6 +373,11 @@
 
 .organise-insert-choose { flex: none; height: 32px; }
 
+/* ---- Extract… (organise-extract.js) ------------------------------------------ */
+
+/* Why the job didn't write the file, under "Also delete". */
+.organise-extract-error { margin-top: var(--space-4); }
+
 /* ---- Footer ------------------------------------------------------------------ */
 
 .organise-count {

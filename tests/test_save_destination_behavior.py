@@ -382,5 +382,19 @@ class SaveDestinationBehaviourTests(unittest.TestCase):
                 self.assertIs(outcome, True, outcome)
 
 
+class SaveInMenuShowsPastTheCardTests(unittest.TestCase):
+    """The menu opens upward and may rise past the card's top (Extract's
+    destination block is near it). components.css imports file-tools.css
+    first, so a one-class `.dialog-card--tool` overflow rule would lose to
+    `.dialog-card { overflow: hidden }` and the menu was cut off."""
+
+    def test_the_tool_cards_overflow_rule_outranks_the_plain_cards(self):
+        shared = ROOT.parent / "shared"
+        components = (shared / "components.css").read_text(encoding="utf-8")
+        tools = (shared / "file-tools.css").read_text(encoding="utf-8")
+        self.assertLess(components.index('@import "file-tools.css"'), components.index(".dialog-card {"))
+        self.assertIn(".dialog-card.dialog-card--tool { overflow: visible; }", tools)
+
+
 if __name__ == "__main__":
     unittest.main()

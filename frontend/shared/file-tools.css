@@ -475,8 +475,10 @@
 }
 
 /* The menu must show past the card's edge, so a tool card doesn't clip; its
-   footer band rounds its own bottom corners (the card's --radius-lg). */
-.dialog-card--tool { overflow: visible; }
+   footer band rounds its own bottom corners (the card's --radius-lg). Two
+   classes: this sheet is imported at the top of components.css, so its
+   `.dialog-card { overflow: hidden }` comes later and would win a tie. */
+.dialog-card.dialog-card--tool { overflow: visible; }
 .dialog-card--tool .dialog-footer { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 
 @media (prefers-reduced-motion: reduce) {

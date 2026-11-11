@@ -166,6 +166,39 @@ def make_searchable(
         ctx.release(engine.close_job)
 
 
+def extract(
+    ctx: JobContext,
+    source: Source,
+    pages: list[tuple[str | None, int, int]],
+    source_data: dict[str, bytes],
+    dest: str,
+) -> dict:
+    """Organise's Extract: the selected pages of the draft (turned as the
+    grid shows them, inserted pages and unsaved highlights included) as a
+    new PDF, protected as the original is. Only those pages' objects are
+    written. Returns `{path, pages}`."""
+    steps = 4
+    ctx.progress("Copying the document", 0, steps, "step")
+    opened = _open(ctx, source)
+    try:
+        ctx.progress("Taking the pages", 1, steps, "step")
+        expect = ctx.step(engine.extract_pages, ctx.job_id, pages, source_data, long=True)
+        expect["needs_pass"] = opened["needs_pass"]
+
+        def write(tmp: str) -> None:
+            ctx.progress("Writing the file", 2, steps, "step")
+            ctx.step(engine.save_document, ctx.job_id, tmp, 3, long=True)
+
+        def verify(tmp: str) -> None:
+            ctx.progress("Checking the file", 3, steps, "step")
+            _check_pdf(ctx, tmp, source.password, expect)
+
+        write_file(dest, write, verify)
+        return {"path": dest, "pages": len(pages)}
+    finally:
+        ctx.release(engine.close_job)
+
+
 def cached_words(index: int, key: str) -> list | None:
     """`KnownWords` from the OCR cache alone (Home has no open document)."""
     payload = ocr_cache.load(key)
