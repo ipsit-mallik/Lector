@@ -182,18 +182,67 @@ def apply_page_plan(
     `select()`, not `delete_pages()`: MuPDF's rearrange keeps every
     surviving object's xref, drops bookmarks and links that point at a page
     left out and retargets the rest, where `delete_pages()` leaves a
-    bookmark pointing at page -1 (tests/test_page_changes.py)."""
+    bookmark pointing at page -1 (tests/test_page_changes.py); and
+    `select_keeping_bookmarks` puts back the bookmarks it drops with a
+    deleted chapter."""
+    toc = doc.get_toc(simple=True)
     offsets: dict[str, int] = {}
     for source, _index, _turn in pages:
         if source is not None and source not in offsets:
             offsets[source] = len(doc)
             doc.insert_pdf(sources[source])
     order = [index if source is None else offsets[source] + index for source, index, _turn in pages]
-    doc.select(order)
+    select_keeping_bookmarks(doc, order, toc)
     for position, (_source, _index, turn) in enumerate(pages):
         if turn % 360:
             page = doc[position]
             page.set_rotation((page.rotation + turn) % 360)
+
+
+def select_keeping_bookmarks(doc: pymupdf.Document, order: list[int], toc: list[list] | None = None) -> None:
+    """`doc.select(order)`, and every bookmark whose page is kept still
+    there, pointing at that page's new place.
+
+    MuPDF's rearrange retargets bookmarks and drops the ones whose page is
+    left out, but it drops everything nested under such a bookmark too, even
+    bookmarks on pages that are kept (a chapter whose first page is deleted
+    loses its sections; Split cutting through a chapter loses the later
+    ones). When that happened, the outline is written again: what points at
+    a kept page, retargeted, and a bookmark whose own page is gone kept as a
+    heading with no page (outline.py's `page_index` None) while anything
+    under it survives. Untouched when MuPDF lost nothing, so a bookmark's
+    styling and named destinations are kept in the usual case.
+    `toc` is `doc.get_toc(simple=True)` from before any pages were added."""
+    before = doc.get_toc(simple=True) if toc is None else toc
+    doc.select(order)
+    if not before:
+        return
+    expected = _kept_bookmarks(before, order)
+    if [(title, page) for _level, title, page in doc.get_toc(simple=True)] != [(t, p) for _l, t, p in expected]:
+        doc.set_toc(_nested(expected))
+
+
+def _kept_bookmarks(toc: list[list], order: list[int]) -> list[list]:
+    """`toc` after `select(order)`: each bookmark whose page is kept, at
+    its new page (its first place, if it appears twice); one already
+    pointing nowhere, or whose page is gone but with a kept bookmark under
+    it, as a heading (page -1)."""
+    new_place: dict[int, int] = {}
+    for position, old in enumerate(order):
+        new_place.setdefault(old, position + 1)
+    rows = []
+    keep = []
+    ancestors: list[int] = []
+    for i, (level, title, page) in enumerate(toc):
+        del ancestors[level - 1:]
+        target = new_place.get(page - 1, -1) if page >= 1 else -1
+        rows.append([level, title, target])
+        keep.append(target > 0 or page < 1)
+        if target > 0:
+            for ancestor in ancestors:
+                keep[ancestor] = True
+        ancestors.append(i)
+    return [row for row, kept in zip(rows, keep) if kept]
 
 
 def extract_pages(
@@ -656,9 +705,10 @@ def split_close(job_id: str) -> None:
 
 def split_part(job_id: str, first: int, last: int, dest: str) -> dict:
     """Write pages `first`…`last` (0-based, inclusive) of the job's PDF to
-    `dest`, from a fresh copy each time: `select()` keeps the part's pages
-    with their annotations and links, drops the bookmarks pointing outside
-    it and retargets the rest (tests/test_page_changes.py). Kept protected
+    `dest`, from a fresh copy each time: `select_keeping_bookmarks` keeps
+    the part's pages with their annotations and links, drops the bookmarks
+    pointing outside it and retargets the rest, a chapter begun in an
+    earlier part kept as a heading over its sections here. Kept protected
     as the original is, and only the part's objects written (`garbage`).
     Returns what the check after writing compares against."""
     try:
@@ -667,7 +717,7 @@ def split_part(job_id: str, first: int, last: int, dest: str) -> dict:
         raise JobMissing() from None
     doc, needs = _open_pdf(data, path, password)
     try:
-        doc.select(list(range(first, last + 1)))
+        select_keeping_bookmarks(doc, list(range(first, last + 1)))
         doc.save(dest, garbage=3, deflate=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
         return {"pages": len(doc), "needs_pass": needs, "annots": annotation_summary(doc)}
     finally:

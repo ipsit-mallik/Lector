@@ -595,6 +595,7 @@ Rotate, delete, reorder, extract and insert pages (`docs/PRD.md` § "Post-v1: fi
 - **Dragging:** the dragged cells at 40%, and a 3px `--accent` insertion bar, rounded, in the column gap where they will land, from the page's top to above its number. Near the grid's top or bottom edge (56px) it scrolls, faster the closer the pointer.
 - **Footer:** the mic pill; the hint "Drag to reorder · Ctrl+←/→ moves the selection · Ctrl+A selects all" (cut with an ellipsis at narrow widths, the whole of it in its tooltip); at the right "12 pages · 2 unsaved changes" in `--text-sm` tabular figures, and What can I say?.
 - **Toasts:** the shared toast, raised above the footer while Organise is open (54px plus `--space-3`) so it never covers the hint or the count. A move says "Moved 3 pages", a delete "Deleted 3 pages", an insert "Inserted 3 pages from <file name>", each with Undo; an extract "Saved <name>.pdf, beside the original" (or " in Documents") with Open and Show in folder, or, with Also delete, "… and removed them here" with Undo and Show in folder; after an Undo from a toast, the keyboard goes back to the grid.
+- **Voice:** "done", "cancel", "select all", "select none", "rotate left", "rotate right", "delete pages" (the confirmation, never a delete by itself), "undo" and "redo", each exactly what its button does; a spoken Rotate or Delete with nothing selected answers with the buttons' own reason as a toast, "Select pages first". "What can I say?" opens on the "Organising pages" section while the view is open.
 - **"Applying page changes…":** while Done, Undo page changes or Redo page changes run, a card on the `--overlay` scrim over everything: `--surface-2`, `--radius-lg`, `--shadow-3` plus `--dialog-edge`, an 18px `--accent` spinner and the words in `--text-md`. It is up within a frame of the click, takes the mouse and keyboard, and stays until the reader has drawn the changed document.
 
 ### Insert
@@ -621,7 +622,7 @@ Extract runs the file job in the same card: the shared progress bar with its pha
 
 ### Danger dialog
 
-A question whose answer loses something: "Discard page changes?" (Organise's Cancel with changes) and, from F2.4, "Delete N pages?". The shared dialog frame with:
+A question whose answer loses something: "Discard page changes?" (Organise's Cancel with changes) and "Delete N pages?". The shared dialog frame with:
 
 - the badge tile in `.dialog-badge--danger`: `--danger` on `--danger-soft`;
 - a `.dialog-info` line under the body: a 16px `info` icon and `--text-sm` `--text-secondary` text ("To keep them, choose Keep editing, then Done.");

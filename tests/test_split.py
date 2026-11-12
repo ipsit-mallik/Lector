@@ -212,6 +212,16 @@ class SplitJobTests(unittest.TestCase):
         # The original is as it was.
         self.assertEqual(len(self.texts(report)), 25)
 
+    def test_a_chapter_cut_in_two_keeps_its_sections_in_the_second_part(self):
+        # MuPDF alone would drop "Section 2" from part 2 with its chapter.
+        toc = [[1, "Chapter", 1], [2, "Section 1", 2], [2, "Section 2", 6], [1, "Next", 9]]
+        source = _pdf(self.folder / "Book.pdf", 10, toc=toc)
+        result = self.split(source, "every", "5")
+        with pymupdf.open(Path(result["path"]) / "Book (part 2).pdf") as doc:
+            self.assertEqual(doc.get_toc(simple=True), [[1, "Chapter", -1], [2, "Section 2", 1], [1, "Next", 4]])
+        with pymupdf.open(Path(result["path"]) / "Book (part 1).pdf") as doc:
+            self.assertEqual(doc.get_toc(simple=True), [[1, "Chapter", 1], [2, "Section 1", 2]])
+
     def test_ranges_overlap_and_leave_pages_out(self):
         source = _pdf(self.folder / "Notes.pdf", 10)
         result = self.split(source, "ranges", "1–5, 3–8")

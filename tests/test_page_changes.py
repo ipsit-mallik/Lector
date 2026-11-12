@@ -33,6 +33,7 @@ import pymupdf  # noqa: E402  # PyMuPDF: builds fixtures and reads results back
 
 import pdf_support  # noqa: E402
 from lector.features.annotations import highlighter  # noqa: E402
+from lector.features.file_tools import engine  # noqa: E402
 from lector.features.reading import open_errors, page_changes, page_plan  # noqa: E402
 from lector.features.reading.document import PdfDocument  # noqa: E402
 from lector.features.reading.page_plan import DOC, PlanPage  # noqa: E402
@@ -475,6 +476,49 @@ class MuPdfBehaviourTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.folder = Path(self._tmp.name)
         self.addCleanup(self._tmp.cleanup)
+
+    def test_a_deleted_chapter_page_takes_its_kept_sections_with_it_in_mupdf(self):
+        # Found in the real-file check (an Oracle manual): MuPDF's rearrange
+        # drops a bookmark whose page goes *and everything under it*, even
+        # sections on kept pages. engine.select_keeping_bookmarks puts them
+        # back, the chapter as a heading with no page (outline.py shows that
+        # as a heading that opens nothing).
+        def chapter_doc():
+            doc = pymupdf.open()
+            for n in range(4):
+                doc.new_page().insert_text((72, 100), f"Page {n + 1}")
+            doc.set_toc([[1, "Chapter", 2], [2, "On the chapter page", 2], [2, "Later", 4], [1, "End", 4]])
+            return pymupdf.open(stream=doc.tobytes(), filetype="pdf")
+
+        raw = chapter_doc()
+        raw.select([0, 2, 3])  # page 2 deleted
+        self.assertEqual(raw.get_toc(), [[1, "End", 3]])  # "Later" lost with its chapter
+
+        fixed = chapter_doc()
+        engine.select_keeping_bookmarks(fixed, [0, 2, 3])
+        self.assertEqual(fixed.get_toc(), [[1, "Chapter", -1], [2, "Later", 3], [1, "End", 3]])
+
+        # Nothing lost: MuPDF's own outline is left exactly as it is.
+        untouched = chapter_doc()
+        engine.select_keeping_bookmarks(untouched, [3, 0, 1, 2])
+        self.assertEqual(untouched.get_toc(), [[1, "Chapter", 3], [2, "On the chapter page", 3],
+                                               [2, "Later", 1], [1, "End", 1]])
+
+    def test_organise_keeps_the_sections_of_a_chapter_whose_page_is_deleted(self):
+        source = pymupdf.open()
+        for n in range(5):
+            source.new_page().insert_text((72, 100), f"Page {n + 1}")
+        source.set_toc([[1, "Intro", 1], [1, "Chapter", 2], [2, "Part A", 3], [2, "Part B", 5]])
+        path = self.folder / "chapters.pdf"
+        source.save(path)
+        source.close()
+        doc = PdfDocument()
+        self.addCleanup(doc.close)
+        doc.open(str(path))
+        doc.apply_page_plan(_plan(0, 2, 3, 4))  # the chapter's own page deleted
+        self.assertEqual(doc._doc.get_toc(), [[1, "Intro", 1], [1, "Chapter", -1], [2, "Part A", 2], [2, "Part B", 4]])
+        doc.undo_highlight()  # Undo page changes: the outline as it was
+        self.assertEqual(doc._doc.get_toc(), [[1, "Intro", 1], [1, "Chapter", 2], [2, "Part A", 3], [2, "Part B", 5]])
 
     def test_delete_pages_would_leave_a_bookmark_pointing_nowhere(self):
         # Why the plan is applied with select(), not delete_pages().
