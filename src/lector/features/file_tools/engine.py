@@ -13,6 +13,7 @@ them. Nothing here writes outside the paths the main process hands in.
 """
 import base64
 import os
+import re
 
 import pymupdf
 
@@ -471,6 +472,157 @@ def convert_add(job_id: str, path: str, page_size: str) -> int:
         return count
     finally:
         pdf.close()
+
+
+# ---------------------------------------------------------------------- #
+# Combine files (Milestone F2)                                              #
+# ---------------------------------------------------------------------- #
+
+# Each Combine job's bookmarks so far, as `set_toc` takes them, written when
+# the last file is in.
+_TOC: dict[str, list[list]] = {}
+# The form field names each Combine job has taken in so far.
+_FIELDS: dict[str, set[str]] = {}
+
+
+def _first_page_thumbnail(doc: pymupdf.Document) -> str:
+    page = doc[0]
+    scale = THUMBNAIL_PX / max(page.rect.width, page.rect.height, 1)
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
+    return base64.b64encode(pix.tobytes("png")).decode("ascii")
+
+
+def combine_describe(path: str, password: str | None) -> dict:
+    """What Combine's list shows for one file. A PDF: its pages, size, a
+    thumbnail, whether it is signed or needed a password; `{"locked":
+    True}` when it needs one and `password` is missing or wrong. An image
+    or e-book: `convert_describe`'s answer. Raises SourceError or
+    UnsupportedInput when it can't be read."""
+    if formats.extension(path) != ".pdf":
+        return convert_describe(path)
+    try:
+        doc = pymupdf.open(path, filetype="pdf")
+    except Exception:
+        raise SourceError() from None
+    try:
+        needs = bool(doc.needs_pass)
+        if needs and not (password and doc.authenticate(password)):
+            return {"locked": True}
+        if len(doc) == 0:
+            raise SourceError()
+        try:
+            thumbnail = _first_page_thumbnail(doc)
+        except Exception:
+            raise SourceError() from None
+        return {
+            "pages": len(doc),
+            "type": "PDF",
+            "pdf": True,
+            "size": os.path.getsize(path),
+            "thumbnail": thumbnail,
+            "needs_pass": needs,
+            "signed": doc.get_sigflags() > 0,
+        }
+    finally:
+        doc.close()
+
+
+def combine_open(job_id: str) -> None:
+    convert_open(job_id)
+    _TOC[job_id] = []
+    _FIELDS[job_id] = set()
+
+
+def combine_close(job_id: str) -> None:
+    close_job(job_id)
+    _TOC.pop(job_id, None)
+    _FIELDS.pop(job_id, None)
+
+
+_XREF_REF = re.compile(r"(\d+) 0 R")
+
+
+def _field_names(doc: pymupdf.Document) -> set[str]:
+    """The names of the form's top-level fields (what `insert_pdf` renames
+    when two files share one), read from the AcroForm dictionary as plain
+    strings: no field, widget or action is loaded or followed (the
+    untrusted-content guard rail keeps MuPDF's form APIs out of Lector)."""
+    if not doc.is_pdf:
+        return set()
+    kind, fields = doc.xref_get_key(doc.pdf_catalog(), "AcroForm/Fields")
+    if kind != "array":
+        return set()
+    names = set()
+    for xref in _XREF_REF.findall(fields):
+        kind, name = doc.xref_get_key(int(xref), "T")
+        if kind == "string" and name:
+            names.add(name)
+    return names
+
+
+def combine_add(job_id: str, path: str, password: str | None, title: str) -> dict:
+    """Append `path` to the job's new PDF: a PDF whole (its annotations,
+    links and form fields kept; unlocked with `password`, the result not
+    protected), an image or e-book as Convert's "Same as image" makes it.
+    Its bookmarks go under one top-level bookmark, `title`, at its first
+    page (just that one when it has none). Returns `{pages, clash}`:
+    `clash` is whether a form field of its shares a name with one already
+    in, which MuPDF then renames ("name [13]"), so a script or a form's
+    data that names the field may no longer find it. Raises
+    UnsupportedInput."""
+    out = _doc(job_id)
+    start = len(out)
+    if formats.extension(path) != ".pdf":
+        count = convert_add(job_id, path, formats.SAME_AS_IMAGE)
+        _TOC[job_id].append([1, title, start + 1])
+        return {"pages": count, "clash": False}
+    try:
+        src = pymupdf.open(path, filetype="pdf")
+    except Exception:
+        raise UnsupportedInput() from None
+    try:
+        if src.needs_pass and not (password and src.authenticate(password)):
+            raise UnsupportedInput()
+        if len(src) == 0:
+            raise UnsupportedInput()
+        names = _field_names(src)
+        clash = bool(names & _FIELDS[job_id])
+        _FIELDS[job_id] |= names
+        toc = src.get_toc(simple=True)
+        out.insert_pdf(src)
+        count = len(src)
+    except UnsupportedInput:
+        raise
+    except Exception:
+        raise UnsupportedInput() from None
+    finally:
+        src.close()
+    entries = [[1, title, start + 1]]
+    for level, text, page in toc:
+        # A bookmark with no page in its own file has nowhere to go here.
+        if 1 <= page <= count:
+            entries.append([level + 1, text, start + page])
+    _TOC[job_id].extend(entries)
+    return {"pages": count, "clash": clash}
+
+
+def combine_finish(job_id: str) -> dict:
+    """Give the job's new PDF its bookmarks. Returns what the check after
+    writing compares against."""
+    out = _doc(job_id)
+    out.set_toc(_nested(_TOC.get(job_id, [])))
+    return {"pages": len(out), "needs_pass": False, "annots": annotation_summary(out)}
+
+
+def _nested(toc: list[list]) -> list[list]:
+    """`toc` with no bookmark more than one level under the one before it
+    (`set_toc` refuses that, and a skipped bookmark can leave one)."""
+    fixed, previous = [], 0
+    for level, text, page in toc:
+        level = min(level, previous + 1)
+        fixed.append([level, text, page])
+        previous = level
+    return fixed
 
 
 def convert_to_pdf_bytes(path: str) -> bytes:

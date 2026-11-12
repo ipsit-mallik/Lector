@@ -3,7 +3,8 @@
 //
 // Compress, Make searchable, Export and Organise pages work on one PDF, so
 // they first ask which ("<Tool> — choose a PDF": the five most recent, or
-// Browse); Convert to PDF opens its own dialog straight away. home.js owns
+// Browse); Convert to PDF and Combine files open their own dialogs straight
+// away. home.js owns
 // what a card does (`buildToolsPage(onTool)`) and the Open dialog Browse
 // uses. A card whose step of Milestone F2 hasn't landed yet (`later`) is
 // shown dimmed, with "Coming in a later step" as its tooltip, and does
@@ -46,8 +47,8 @@ const TOOL_SECTIONS = [
         icon: "organise",
         desc: "Rotate, delete, reorder, extract or insert pages.",
       },
-      // Combine files (F2.8) and Split (F2.9).
-      { id: "combine", name: "Combine files", icon: "combine", desc: "Join several PDFs and images into one PDF.", later: true },
+      { id: "combine", name: "Combine files", icon: "combine", desc: "Join several PDFs and images into one PDF." },
+      // Split (F2.9).
       {
         id: "split",
         name: "Split",

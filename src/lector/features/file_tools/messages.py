@@ -11,9 +11,10 @@ COMPRESS = "compress"
 SEARCHABLE = "searchable"
 EXPORT = "export"
 CONVERT = "convert"
-# Organise pages' Extract… (Milestone F2).
+# Milestone F2: Organise pages' Extract…, and Combine files.
 EXTRACT = "extract"
-TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT, EXTRACT)
+COMBINE = "combine"
+TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT, EXTRACT, COMBINE)
 
 # Reasons of the tools' own, beside `safe_write`'s.
 SAME_AS_SOURCE = "same_as_source"
@@ -29,6 +30,7 @@ _WHAT = {
     EXPORT: "export the pages",
     CONVERT: "create the PDF",
     EXTRACT: "extract the pages",
+    COMBINE: "combine the files",
 }
 
 _DETAIL = {
@@ -48,7 +50,7 @@ _DETAIL = {
     NAME_INVALID: "that name can't be used. Choose another.",
 }
 
-_UNCHANGED = {CONVERT: "The original files are unchanged."}
+_UNCHANGED = {CONVERT: "The original files are unchanged.", COMBINE: "The original files are unchanged."}
 _UNCHANGED_DEFAULT = "The original is unchanged."
 
 

@@ -24,8 +24,8 @@ log = logging.getLogger(__name__)
 
 PDF_EXTENSION = ".pdf"
 
-# What "Beside the original" is called in a sentence. Convert's output goes
-# beside the first file it was given.
+# What "Beside the original" is called in a sentence. Convert's and
+# Combine's output goes beside the first file they were given.
 BESIDE_ORIGINAL = "beside the original"
 BESIDE_FIRST_FILE = "beside the first file"
 
@@ -83,12 +83,14 @@ def extension(tool: str) -> str:
 
 def base_stem(tool: str, source: str) -> str:
     """The output's name before a free one is found: "Report (compressed)",
-    "Report (images)", or Convert's first file's own name."""
+    "Report (images)", "Report (combined)" (Combine's first file), or
+    Convert's first file's own name."""
     stem = os.path.splitext(os.path.basename(source or ""))[0] or "untitled"
     labels = {
         messages.COMPRESS: naming.COMPRESSED,
         messages.SEARCHABLE: naming.SEARCHABLE,
         messages.EXPORT: naming.IMAGES,
+        messages.COMBINE: naming.COMBINED,
     }
     label = labels.get(tool)
     return f"{stem} ({label})" if label else stem
@@ -208,7 +210,7 @@ def check(tool: str, folder, stem, sources: list[str]) -> Destination:
         raise DestinationError(NAME_FIELD, problem, messages.NAME_INVALID)
     path = os.path.join(folder, stem.strip() + extension(tool))
     if any(isinstance(s, str) and safe_write.same_file(path, s) for s in sources):
-        sentence = NAME_IS_INPUT if tool == messages.CONVERT else NAME_IS_SOURCE
+        sentence = NAME_IS_INPUT if tool in (messages.CONVERT, messages.COMBINE) else NAME_IS_SOURCE
         raise DestinationError(NAME_FIELD, sentence, messages.SAME_AS_SOURCE)
     if writes_folder(tool) and os.path.lexists(path) and not os.path.isdir(path):
         raise DestinationError(NAME_FIELD, NAME_IS_FILE, messages.NAME_INVALID)

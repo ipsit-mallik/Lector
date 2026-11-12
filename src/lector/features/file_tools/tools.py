@@ -199,6 +199,39 @@ def extract(
         ctx.release(engine.close_job)
 
 
+def combine(ctx: JobContext, inputs: list[tuple[str, str | None]], dest: str) -> dict:
+    """The Combine files job: every input (path, password) into one new PDF,
+    in list order, each one's bookmarks under one named after it. The result
+    is never password-protected. Returns `{path, pages, files, clashes}`:
+    `clashes` names the files whose form fields share a name with an
+    earlier file's."""
+    ctx.progress("Adding", 0, len(inputs), "file")
+    ctx.step(engine.combine_open, ctx.job_id)
+    try:
+        total = 0
+        clashes = []
+        for n, (path, password) in enumerate(inputs):
+            ctx.progress("Adding", n + 1, len(inputs), "file")
+            title = os.path.splitext(os.path.basename(path))[0]
+            try:
+                added = ctx.step(engine.combine_add, ctx.job_id, path, password, title, long=True)
+            except engine.UnsupportedInput:
+                raise JobFailed(messages.INPUT_UNREADABLE) from None
+            total += added["pages"]
+            if added["clash"]:
+                clashes.append(os.path.basename(path))
+        expect = ctx.step(engine.combine_finish, ctx.job_id)
+
+        def write(tmp: str) -> None:
+            ctx.progress("Writing the file", len(inputs), len(inputs), "file")
+            ctx.step(engine.save_document, ctx.job_id, tmp, 3, long=True)
+
+        write_file(dest, write, lambda tmp: _check_pdf(ctx, tmp, None, expect))
+        return {"path": dest, "pages": total, "files": len(inputs), "clashes": clashes}
+    finally:
+        ctx.release(engine.combine_close)
+
+
 def cached_words(index: int, key: str) -> list | None:
     """`KnownWords` from the OCR cache alone (Home has no open document)."""
     payload = ocr_cache.load(key)

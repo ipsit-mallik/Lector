@@ -42,6 +42,7 @@ const FILE_JOB_VERBS = {
   export: "Exporting",
   convert: "Converting",
   extract: "Extracting",
+  combine: "Combining",
 };
 
 function isCountedJob(event) {
@@ -92,6 +93,12 @@ function fileJobOutcomeToast(event) {
       return { message: `${plural(r.count, "image", "images")} exported${where}`, path: r.path, open: false };
     case "convert":
       return { message: `Created ${r.name}${where} · ${plural(r.pages, "page", "pages")}`, path: r.path, open: true };
+    case "combine":
+      return {
+        message: `Created ${r.name}${where} · ${plural(r.pages, "page", "pages")} from ${plural(r.files, "file", "files")}`,
+        path: r.path,
+        open: true,
+      };
     case "extract":
       return { message: `Saved ${r.name}${savePlaceClause(r.where)}`, path: r.path, open: true };
     default:

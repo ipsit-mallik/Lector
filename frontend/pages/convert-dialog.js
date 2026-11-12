@@ -7,8 +7,9 @@
 // e-books instead of PDFs) or are dropped on the window while this is open
 // (js/filedrop.js hands them over). Each is described by Python first (type,
 // size, pages, a thumbnail); one it can't read is refused with a toast naming
-// it. The list reorders by dragging a row, by its Move up / Move down
-// buttons, or with Alt+↑/↓ on a focused row.
+// it. The list (js/file-list.js, shared with Combine files) reorders by
+// dragging a row, by its Move up / Move down buttons, or with Alt+↑/↓ on a
+// focused row.
 //
 // Built from DOM calls with textContent: names come from the reader's disk.
 "use strict";
@@ -39,7 +40,6 @@ const ConvertDialog = (() => {
   //   the first file, gone with the last), starting, jobId, event, outcome,
   //   cancelling }
   let s = null;
-  let dragIndex = null;
 
   function build() {
     if (scrim) return;
@@ -229,15 +229,20 @@ const ConvertDialog = (() => {
     if (s && s.phase === "setup" && primaryBtn) primaryBtn.disabled = !setupReady();
   }
 
+  // The shared list (js/file-list.js): what it was asked to do.
+  const files = createFileList({
+    label: "Files, in the order they become pages",
+    meta: (file) => `${file.type} · ${formatFileSize(file.size)}`,
+    onMove: (from, to) => move(from, to),
+    onRemove: (index) => remove(index),
+  });
+
   async function move(from, to) {
     if (to < 0 || to >= s.files.length || from === to) return;
-    const files = s.files.slice();
-    const [item] = files.splice(from, 1);
-    files.splice(to, 0, item);
-    s.files = files;
+    s.files = moveFileListItem(s.files, from, to);
     await suggestDest();
     render();
-    const row = bodyEl.querySelectorAll(".convert-row")[to];
+    const row = files.row(to);
     if (row) row.focus();
   }
 
@@ -245,8 +250,7 @@ const ConvertDialog = (() => {
     s.files = s.files.filter((_, i) => i !== index);
     await suggestDest();
     render();
-    const rows = bodyEl.querySelectorAll(".convert-row");
-    const next = rows[Math.min(index, rows.length - 1)];
+    const next = files.row(Math.min(index, s.files.length - 1));
     if (next) next.focus();
     else focusFirst();
   }
@@ -298,16 +302,8 @@ const ConvertDialog = (() => {
   }
 
   function renderSetup() {
-    const zone = el("div", "drop-zone");
-    const zoneText = el("span", "drop-zone-text");
-    zoneText.append(iconEl("upload"), el("span", "", "Drop images or an e-book here"));
-    const add = el("button", "btn btn-secondary", "Add files…");
-    add.type = "button";
-    add.dataset.keep = "add";
-    add.addEventListener("click", chooseFile);
-    zone.append(zoneText, add);
-    bodyEl.appendChild(zone);
-    if (s.files.length) bodyEl.appendChild(fileList());
+    bodyEl.appendChild(buildDropZone({ text: "Drop images or an e-book here", onAdd: chooseFile }));
+    if (s.files.length) bodyEl.appendChild(files.build(s.files));
 
     const grid = el("div", "tool-grid");
     const sizes = el("div", "segmented");
@@ -343,108 +339,6 @@ const ConvertDialog = (() => {
     const pages = pageCount();
     const label = s.files.length && pages ? `Create PDF · ${plural(pages, "page", "pages")}` : "Create PDF";
     footerButton(label, start, { primary: true, disabled: !setupReady() });
-  }
-
-  function fileList() {
-    const list = el("div", "convert-list");
-    list.setAttribute("role", "list");
-    list.setAttribute("aria-label", "Files, in the order they become pages");
-    s.files.forEach((file, i) => {
-      const row = el("div", "convert-row");
-      row.setAttribute("role", "listitem");
-      row.tabIndex = 0;
-      row.draggable = true;
-      row.dataset.keep = `row-${i}`;
-      row.setAttribute("aria-label", `${i + 1}. ${file.name}. Alt+Up or Alt+Down moves it.`);
-      const thumb = el("span", "convert-thumb");
-      if (file.thumbnail) {
-        const img = document.createElement("img");
-        img.alt = "";
-        img.src = `data:image/png;base64,${file.thumbnail}`;
-        thumb.appendChild(img);
-      }
-      const text = el("span", "convert-text");
-      text.append(
-        el("span", "convert-name", file.name),
-        el("span", "convert-meta", `${file.type} · ${formatFileSize(file.size)}`)
-      );
-      const actions = el("span", "convert-actions");
-      actions.append(
-        rowButton("chevron_up", "Move up", file.name, i === 0, () => move(i, i - 1), `up-${i}`),
-        rowButton("chevron_down", "Move down", file.name, i === s.files.length - 1, () => move(i, i + 1), `down-${i}`),
-        rowButton("close", "Remove", file.name, false, () => remove(i), `remove-${i}`)
-      );
-      row.append(
-        iconEl("drag_handle", "convert-handle"),
-        el("span", "convert-number", String(i + 1)),
-        thumb,
-        text,
-        actions
-      );
-      row.addEventListener("keydown", (ev) => {
-        if (ev.target !== row || !ev.altKey) return;
-        if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {
-          ev.preventDefault();
-          ev.stopPropagation();
-          move(i, ev.key === "ArrowUp" ? i - 1 : i + 1);
-        }
-      });
-      bindRowDrag(row, i);
-      list.appendChild(row);
-    });
-    return list;
-  }
-
-  function rowButton(icon, action, name, disabled, onClick, keep) {
-    const button = el("button", "icon-btn icon-btn--sm");
-    button.type = "button";
-    button.disabled = disabled;
-    button.dataset.keep = keep;
-    button.dataset.tooltip = action;
-    button.setAttribute("aria-label", `${action}: ${name}`);
-    button.appendChild(iconEl(icon));
-    button.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      onClick();
-    });
-    return button;
-  }
-
-  // Drag a row to another place. Only drags that start on a row count; a file
-  // dragged in from outside carries "Files" and is the window's drop.
-  function bindRowDrag(row, index) {
-    row.addEventListener("dragstart", (ev) => {
-      dragIndex = index;
-      ev.dataTransfer.effectAllowed = "move";
-      ev.dataTransfer.setData("text/x-lector-row", String(index));
-      row.classList.add("is-dragging");
-    });
-    row.addEventListener("dragend", () => {
-      dragIndex = null;
-      row.classList.remove("is-dragging");
-      bodyEl
-        .querySelectorAll(".is-drop-before, .is-drop-after")
-        .forEach((r) => r.classList.remove("is-drop-before", "is-drop-after"));
-    });
-    row.addEventListener("dragover", (ev) => {
-      if (dragIndex === null) return;
-      ev.preventDefault();
-      const box = row.getBoundingClientRect();
-      const after = ev.clientY > box.top + box.height / 2;
-      row.classList.toggle("is-drop-after", after);
-      row.classList.toggle("is-drop-before", !after);
-    });
-    row.addEventListener("dragleave", () => row.classList.remove("is-drop-before", "is-drop-after"));
-    row.addEventListener("drop", (ev) => {
-      if (dragIndex === null) return;
-      ev.preventDefault();
-      const after = row.classList.contains("is-drop-after");
-      let to = index + (after ? 1 : 0);
-      if (dragIndex < to) to -= 1;
-      const from = dragIndex;
-      dragIndex = null;
-      move(from, to);
-    });
   }
 
   function renderWorking() {

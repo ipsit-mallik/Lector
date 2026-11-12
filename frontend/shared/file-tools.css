@@ -144,6 +144,14 @@
    do when there is nothing to say beside them. */
 .dialog-card--tool .dialog-footer { justify-content: flex-end; }
 
+/* Combine's "3 files · 214 pages", at the footer's left. */
+.tool-footer-count {
+  margin-right: auto;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 .tool-body > :first-child { margin-top: var(--space-5); }
 
 .tool-facts {
@@ -647,7 +655,8 @@
 .pick-empty { margin: var(--space-4) 0 0; font-size: var(--text-md); color: var(--text-muted); }
 
 /* ------------------------------------------------------------------ */
-/* Convert to PDF (Home's Tools page)                                   */
+/* Convert to PDF and Combine files: the drop zone and the file list   */
+/* (js/file-list.js)                                                     */
 /* ------------------------------------------------------------------ */
 
 .drop-zone {
@@ -664,14 +673,15 @@
   transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 
-/* While Convert to PDF is open a file dragged over the window is for it:
+/* While Convert or Combine is open a file dragged over the window is for it:
    the zone lights up, and the window's "Drop a PDF to open it" stands aside. */
 .is-file-dragging .drop-zone {
   border-color: var(--accent);
   background-color: color-mix(in srgb, var(--accent) var(--selected-tint), var(--surface-2));
 }
 
-.is-converting .drop-overlay { display: none; }
+.is-converting .drop-overlay,
+.is-combining .drop-overlay { display: none; }
 
 .drop-zone-text {
   display: flex;
@@ -682,7 +692,7 @@
 .drop-zone-text [data-icon] { width: 18px; height: 18px; color: var(--accent-strong); }
 .drop-zone-text svg { display: block; width: 100%; height: 100%; }
 
-.convert-list {
+.file-list {
   display: flex;
   flex-direction: column;
   max-height: 252px;
@@ -690,7 +700,7 @@
   overflow-y: auto;
 }
 
-.convert-row {
+.file-list-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -701,13 +711,13 @@
   outline-offset: -2px;
 }
 
-.convert-row:hover,
-.convert-row:focus-within { background-color: var(--state-hover); }
-.convert-row.is-dragging { opacity: 0.5; }
-.convert-row.is-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
-.convert-row.is-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.file-list-row:hover,
+.file-list-row:focus-within { background-color: var(--state-hover); }
+.file-list-row.is-dragging { opacity: 0.5; }
+.file-list-row.is-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.file-list-row.is-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 
-.convert-handle {
+.file-list-handle {
   flex: none;
   width: 16px;
   height: 16px;
@@ -715,9 +725,9 @@
   cursor: grab;
 }
 
-.convert-handle svg { display: block; width: 100%; height: 100%; }
+.file-list-handle svg { display: block; width: 100%; height: 100%; }
 
-.convert-number {
+.file-list-number {
   flex: none;
   width: 18px;
   font-size: var(--text-sm);
@@ -726,7 +736,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.convert-thumb {
+.file-list-thumb {
   flex: none;
   width: 32px;
   height: 32px;
@@ -736,16 +746,16 @@
   overflow: hidden;
 }
 
-.convert-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.file-list-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-.convert-text {
+.file-list-text {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.convert-name {
+.file-list-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -753,15 +763,15 @@
   color: var(--text-primary);
 }
 
-.convert-meta { font-size: var(--text-sm); color: var(--text-muted); }
+.file-list-meta { font-size: var(--text-sm); color: var(--text-muted); }
 
 /* Move up, Move down, Remove: shown on hover or focus, as the Recent row's. */
-.convert-actions {
+.file-list-actions {
   display: flex;
   gap: var(--space-hair);
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.convert-row:is(:hover, :focus-within) .convert-actions { opacity: 1; }
-.convert-actions .icon-btn:disabled { color: var(--text-tertiary); cursor: default; background: transparent; }
+.file-list-row:is(:hover, :focus-within) .file-list-actions { opacity: 1; }
+.file-list-actions .icon-btn:disabled { color: var(--text-tertiary); cursor: default; background: transparent; }

@@ -109,13 +109,13 @@ class PagesSectionAndMenuTests(unittest.TestCase):
             ],
         )
 
-    def test_combine_and_split_wait_for_their_steps(self):
+    def test_split_waits_for_its_step(self):
         cards = {c["id"]: c for c in self.out["sections"][1]["cards"]}
-        self.assertEqual((cards["organise"]["disabled"], cards["organise"]["title"]), (None, ""))
-        for later in ("combine", "split"):
-            self.assertEqual((cards[later]["disabled"], cards[later]["title"]), ("true", "Coming in a later step"))
-        # Clicking every card: the dimmed ones do nothing.
-        self.assertEqual(self.out["chosen"], ["compress", "searchable", "export", "convert", "organise"])
+        for ready in ("organise", "combine"):
+            self.assertEqual((cards[ready]["disabled"], cards[ready]["title"]), (None, ""))
+        self.assertEqual((cards["split"]["disabled"], cards["split"]["title"]), ("true", "Coming in a later step"))
+        # Clicking every card: the dimmed one does nothing.
+        self.assertEqual(self.out["chosen"], ["compress", "searchable", "export", "convert", "organise", "combine"])
 
     def test_the_picker_names_organise(self):
         self.assertEqual(self.out["names"]["organise"], "Organise pages")

@@ -9,6 +9,7 @@ import re
 COMPRESSED = "compressed"
 SEARCHABLE = "searchable"
 IMAGES = "images"
+COMBINED = "combined"
 # Save a copy's suggestion, here so Save and the tools share one rule.
 HIGHLIGHTED = "highlighted"
 

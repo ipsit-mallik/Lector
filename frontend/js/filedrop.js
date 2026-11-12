@@ -49,6 +49,13 @@ function onConvertibleDrop(handler) {
   convertDropHandler = handler;
 }
 
+// Home's Combine files: `handler(paths)` gets the PDFs, images and e-books in
+// a drop, in order, and returns true if it took them (its dialog is open).
+let combineDropHandler = null;
+function onCombinableDrop(handler) {
+  combineDropHandler = handler;
+}
+
 // Capture phase on window, so this runs ahead of anything on the page and of
 // pywebview's own document-level drop listener.
 window.addEventListener(
@@ -99,8 +106,10 @@ window.addEventListener("dragend", resetFileDrag, true);
 // The outcome Python reports for a drop: `{path}` for a PDF to open, or
 // `{error}` with a reader-facing reason it can't be.
 window.addEventListener("lector:filedrop", (ev) => {
-  const { path, error, convertible } = ev.detail || {};
+  const { path, error, convertible, combinable } = ev.detail || {};
   resetFileDrag();
+  // PDFs, images or e-books dropped while Home's Combine files is open are its.
+  if (combinable && combinable.length && combineDropHandler && combineDropHandler(combinable)) return;
   // Images or e-books dropped while Home's Convert to PDF is open are its.
   if (convertible && convertible.length && convertDropHandler && convertDropHandler(convertible)) return;
   if (error) {

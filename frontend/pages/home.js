@@ -437,6 +437,10 @@ async function openToolFromPage(tool) {
     ConvertDialog.open();
     return;
   }
+  if (tool === "combine") {
+    CombineDialog.open();
+    return;
+  }
   const path = await PdfPicker.choose(tool);
   if (!path) return;
   if (tool === "organise") openPathToOrganise(path);
@@ -483,6 +487,15 @@ ToolDialog.configure({
   onMissing: (message, path) => offerRemoval(path, message),
 });
 FileJobs.configure({ open: (path) => openPath(path) });
+CombineDialog.configure({
+  // One file a pick: the Open dialog, listing PDFs, images and e-books.
+  addFile: async () => {
+    const result = await openDialog.open({ dir: null, kind: "insert", title: "Add a file to combine" });
+    return result && result.path ? result.path : null;
+  },
+  saveAs: ensureSaveAsDialog("home"),
+  openOutput: (path) => openPath(path),
+});
 ConvertDialog.configure({
   // One file a pick: the Open dialog, listing images and e-books.
   addFile: async () => {
@@ -992,7 +1005,7 @@ window.addEventListener("lector:command", (ev) => {
     ReplaceDialog.handleCommand(command);
     return;
   }
-  for (const dialog of [StopJobDialog, ToolDialog, ConvertDialog, PdfPicker]) {
+  for (const dialog of [StopJobDialog, ToolDialog, ConvertDialog, CombineDialog, PdfPicker]) {
     if (dialog.isOpen()) {
       dialog.handleCommand(command);
       return;

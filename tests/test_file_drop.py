@@ -146,14 +146,15 @@ class ApiFileDropTests(unittest.TestCase):
 
         self.api._on_file_drop(_event(path))
 
-        self.assertEqual(self._dispatched(), {"path": path})
+        # `combinable` too: what Combine files takes if its dialog is open.
+        self.assertEqual(self._dispatched(), {"path": path, "combinable": [path]})
 
     def test_a_path_with_quotes_survives_the_trip_to_javascript(self):
         awkward = self._pdf("it's a test file.pdf")
 
         self.api._on_file_drop(_event(awkward))
 
-        self.assertEqual(self._dispatched(), {"path": awkward})
+        self.assertEqual(self._dispatched(), {"path": awkward, "combinable": [awkward]})
 
     def test_a_refused_drop_forwards_the_reason(self):
         self.api._on_file_drop(_event(self._pdf("a.txt")))

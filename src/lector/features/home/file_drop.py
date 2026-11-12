@@ -73,6 +73,25 @@ def with_convertible(outcome: dict | None, convertible: list[str]) -> dict | Non
     return outcome
 
 
+def combinable_from_drop(event: dict) -> list[str]:
+    """The dropped files Combine files takes (PDFs, images, e-books) that are
+    on disk, in the order dropped. Home's Combine dialog adds them all when
+    it is open; anywhere else the drop means what it always did."""
+    files = ((event or {}).get("dataTransfer") or {}).get("files") or []
+    paths = [f.get("pywebviewFullPath") for f in files if isinstance(f, dict)]
+    return [
+        p for p in paths
+        if isinstance(p, str) and (p.lower().endswith(PDF_SUFFIX) or formats.is_convertible(p)) and os.path.isfile(p)
+    ]
+
+
+def with_combinable(outcome: dict | None, combinable: list[str]) -> dict | None:
+    """The drop's answer with what Combine would take added."""
+    if not combinable or outcome is None:
+        return outcome
+    return {**outcome, "combinable": combinable}
+
+
 def pdf_from_path(path: str) -> dict:
     """The same answer for one file named at launch (`python -m lector a.pdf`,
     or a second launch handing its file to the running Lector): `{"path": ...}`

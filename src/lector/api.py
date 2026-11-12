@@ -214,6 +214,9 @@ class Api:
         self._tool_outputs: set[str] = set()
         self._tool_outputs_lock = threading.Lock()
         self._tool_source: tuple[str, str | None] | None = None
+        # Combine files: the passwords of the protected PDFs in its list, by
+        # file (normcase'd path), in memory only, until its dialog closes.
+        self._combine_passwords: dict[str, str] = {}
         # Which screen/dialog is currently listening (Milestone 8.4). Starts
         # at `router.DEFAULT_CONTEXT` (`reading`) rather than `home` so a
         # caller that never makes a `set_voice_context` call — every test in
@@ -1426,6 +1429,52 @@ class Api:
         except tool_naming.RangeError as exc:
             return {"error": exc.message}
 
+    def describe_combine_inputs(self, paths: list[str]) -> list[dict]:
+        """Each file Combine files was given: a PDF's page count, size and
+        thumbnail (`reason` "password", with `error`, for one that needs a
+        password: the page asks for it with `unlock_combine_input`), or an
+        image's or e-book's as Convert describes it; `{"error"}` naming why
+        a file can't be used."""
+        if not isinstance(paths, list):
+            return []
+        return [self._describe_combine_input(path, None) for path in paths[:MAX_CONVERT_INPUTS]]
+
+    def unlock_combine_input(self, path: str, password: str) -> dict:
+        """A protected PDF in Combine's list, with the password the reader
+        typed: described, and the password held (in memory only) for the
+        job, or `reason` "wrong_password"."""
+        if not isinstance(password, str):
+            return {"path": path, "error": open_errors.MESSAGES[open_errors.UNKNOWN]}
+        return self._describe_combine_input(path, password)
+
+    def forget_combine_passwords(self) -> dict:
+        """Combine's dialog has closed: let go of every password it held."""
+        self._combine_passwords = {}
+        return {"ok": True}
+
+    def _describe_combine_input(self, path, password: str | None) -> dict:
+        entry = {"path": path, "name": os.path.basename(path) if isinstance(path, str) else ""}
+        if not isinstance(path, str) or not os.path.isfile(path):
+            entry["error"] = f"Couldn't find {entry['name'] or 'that file'}."
+            return entry
+        is_pdf = tool_formats.extension(path) == dialog_browser.PDF_EXTENSION
+        if not is_pdf and not tool_formats.is_convertible(path):
+            entry["error"] = f"{entry['name']} can't be combined. Choose PDFs, images or e-books."
+            return entry
+        try:
+            info = self._ocr.call(tool_engine.combine_describe, (path, password), timeout=DESCRIBE_TIMEOUT_S).result()
+        except Exception:
+            entry["error"] = f"{entry['name']} couldn't be read."
+            return entry
+        if info.get("locked"):
+            reason = open_errors.PASSWORD if password is None else open_errors.WRONG_PASSWORD
+            entry.update(reason=reason, error=open_errors.MESSAGES[reason])
+            return entry
+        if info.get("needs_pass"):
+            self._combine_passwords[os.path.normcase(os.path.abspath(path))] = password
+        entry.update(info)
+        return entry
+
     def describe_convert_inputs(self, paths: list[str]) -> list[dict]:
         """Each file Convert to PDF was given: its type, size, page count
         (an e-book's after it is laid out) and thumbnail, or `{"error"}`
@@ -1473,6 +1522,8 @@ class Api:
             return self._build_convert(options)
         if tool == tool_messages.EXTRACT:
             return self._build_extract(source, options)
+        if tool == tool_messages.COMBINE:
+            return self._build_combine(options)
         if tool not in (tool_messages.COMPRESS, tool_messages.SEARCHABLE, tool_messages.EXPORT):
             raise _BadToolRequest(tool_messages.WORKER_FAILED)
         src = self._tool_job_source(source)
@@ -1494,6 +1545,22 @@ class Api:
         pages = _checked_pages(options.get("pages"), page_count)
         known = self._known_words if source == TOOL_SOURCE_OPEN else file_tools.cached_words
         return _with_place(lambda ctx: file_tools.make_searchable(ctx, src, dest, pages, known), where)
+
+    def _build_combine(self, options: dict):
+        """Combine files: at least two inputs, each a PDF, image or e-book on
+        disk; a protected PDF's password is the one its unlock held."""
+        inputs = options.get("inputs")
+        if not isinstance(inputs, list) or not 2 <= len(inputs) <= MAX_CONVERT_INPUTS:
+            raise _BadToolRequest(tool_messages.INPUT_UNREADABLE)
+        for path in inputs:
+            if not isinstance(path, str) or not os.path.isfile(path):
+                raise _BadToolRequest(tool_messages.INPUT_UNREADABLE)
+            if tool_formats.extension(path) != dialog_browser.PDF_EXTENSION and not tool_formats.is_convertible(path):
+                raise _BadToolRequest(tool_messages.INPUT_UNREADABLE)
+        held = dict(self._combine_passwords)
+        with_passwords = [(path, held.get(os.path.normcase(os.path.abspath(path)))) for path in inputs]
+        dest, where = self._checked_dest(tool_messages.COMBINE, options, inputs, tool_destinations.BESIDE_FIRST_FILE)
+        return _with_place(lambda ctx: file_tools.combine(ctx, with_passwords, dest), where)
 
     def _build_convert(self, options: dict):
         inputs = options.get("inputs")
@@ -1990,8 +2057,9 @@ class Api:
         decides what opening means on its screen (Reading asks about unsaved
         highlights first), so this only reports.
         """
-        outcome = file_drop.with_convertible(
-            file_drop.pdf_from_drop(event), file_drop.convertible_from_drop(event)
+        outcome = file_drop.with_combinable(
+            file_drop.with_convertible(file_drop.pdf_from_drop(event), file_drop.convertible_from_drop(event)),
+            file_drop.combinable_from_drop(event),
         )
         if outcome is None:
             return
