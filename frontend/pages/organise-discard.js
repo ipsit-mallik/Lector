@@ -2,8 +2,8 @@
 //
 // * "Discard page changes?" — Cancel (or Esc, or the spoken "cancel") while
 //   the draft has changes. Keep editing or Discard changes.
-// * "Delete 3 pages?" — Delete (the button, the Delete key, from F2.10 the
-//   spoken "delete pages"). The pages it would delete as small thumbnails
+// * "Delete 3 pages?" — Delete (the button, the Delete key, the spoken
+//   "delete pages"). The pages it would delete as small thumbnails
 //   with their numbers, Cancel or "Delete 3 pages".
 //
 // Both resolve true for the danger answer. "confirm" is the danger button,

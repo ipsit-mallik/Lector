@@ -156,6 +156,24 @@ function showOrganiseToast(text, options) {
   organiseActionToast = showToast(text, options);
 }
 
+// Voice (Milestone F2.10). A spoken Rotate or Delete with nothing selected
+// says why, where the buttons it stands for are dimmed with that tooltip.
+function organiseVoiceOnSelection(action) {
+  if (!organiseOpen) return;
+  if (!organiseGrid.selectedPositions().length) {
+    showToast(ORGANISE_NEEDS_SELECTION);
+    return;
+  }
+  action();
+}
+
+// "select all" / "select none", as the action bar's button (and Ctrl+A).
+function organiseVoiceSelect(all) {
+  if (!organiseOpen) return;
+  if (all) organiseGrid.selectAll();
+  else organiseGrid.selectNone();
+}
+
 function organiseRotate(degrees) {
   const positions = organiseGrid.selectedPositions();
   if (positions.length) organiseAct("rotate", { positions, degrees });

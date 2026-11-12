@@ -262,7 +262,7 @@ class IntentContractTests(unittest.TestCase):
             cg.SHOW_OUTLINE, cg.SHOW_PAGES, cg.HIDE_OUTLINE, cg.TOGGLE_PROGRESS_BAR,
             cg.FOCUS_MODE, cg.EXIT_FOCUS_MODE, cg.FIT_WIDTH, cg.FIT_PAGE, cg.ACTUAL_SIZE,
             cg.THICKER, cg.THINNER, cg.HIGHLIGHT_MODE, cg.UNDERLINE_MODE, cg.STRIKETHROUGH_MODE,
-            cg.COMPRESS_FILE, cg.MAKE_SEARCHABLE, cg.EXPORT_IMAGES,
+            cg.COMPRESS_FILE, cg.MAKE_SEARCHABLE, cg.EXPORT_IMAGES, cg.ORGANISE_PAGES,
         }
         self.assertEqual(set(cg.PHRASES), declared)
 

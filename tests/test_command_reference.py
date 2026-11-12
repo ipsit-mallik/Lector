@@ -260,11 +260,21 @@ class SameListOnEveryScreenTests(unittest.TestCase):
 
     def test_a_section_the_screen_cannot_act_on_says_where_it_works(self):
         for context in SCREENS:
+            # Organise pages is a mode of the reader: its commands are the reader's.
+            here = {context, router.ORGANISE} if context == router.READING else {context}
             for section in reference.sections(context):
                 with self.subTest(context=context, section=section["id"]):
-                    self.assertEqual(section["available"], context in section["contexts"])
+                    self.assertEqual(section["available"], bool(here & set(section["contexts"])))
                     if not section["available"]:
                         self.assertTrue(section["scope_note"].strip())
+
+    def test_organising_is_the_readers_and_says_when_it_works(self):
+        sections = {s["id"]: s for s in reference.sections(router.READING)}
+        self.assertTrue(sections["organising"]["available"])
+        self.assertEqual(sections["organising"]["scope_note"], "Works while Organise pages is open.")
+        self.assertFalse({s["id"]: s for s in reference.sections(router.HOME)}["organising"]["available"])
+        # Opened from Organise (its context), the list is still the reader's.
+        self.assertEqual(reference.panel(router.ORGANISE)["context"], router.READING)
 
     def test_the_panel_threads_context_through_to_sections(self):
         for context in SCREENS:

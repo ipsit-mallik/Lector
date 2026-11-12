@@ -471,6 +471,12 @@ function endDictation({ restore }) {
 // field voice.js's `lector:voice` handler re-broadcasts alongside it.
 window.addEventListener("lector:command", (ev) => {
   if (referenceDialog.hidden) return;
+  // While the list is open it owns every spoken command. This listener is
+  // registered before each page's own (the script loads first), and without
+  // this the page would act on the same command once the list had closed:
+  // "cancel" closing the list from Organise pages also pressed Organise's
+  // Cancel.
+  ev.stopImmediatePropagation();
   const { text, command } = ev.detail || {};
   if (!dictationActive) {
     if (command && command.intent === "START_DICTATION") startDictation();

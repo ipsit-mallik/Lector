@@ -228,6 +228,14 @@ HOME_PHRASES[FAVORITE_PICKER] = ("favorite a file", "star a file")
 OPEN_TOOLS = "OPEN_TOOLS"
 HOME_PHRASES[OPEN_TOOLS] = ("open tools",)
 
+# Milestone F2: two of the Tools page's cards, anywhere on Home. Combine files
+# opens its dialog; Split asks which PDF first, as its card does. "combine
+# files" is closest to "show recent files" (0.47), "split" to "quit" (0.40).
+COMBINE_FILES = "COMBINE_FILES"
+SPLIT_PDF = "SPLIT_PDF"
+HOME_PHRASES[COMBINE_FILES] = ("combine files",)
+HOME_PHRASES[SPLIT_PDF] = ("split",)
+
 # Settings context (Milestone 8.5): theme switching and the existing
 # save/reopen preference toggles, per docs/TASKS.md. Three single-phrase
 # theme intents rather than one intent with a parsed "which theme" argument
@@ -440,13 +448,29 @@ FILE_TOOL_PHRASES: dict[str, tuple[str, ...]] = {
 
 # Milestone F2: Organise pages. "done" applies the page changes and goes back
 # to reading (the Done button); "cancel" is the Cancel button, which leaves
-# without applying them (asking first when there are changes). The rest of
-# Organise's commands (select, rotate, delete) come with F2.10.
+# without applying them (asking first when there are changes). Selecting,
+# turning and deleting act on the selection, as the action bar's buttons do;
+# picking particular pages by voice is deliberately not offered. "delete
+# pages" only opens the confirmation, where "confirm" deletes (FILE_TOOL).
+# The global "undo" and "redo" are the draft's own here. Measured against
+# each other and every global: the opposites are the closest ("rotate left"
+# and "rotate right" 0.67, "select all" and "select none" 0.64), under the
+# match threshold.
 ORGANISE_DONE = "ORGANISE_DONE"
+SELECT_ALL = "SELECT_ALL"
+SELECT_NONE = "SELECT_NONE"
+ROTATE_LEFT = "ROTATE_LEFT"
+ROTATE_RIGHT = "ROTATE_RIGHT"
+DELETE_PAGES = "DELETE_PAGES"
 
 ORGANISE_PHRASES: dict[str, tuple[str, ...]] = {
     ORGANISE_DONE: ("done", "exit organise", "back to reading"),
     CANCEL: ("cancel",),
+    SELECT_ALL: ("select all",),
+    SELECT_NONE: ("select none",),
+    ROTATE_LEFT: ("rotate left",),
+    ROTATE_RIGHT: ("rotate right",),
+    DELETE_PAGES: ("delete pages",),
 }
 
 # Modal scopes that do not let screen-level globals through (Milestone 8.12),

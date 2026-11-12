@@ -82,6 +82,8 @@ ACTUAL_SIZE = "ACTUAL_SIZE"
 COMPRESS_FILE = "COMPRESS_FILE"
 MAKE_SEARCHABLE = "MAKE_SEARCHABLE"
 EXPORT_IMAGES = "EXPORT_IMAGES"
+# Milestone F2: opens Organise pages (the ⋯ menu's item, Ctrl+Shift+O).
+ORGANISE_PAGES = "ORGANISE_PAGES"
 
 # Phrasings per intent, each ordered most-explicit first. Order is load
 # bearing: `fuzzy.best_match` breaks ties by taking the earliest candidate,
@@ -154,6 +156,10 @@ PHRASES: dict[str, tuple[str, ...]] = {
     COMPRESS_FILE: ("compress this file", "compress", "make it smaller"),
     MAKE_SEARCHABLE: ("make this searchable", "make searchable"),
     EXPORT_IMAGES: ("export as images", "export pages", "save as images"),
+    # Both spellings, since the recognizer's model knows both words and a
+    # reader may say either; the closest other phrase is "turn the page"
+    # (0.43, "rearrange pages" 0.47), under the match threshold.
+    ORGANISE_PAGES: ("organise pages", "organize pages", "rearrange pages"),
 }
 
 # The style each "… mode" command chooses (the highlight tool's styles).

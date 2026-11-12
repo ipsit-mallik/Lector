@@ -1604,7 +1604,11 @@ configureHighlightTool({ isOn: () => highlightMode, setOn: setHighlightMode });
 // says what it is. "?" and the spoken "what can I say" reach the same panel.
 // What the shared list needs to know about this screen (command-reference.js):
 // the real range for "go to page N".
-configureCommandReference({ ranges: () => ({ page: state && state.page_count }) });
+configureCommandReference({
+  ranges: () => ({ page: state && state.page_count }),
+  // Opened from Organise pages, its own commands come first.
+  focusSection: () => (isOrganiseOpen() ? "organising" : null),
+});
 referenceFooterBtn.addEventListener("click", openCommandReference);
 
 // Focus mode's own popovers live in the chrome it hides, so they close first:
@@ -2098,6 +2102,8 @@ const VOICE_ACTIONS = {
   COMPRESS_FILE: () => openTool("compress"),
   MAKE_SEARCHABLE: () => openTool("searchable"),
   EXPORT_IMAGES: () => openTool("export"),
+  // Organise pages, as the ⋯ menu's item and Ctrl+Shift+O open it.
+  ORGANISE_PAGES: () => startOrganise(),
   // Global commands (Milestone 8.4) — available from every context, so they
   // reach the same functions their toolbar buttons do.
   UNDO: () => undo(),
@@ -2112,12 +2118,18 @@ const VOICE_ACTIONS = {
   OPEN_PDF: () => leaveReadingTo("../index.html", { openDialog: true }),
 };
 
-// While Organise pages is open: "done" and "cancel" are its two buttons, Undo
-// and Redo are its own, and leaving goes through the same apply-then-ask
-// route as the back button.
+// While Organise pages is open: "done" and "cancel" are its two buttons, the
+// selection and its action bar's Rotate and Delete are spoken as they are
+// clicked, Undo and Redo are its own, and leaving goes through the same
+// apply-then-ask route as the back button.
 const ORGANISE_VOICE_ACTIONS = {
   ORGANISE_DONE: () => finishOrganise(),
   CANCEL: () => cancelOrganise(),
+  SELECT_ALL: () => organiseVoiceSelect(true),
+  SELECT_NONE: () => organiseVoiceSelect(false),
+  ROTATE_LEFT: () => organiseVoiceOnSelection(() => organiseRotate(-90)),
+  ROTATE_RIGHT: () => organiseVoiceOnSelection(() => organiseRotate(90)),
+  DELETE_PAGES: () => organiseVoiceOnSelection(() => organiseDelete()),
   UNDO: () => organiseUndo(),
   REDO: () => organiseRedo(),
   HELP: () => openCommandReference(),
@@ -2230,8 +2242,8 @@ window.addEventListener("lector:command", (ev) => {
   }
   // A spoken number or "cancel" while the outline or pages are numbered.
   if (handleOutlinePickerCommand(command)) return;
-  // In Organise pages only what still makes sense there acts; its own
-  // commands come with its voice context (Milestone F2.10).
+  // In Organise pages, its own commands and the globals that still make
+  // sense there (router.py's ORGANISE context).
   const action = isOrganiseOpen() ? ORGANISE_VOICE_ACTIONS[command.intent] : VOICE_ACTIONS[command.intent];
   if (!action) return;
   // A dialog owns the view while it is open; a page turn behind it would be

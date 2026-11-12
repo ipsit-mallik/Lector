@@ -343,7 +343,7 @@ def _reading_sections() -> list[dict]:
             _command(_all(g, router.REDO), "Puts back what you just took back.",
                      "Press Ctrl+Shift+Z or Ctrl+Y, or click Redo in the toolbar", _READING),
         ]),
-        _section("files", "Files", scope, [
+        _section("files", "Files", "Works in the reader, and on Home where it says so.", [
             _command(_all(p, grammar.COMPRESS_FILE),
                      "Opens Compress: makes a smaller copy, mostly by shrinking its "
                      "images. Choose how much, then say \"confirm\".",
@@ -356,16 +356,21 @@ def _reading_sections() -> list[dict]:
                      "Opens Export as images: saves pages as PNG or JPEG files in a new "
                      "folder.",
                      "Click ⋯ at the header's right end, then Export as images", _READING),
+            _command(_all(p, grammar.ORGANISE_PAGES),
+                     "Opens Organise pages: rotate, delete, reorder, extract or insert "
+                     "pages. Nothing changes until you say \"done\".",
+                     "Press Ctrl+Shift+O, or click ⋯ at the header's right end, then "
+                     "Organise pages", _READING),
+            _command(_all(router.HOME_PHRASES, router.COMBINE_FILES),
+                     "On Home, opens Combine files: joins several PDFs and images into "
+                     "one new PDF.",
+                     "Click Tools in the sidebar, then Combine files", _HOME),
+            _command(_all(router.HOME_PHRASES, router.SPLIT_PDF),
+                     "On Home, opens Split: asks which PDF, then breaks it into several, "
+                     "every so many pages or by page ranges.",
+                     "Click Tools in the sidebar, then Split", _HOME),
         ]),
-        _section("organising", "Organising pages", "Works while Organise pages is open.", [
-            _command(_all(router.ORGANISE_PHRASES, router.ORGANISE_DONE),
-                     "Applies your page changes and goes back to reading.",
-                     "Click Done", (router.ORGANISE,)),
-            _command(_all(router.ORGANISE_PHRASES, router.CANCEL),
-                     "Goes back to reading without changing the pages. With changes, "
-                     "asks first: \"confirm\" discards them, \"cancel\" keeps editing.",
-                     "Click Cancel, or press Esc", (router.ORGANISE,)),
-        ]),
+        _organising(),
         _section("app", "The app itself", "Works in the reader, and on Home where it says so.", [
             _command(_all(p, grammar.SAVE),
                      "Asks how to save — a copy, or over the original. Nothing is "
@@ -373,10 +378,43 @@ def _reading_sections() -> list[dict]:
                      "Ctrl+S, or Save in the ⋯ menu", _READING),
             _command(_all(router.HOME_PHRASES, router.OPEN_TOOLS),
                      "On Home, shows the file tools: Compress, Make searchable, Export as "
-                     "images and Convert to PDF.",
+                     "images, Convert to PDF, Organise pages, Combine files and Split.",
                      "Click Tools in the sidebar", _HOME),
         ]),
     ]
+
+
+def _organising() -> dict:
+    o = router.ORGANISE_PHRASES
+    g = router.GLOBAL_PHRASES
+    here = (router.ORGANISE,)
+    return _section("organising", "Organising pages", "Works while Organise pages is open.", [
+        _command(_all(o, router.ORGANISE_DONE),
+                 "Applies your page changes and goes back to reading.",
+                 "Click Done", here),
+        _command(_all(o, router.CANCEL),
+                 "Goes back to reading without changing the pages. With changes, "
+                 "asks first: \"confirm\" discards them, \"cancel\" keeps editing.",
+                 "Click Cancel, or press Esc", here),
+        _command(_all(o, router.SELECT_ALL), "Selects every page.",
+                 "Press Ctrl+A, or click Select all", here),
+        _command(_all(o, router.SELECT_NONE), "Clears the selection.",
+                 "Click Select none", here),
+        _command(_all(o, router.ROTATE_LEFT),
+                 "Turns the selected pages a quarter turn to the left.",
+                 "Click Rotate left", here),
+        _command(_all(o, router.ROTATE_RIGHT),
+                 "Turns the selected pages a quarter turn to the right.",
+                 "Click Rotate right", here),
+        _command(_all(o, router.DELETE_PAGES),
+                 "Asks before deleting the selected pages: \"confirm\" deletes them, "
+                 "\"cancel\" keeps them.",
+                 "Press Delete, or click Delete", here),
+        _command(_all(g, router.UNDO), "Takes back your last page change.",
+                 "Press Ctrl+Z, or click Undo", here),
+        _command(_all(g, router.REDO), "Puts back what you just took back.",
+                 "Press Ctrl+Y, or click Redo", here),
+    ])
 
 
 def _this_list() -> dict:
@@ -489,7 +527,11 @@ def sections(context: str = router.READING) -> list[dict]:
     screen = context if context in _SCREENS else router.READING
     built = _all_sections()
     for section in built:
-        section["available"] = screen in section["contexts"]
+        # Organise pages is a mode of the reader: its section is the reader's
+        # own (it says it works while Organise is open), and the reader puts
+        # it first while Organise is (command-reference.js's focusSection).
+        here = {screen, router.ORGANISE} if screen == router.READING else {screen}
+        section["available"] = bool(here & set(section["contexts"]))
     own = [s for s in built if s["available"] and not s["everywhere"]]
     rest = [s for s in built if s not in own]
     return [*own, *rest]

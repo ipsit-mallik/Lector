@@ -445,6 +445,13 @@ async function openToolFromPage(tool) {
   if (path) openToolFor(tool, path);
 }
 
+// "combine files" / "split": the Tools page, then the card's own route.
+async function openToolByVoice(tool) {
+  if (isModalOpen()) return;
+  if (homeSection !== "tools") await setHomeSection("tools");
+  openToolFromPage(tool);
+}
+
 // A one-PDF tool for `path`, from the Tools page's picker or a Recent menu.
 function openToolFor(tool, path) {
   if (tool === "organise") openPathToOrganise(path);
@@ -985,6 +992,10 @@ const VOICE_ACTIONS = {
   OPEN_FAVORITES: () => setHomeSection("favorites"),
   // The file tools' page (Milestone F1).
   OPEN_TOOLS: () => setHomeSection("tools"),
+  // Two of its cards (Milestone F2): the Tools page comes up behind the
+  // dialog, as if the card had been clicked there. Split asks which PDF first.
+  COMBINE_FILES: () => openToolByVoice("combine"),
+  SPLIT_PDF: () => openToolByVoice("split"),
   FAVORITE_RECENT: () => favoriteMostRecent(),
   FAVORITE_PICKER: () => showPicker("favorite"),
   CLOSE_APP: () => closeApp(),
