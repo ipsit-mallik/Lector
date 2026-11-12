@@ -1,7 +1,8 @@
-"""Home's ways into Tier 2 (Milestone F2.7): the Tools page's "Pages"
-section (frontend/pages/tools-page.js) and Organise pages… / Split… in a
-Recent row's or grid card's ⋯ menu (recent-list.js's buildToolItems), with
-Home sending a PDF to the reader with Organise open (home.js).
+"""Home's ways into Tier 2 (Milestone F2.7, Split live since F2.9): the
+Tools page's "Pages" section (frontend/pages/tools-page.js) and Organise
+pages… / Split… in a Recent row's or grid card's ⋯ menu (recent-list.js's
+buildToolItems), with Home sending a PDF to the reader with Organise open
+and a PDF to Split's dialog (home.js).
 
 The Tools page and the menu items are run under Node with a small stand-in
 DOM; home.js's wiring is read as text. Skipped when Node is not installed.
@@ -109,13 +110,13 @@ class PagesSectionAndMenuTests(unittest.TestCase):
             ],
         )
 
-    def test_split_waits_for_its_step(self):
+    def test_every_card_is_live(self):
         cards = {c["id"]: c for c in self.out["sections"][1]["cards"]}
-        for ready in ("organise", "combine"):
+        for ready in ("organise", "combine", "split"):
             self.assertEqual((cards[ready]["disabled"], cards[ready]["title"]), (None, ""))
-        self.assertEqual((cards["split"]["disabled"], cards["split"]["title"]), ("true", "Coming in a later step"))
-        # Clicking every card: the dimmed one does nothing.
-        self.assertEqual(self.out["chosen"], ["compress", "searchable", "export", "convert", "organise", "combine"])
+        self.assertEqual(
+            self.out["chosen"], ["compress", "searchable", "export", "convert", "organise", "combine", "split"]
+        )
 
     def test_the_picker_names_organise(self):
         self.assertEqual(self.out["names"]["organise"], "Organise pages")
@@ -127,12 +128,13 @@ class PagesSectionAndMenuTests(unittest.TestCase):
             ["Make searchable…", "searchable", None, ""],
             ["Export as images…", "export_images", None, ""],
             ["Organise pages…", "organise", None, ""],
-            ["Split…", "split", "true", "Coming in a later step"],
+            ["Split…", "split", None, ""],
         ])
         self.assertEqual(self.out["menuTools"], [
             ["compress", "C:/Docs/Report.pdf"], ["searchable", "C:/Docs/Report.pdf"],
             ["export", "C:/Docs/Report.pdf"], ["organise", "C:/Docs/Report.pdf"],
-        ])  # Split did nothing
+            ["split", "C:/Docs/Report.pdf"],
+        ])
         self.assertEqual(self.out["noHandler"], 0)
 
     def test_the_new_icons_exist(self):
@@ -142,8 +144,13 @@ class PagesSectionAndMenuTests(unittest.TestCase):
 
 class HomeSendsThePdfToOrganiseTests(unittest.TestCase):
     def test_both_ways_in_open_the_pdf_then_leave_the_readers_note(self):
-        self.assertRegex(HOME_JS, r'tool === "organise" \? openPathToOrganise\(entry\.path\)')
-        self.assertRegex(HOME_JS, r'if \(tool === "organise"\) openPathToOrganise\(path\)')
+        # The Recent menu and the Tools page's picker share one router.
+        self.assertRegex(HOME_JS, r"onTool: \(tool, entry\) => openToolFor\(tool, entry\.path\)")
+        self.assertRegex(HOME_JS, r"if \(path\) openToolFor\(tool, path\)")
+        router = HOME_JS[HOME_JS.index("function openToolFor"):]
+        router = router[:router.index("\n}\n")]
+        self.assertIn('if (tool === "organise") openPathToOrganise(path);', router)
+        self.assertIn('else if (tool === "split") SplitDialog.open(path);', router)
         body = HOME_JS[HOME_JS.index("async function openPathToOrganise"):]
         body = body[:body.index("\n}\n")]
         # The note only once the PDF is open; then the reader.

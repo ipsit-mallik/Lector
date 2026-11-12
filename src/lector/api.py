@@ -72,6 +72,9 @@ MICROPHONE_UNAVAILABLE = "microphone_unavailable"
 # A file tool's `source` meaning "the PDF open in the reader, as it is now".
 TOOL_SOURCE_OPEN = "open"
 
+# The tools that work on one PDF, described by `file_tool_info`.
+_ONE_PDF_TOOLS = (tool_messages.COMPRESS, tool_messages.SEARCHABLE, tool_messages.EXPORT, tool_messages.SPLIT)
+
 # Most files one Convert to PDF takes, so a runaway list can't be sent.
 MAX_CONVERT_INPUTS = 500
 
@@ -1290,8 +1293,9 @@ class Api:
         Home. A protected PDF from Home comes back as `{"ok": False,
         "reason": "password"}` (or "wrong_password") until called with the
         right password, which is then held here, in memory only, for that
-        file's job; a missing one as `reason` "missing"."""
-        if tool not in (tool_messages.COMPRESS, tool_messages.SEARCHABLE, tool_messages.EXPORT):
+        file's job; a missing one as `reason` "missing". Split's also has
+        `split_every`, its "Every N pages" to start with."""
+        if tool not in _ONE_PDF_TOOLS:
             return {"ok": False, "error": tool_messages.message(tool_messages.WORKER_FAILED, tool)}
         if password is not None and not isinstance(password, str):
             password = None
@@ -1328,6 +1332,10 @@ class Api:
             },
             prefs=settings.get_file_tool_prefs(),
         )
+        if tool == tool_messages.SPLIT:
+            if not info.get("can_change_pages", True):
+                return {"ok": False, "error": page_changes.BLOCK_MESSAGES[page_changes.RESTRICTED]}
+            info["split_every"] = tool_naming.default_split_every(info["pages"])
         return info
 
     def _describe_home_source(self, path, password: str | None) -> dict:
@@ -1429,6 +1437,17 @@ class Api:
         except tool_naming.RangeError as exc:
             return {"error": exc.message}
 
+    def split_preview(self, source: str, mode: str, value: str, page_count: int) -> dict:
+        """Split's live preview for what the dialog has chosen: `{count,
+        parts, named, more, gaps}`, or `{"error"}` for the line under the
+        field. Worked out by the parser the job uses (naming.py)."""
+        count = _page_index(page_count)
+        origin = self._tool_origin(source)
+        if not count or origin is None:
+            return {"error": tool_naming.ONE_PAGE, "count": 0}
+        stem = os.path.splitext(os.path.basename(origin))[0] or "untitled"
+        return tool_naming.split_preview(mode, value, count, stem)
+
     def describe_combine_inputs(self, paths: list[str]) -> list[dict]:
         """Each file Combine files was given: a PDF's page count, size and
         thumbnail (`reason` "password", with `error`, for one that needs a
@@ -1524,11 +1543,21 @@ class Api:
             return self._build_extract(source, options)
         if tool == tool_messages.COMBINE:
             return self._build_combine(options)
-        if tool not in (tool_messages.COMPRESS, tool_messages.SEARCHABLE, tool_messages.EXPORT):
+        if tool not in _ONE_PDF_TOOLS:
             raise _BadToolRequest(tool_messages.WORKER_FAILED)
         src = self._tool_job_source(source)
         dest, where = self._checked_dest(tool, options, [src.path], tool_destinations.BESIDE_ORIGINAL)
         page_count = self._source_page_count(source, src)
+        if tool == tool_messages.SPLIT:
+            if self._split_block(source, src):
+                raise _BadToolRequest(tool_messages.SOURCE_UNREADABLE)
+            try:
+                parts = tool_naming.split_parts(options.get("mode"), options.get("value"), page_count)
+            except tool_naming.RangeError:
+                raise _BadToolRequest(tool_messages.WORKER_FAILED) from None
+            if len(parts) < 2:
+                raise _BadToolRequest(tool_messages.WORKER_FAILED)
+            return _with_place(lambda ctx: file_tools.split(ctx, src, parts, dest), where)
         if tool == tool_messages.COMPRESS:
             level = options.get("level")
             if level not in tool_choices.LEVELS:
@@ -1610,6 +1639,14 @@ class Api:
         held = self._tool_source
         password = held[1] if held and safe_write.same_file(held[0], source) else None
         return file_tools.Source(source, None, password)
+
+    def _split_block(self, source: str, src: "file_tools.Source") -> str | None:
+        """Why Split may not take this PDF apart (its owner forbids both
+        modifying and assembling it), or None."""
+        if source == TOOL_SOURCE_OPEN:
+            return self._doc.page_change_block()
+        info = self._describe_home_source(src.path, src.password)
+        return None if info.get("can_change_pages", True) else page_changes.RESTRICTED
 
     def _source_page_count(self, source: str, src: "file_tools.Source") -> int:
         if source == TOOL_SOURCE_OPEN:

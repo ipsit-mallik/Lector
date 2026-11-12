@@ -43,6 +43,7 @@ const FILE_JOB_VERBS = {
   convert: "Converting",
   extract: "Extracting",
   combine: "Combining",
+  split: "Splitting",
 };
 
 function isCountedJob(event) {
@@ -101,6 +102,8 @@ function fileJobOutcomeToast(event) {
       };
     case "extract":
       return { message: `Saved ${r.name}${savePlaceClause(r.where)}`, path: r.path, open: true };
+    case "split":
+      return { message: `Made ${plural(r.files, "file", "files")} in “${r.name}”${savePlaceClause(r.where)}`, path: r.path, open: false };
     default:
       return null;
   }

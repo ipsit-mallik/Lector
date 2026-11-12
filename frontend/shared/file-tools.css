@@ -242,6 +242,93 @@
 .tool-range input[aria-invalid="true"] { border-color: var(--danger); }
 .tool-range .dialog-field-error { margin-top: var(--space-1); }
 
+/* Split's two ways (split-dialog.js): the option card, holding its own
+   radio (a real button) and its field beside it. No .card-lift: a card the
+   reader is typing in doesn't rise under the pointer. */
+.split-options { margin-top: var(--space-4); }
+.split-options .option-row {
+  padding: var(--space-2) var(--space-4);
+  cursor: default;
+}
+.split-options .option-row:first-of-type { margin-top: 0; }
+.split-options .option-row + .option-row { margin-top: var(--space-2); }
+
+.split-option-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* The ring goes round the whole card, as on every other option card. */
+.split-option-pick:focus-visible { outline: none; }
+.split-option:has(.split-option-pick:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.split-option-pick .option-title { font-weight: 500; }
+.split-option:hover:not(.selected) .option-radio { border-color: var(--text-secondary); }
+
+.split-field {
+  flex: none;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+.split-field--every { width: 64px; text-align: center; }
+.split-field--ranges { width: 200px; }
+.split-field::placeholder { color: var(--text-muted); }
+.split-field:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: 1px; }
+.split-field[aria-invalid="true"] { border-color: var(--danger); }
+
+.split-unit { flex: none; font-size: var(--text-md); color: var(--text-secondary); }
+
+.split-error { margin-top: var(--space-2); padding-left: var(--space-1); }
+
+/* The live preview: how many files, the first three, "and 9 more", and the
+   pages no file holds under a rule. */
+.split-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background-color: var(--surface-input);
+  font-size: var(--text-sm);
+}
+.split-preview-count { font-weight: 600; color: var(--text-primary); }
+.split-preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+}
+.split-preview-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.split-preview-pages { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.split-preview-more { color: var(--text-muted); }
+.split-preview .split-preview-gaps {
+  margin: var(--space-1) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
 /* ------------------------------------------------------------------ */
 /* Destination block — Name + "Save in" (js/save-destination.js)        */
 /* ------------------------------------------------------------------ */

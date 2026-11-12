@@ -1,14 +1,11 @@
 // Home's Tools page (docs/PRD.md § "Post-v1: file tools"): every file tool
 // as a card, in sections: Tier 1's "Shrink and convert" and Tier 2's "Pages".
 //
-// Compress, Make searchable, Export and Organise pages work on one PDF, so
-// they first ask which ("<Tool> — choose a PDF": the five most recent, or
-// Browse); Convert to PDF and Combine files open their own dialogs straight
-// away. home.js owns
-// what a card does (`buildToolsPage(onTool)`) and the Open dialog Browse
-// uses. A card whose step of Milestone F2 hasn't landed yet (`later`) is
-// shown dimmed, with "Coming in a later step" as its tooltip, and does
-// nothing.
+// Compress, Make searchable, Export, Organise pages and Split work on one
+// PDF, so they first ask which ("<Tool> — choose a PDF": the five most
+// recent, or Browse); Convert to PDF and Combine files open their own
+// dialogs straight away. home.js owns what a card does
+// (`buildToolsPage(onTool)`) and the Open dialog Browse uses.
 //
 // Built with DOM calls and textContent: file names come from the reader's
 // disk.
@@ -48,14 +45,7 @@ const TOOL_SECTIONS = [
         desc: "Rotate, delete, reorder, extract or insert pages.",
       },
       { id: "combine", name: "Combine files", icon: "combine", desc: "Join several PDFs and images into one PDF." },
-      // Split (F2.9).
-      {
-        id: "split",
-        name: "Split",
-        icon: "split",
-        desc: "Break a PDF into several, by page ranges or every N pages.",
-        later: true,
-      },
+      { id: "split", name: "Split", icon: "split", desc: "Break a PDF into several, by page ranges or every N pages." },
     ],
   },
 ];
@@ -67,9 +57,6 @@ const TOOL_NAMES = {
   organise: "Organise pages",
   split: "Split",
 };
-
-// A tool card or menu item whose own step of Milestone F2 hasn't landed.
-const TOOL_LATER = "Coming in a later step";
 
 // How many recent PDFs the "choose a PDF" step offers.
 const PICK_RECENT_COUNT = 5;
@@ -106,14 +93,7 @@ function buildToolsPage(onTool) {
       const desc = toolsEl("span", "tool-card-desc", tool.desc);
       desc.id = `toolDesc-${tool.id}`;
       card.append(toolsIcon(tool.icon, "tool-card-icon"), toolsEl("span", "tool-card-name", tool.name), desc);
-      if (tool.later) {
-        // aria-disabled, not disabled, so it keeps its tooltip saying why.
-        card.setAttribute("aria-disabled", "true");
-        card.title = TOOL_LATER;
-      }
-      card.addEventListener("click", () => {
-        if (!tool.later) onTool(tool.id);
-      });
+      card.addEventListener("click", () => onTool(tool.id));
       grid.appendChild(card);
     }
     wrap.append(title, toolsEl("p", "tools-section-sub", section.subtitle), grid);

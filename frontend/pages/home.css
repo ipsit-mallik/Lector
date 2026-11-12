@@ -604,10 +604,6 @@ html, body { height: 100%; }
 .recent-menu-item:focus-visible { background-color: var(--state-hover); }
 .recent-menu-item:focus-visible { outline-offset: -2px; }
 .recent-menu-item:active { background-color: var(--state-pressed); }
-/* Split… until its step (F2.9): dimmed, tooltip saying why. */
-.recent-menu-item[aria-disabled="true"],
-.recent-menu-item[aria-disabled="true"] [data-icon] { color: var(--text-tertiary); cursor: default; }
-.recent-menu-item[aria-disabled="true"]:is(:hover, :active) { background-color: transparent; }
 
 .recent-menu-separator {
   height: 1px;
@@ -840,16 +836,6 @@ html, body { height: 100%; }
 .tool-card-name {
   font-size: 15px;
   font-weight: 600;
-}
-
-/* A tool whose step of Milestone F2 hasn't landed: dimmed and still, with
-   its reason as its tooltip ("Coming in a later step"). */
-.tool-card[aria-disabled="true"] { opacity: 0.5; cursor: default; }
-.tool-card.card-lift[aria-disabled="true"]:is(:hover, :active) {
-  transform: none;
-  border-color: var(--border-elevated);
-  background-color: var(--surface-input);
-  box-shadow: var(--card-highlight), var(--shadow-1);
 }
 
 .tool-card-desc {

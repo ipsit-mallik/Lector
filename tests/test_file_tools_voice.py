@@ -108,11 +108,13 @@ class DialogGrammarTests(unittest.TestCase):
     def test_every_page_with_a_tool_dialog_routes_it(self):
         self.assertIn("ToolDialog.handleCommand(command)", READING_JS)
         self.assertIn("StopJobDialog.handleCommand(command)", READING_JS)
-        self.assertRegex(HOME_JS, r"\[StopJobDialog, ToolDialog, ConvertDialog, CombineDialog, PdfPicker\]")
+        self.assertRegex(
+            HOME_JS, r"\[StopJobDialog, ToolDialog, ConvertDialog, CombineDialog, SplitDialog, PdfPicker\]"
+        )
 
     def test_every_tool_dialog_uses_the_file_tool_scope(self):
         for name in ("pages/tool-dialogs.js", "pages/convert-dialog.js", "pages/combine-dialog.js",
-                     "pages/tools-page.js", "js/file-jobs.js"):
+                     "pages/split-dialog.js", "pages/tools-page.js", "js/file-jobs.js"):
             with self.subTest(file=name):
                 source = (FRONTEND / name).read_text(encoding="utf-8")
                 self.assertTrue(re.search(r'createVoiceScope\("file_tool"\)', source))

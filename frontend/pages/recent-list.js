@@ -320,17 +320,8 @@ function buildToolItems(entry, handlers) {
     buildMenuItem("searchable", "Make searchable…", () => handlers.onTool("searchable", entry)),
     buildMenuItem("export_images", "Export as images…", () => handlers.onTool("export", entry)),
     buildMenuItem("organise", "Organise pages…", () => handlers.onTool("organise", entry)),
-    laterMenuItem(buildMenuItem("split", "Split…", () => {})),
+    buildMenuItem("split", "Split…", () => handlers.onTool("split", entry)),
   ];
-}
-
-// A tool whose own step of Milestone F2 hasn't landed (Split, F2.9): dimmed,
-// its reason as its tooltip (aria-disabled keeps it), and choosing it does
-// nothing. TOOL_LATER is tools-page.js's.
-function laterMenuItem(item) {
-  item.setAttribute("aria-disabled", "true");
-  item.title = TOOL_LATER;
-  return item;
 }
 
 // `row` is the list row or grid card the menu is for: it is marked open while

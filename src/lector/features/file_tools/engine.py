@@ -121,6 +121,9 @@ def describe_path(path: str, password: str | None) -> dict:
         if len(doc) == 0:
             raise SourceError()
         info = describe_document(doc)
+        # Split's check, as the reader's `page_change_block`: MuPDF doesn't
+        # enforce a PDF's permissions, so Lector does.
+        info["can_change_pages"] = bool(doc.permissions & (pymupdf.PDF_PERM_MODIFY | pymupdf.PDF_PERM_ASSEMBLE))
     finally:
         doc.close()
     info["needs_pass"] = needs
@@ -623,6 +626,52 @@ def _nested(toc: list[list]) -> list[list]:
         fixed.append([level, text, page])
         previous = level
     return fixed
+
+
+# ---------------------------------------------------------------------- #
+# Split (Milestone F2)                                                     #
+# ---------------------------------------------------------------------- #
+
+# Each Split job's source, to open afresh for every file it writes:
+# (bytes or None, path or None, password or None).
+_SPLIT: dict[str, tuple[bytes | None, str | None, str | None]] = {}
+
+
+def split_open(job_id: str, data: bytes | None, path: str | None, password: str | None) -> dict:
+    """Check the job's PDF opens (unlocked) and hold where to find it.
+    Returns `{pages, needs_pass}`. Raises SourceError."""
+    split_close(job_id)
+    doc, needs = _open_pdf(data, path, password)
+    try:
+        pages = len(doc)
+    finally:
+        doc.close()
+    _SPLIT[job_id] = (data, path, password)
+    return {"pages": pages, "needs_pass": needs}
+
+
+def split_close(job_id: str) -> None:
+    _SPLIT.pop(job_id, None)
+
+
+def split_part(job_id: str, first: int, last: int, dest: str) -> dict:
+    """Write pages `first`…`last` (0-based, inclusive) of the job's PDF to
+    `dest`, from a fresh copy each time: `select()` keeps the part's pages
+    with their annotations and links, drops the bookmarks pointing outside
+    it and retargets the rest (tests/test_page_changes.py). Kept protected
+    as the original is, and only the part's objects written (`garbage`).
+    Returns what the check after writing compares against."""
+    try:
+        data, path, password = _SPLIT[job_id]
+    except KeyError:
+        raise JobMissing() from None
+    doc, needs = _open_pdf(data, path, password)
+    try:
+        doc.select(list(range(first, last + 1)))
+        doc.save(dest, garbage=3, deflate=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
+        return {"pages": len(doc), "needs_pass": needs, "annots": annotation_summary(doc)}
+    finally:
+        doc.close()
 
 
 def convert_to_pdf_bytes(path: str) -> bytes:

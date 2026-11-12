@@ -413,10 +413,10 @@ const recentListHandlers = {
     if (rows.length) rows[Math.min(rowIndex, rows.length - 1)].focus();
     else recentViewListBtn.focus();
   },
-  // Compress, Make searchable, Export as images, for this file: its dialog
-  // straight away, no file to pick. Organise pages: the file in the reader,
-  // with its pages laid out.
-  onTool: (tool, entry) => (tool === "organise" ? openPathToOrganise(entry.path) : ToolDialog.open(tool, entry.path)),
+  // Compress, Make searchable, Export as images, Split, for this file: its
+  // dialog straight away, no file to pick. Organise pages: the file in the
+  // reader, with its pages laid out.
+  onTool: (tool, entry) => openToolFor(tool, entry.path),
 };
 
 // The grid card's "⋯" opens the same menu; Remove there goes through the same
@@ -442,8 +442,13 @@ async function openToolFromPage(tool) {
     return;
   }
   const path = await PdfPicker.choose(tool);
-  if (!path) return;
+  if (path) openToolFor(tool, path);
+}
+
+// A one-PDF tool for `path`, from the Tools page's picker or a Recent menu.
+function openToolFor(tool, path) {
   if (tool === "organise") openPathToOrganise(path);
+  else if (tool === "split") SplitDialog.open(path);
   else ToolDialog.open(tool, path);
 }
 
@@ -495,6 +500,10 @@ CombineDialog.configure({
   },
   saveAs: ensureSaveAsDialog("home"),
   openOutput: (path) => openPath(path),
+});
+SplitDialog.configure({
+  saveAs: ensureSaveAsDialog("home"),
+  onMissing: (message, path) => offerRemoval(path, message),
 });
 ConvertDialog.configure({
   // One file a pick: the Open dialog, listing images and e-books.
@@ -1005,7 +1014,7 @@ window.addEventListener("lector:command", (ev) => {
     ReplaceDialog.handleCommand(command);
     return;
   }
-  for (const dialog of [StopJobDialog, ToolDialog, ConvertDialog, CombineDialog, PdfPicker]) {
+  for (const dialog of [StopJobDialog, ToolDialog, ConvertDialog, CombineDialog, SplitDialog, PdfPicker]) {
     if (dialog.isOpen()) {
       dialog.handleCommand(command);
       return;

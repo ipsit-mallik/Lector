@@ -232,6 +232,39 @@ def combine(ctx: JobContext, inputs: list[tuple[str, str | None]], dest: str) ->
         ctx.release(engine.combine_close)
 
 
+def split(ctx: JobContext, source: Source, parts: list[tuple[int, int]], dest: str) -> dict:
+    """The Split job: each of `parts` ((first, last), 1-based) as its own
+    PDF, "<name> (part 1).pdf" …, in a new folder, protected as the
+    original is. One step per file. Returns `{path, files}`."""
+    stem = os.path.splitext(os.path.basename(source.path))[0] or "untitled"
+    names = [naming.split_part_name(stem, n + 1) for n in range(len(parts))]
+    ctx.progress("Splitting", 0, len(parts), "file")
+    path = None if source.data is not None else source.path
+    try:
+        ctx.step(engine.split_open, ctx.job_id, source.data, path, source.password, long=True)
+    except engine.SourceError:
+        raise JobFailed(messages.SOURCE_UNREADABLE) from None
+    try:
+        expected: list[dict] = []
+
+        def fill(folder: str) -> None:
+            for n, ((first, last), name) in enumerate(zip(parts, names)):
+                ctx.progress("Splitting", n + 1, len(parts), "file")
+                part = os.path.join(folder, name)
+                expected.append(ctx.step(engine.split_part, ctx.job_id, first - 1, last - 1, part, long=True))
+
+        def verify(folder: str) -> None:
+            if sorted(os.listdir(folder)) != sorted(names):
+                raise JobFailed(safe_write.VERIFY_FAILED)
+            for name, expect in zip(names, expected):
+                _check_pdf(ctx, os.path.join(folder, name), source.password, expect)
+
+        final = write_folder(dest, fill, verify)
+        return {"path": final, "files": len(parts)}
+    finally:
+        ctx.release(engine.split_close)
+
+
 def cached_words(index: int, key: str) -> list | None:
     """`KnownWords` from the OCR cache alone (Home has no open document)."""
     payload = ocr_cache.load(key)

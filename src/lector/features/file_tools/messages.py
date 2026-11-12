@@ -11,10 +11,11 @@ COMPRESS = "compress"
 SEARCHABLE = "searchable"
 EXPORT = "export"
 CONVERT = "convert"
-# Milestone F2: Organise pages' Extract…, and Combine files.
+# Milestone F2: Organise pages' Extract…, Combine files and Split.
 EXTRACT = "extract"
 COMBINE = "combine"
-TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT, EXTRACT, COMBINE)
+SPLIT = "split"
+TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT, EXTRACT, COMBINE, SPLIT)
 
 # Reasons of the tools' own, beside `safe_write`'s.
 SAME_AS_SOURCE = "same_as_source"
@@ -31,6 +32,7 @@ _WHAT = {
     CONVERT: "create the PDF",
     EXTRACT: "extract the pages",
     COMBINE: "combine the files",
+    SPLIT: "split the PDF",
 }
 
 _DETAIL = {

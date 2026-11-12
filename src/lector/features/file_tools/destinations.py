@@ -73,7 +73,8 @@ class Destination:
 
 
 def writes_folder(tool: str) -> bool:
-    return tool == messages.EXPORT
+    """Export as images and Split write a new folder of files."""
+    return tool in (messages.EXPORT, messages.SPLIT)
 
 
 def extension(tool: str) -> str:
@@ -91,6 +92,7 @@ def base_stem(tool: str, source: str) -> str:
         messages.SEARCHABLE: naming.SEARCHABLE,
         messages.EXPORT: naming.IMAGES,
         messages.COMBINE: naming.COMBINED,
+        messages.SPLIT: naming.SPLIT,
     }
     label = labels.get(tool)
     return f"{stem} ({label})" if label else stem
