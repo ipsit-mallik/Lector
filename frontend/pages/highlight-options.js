@@ -7,14 +7,18 @@
 //                 (H, U, S): what a drag over text writes (a PDF /Highlight,
 //                 /Underline or /StrikeOut). Choosing one turns the tool on.
 //                 Over anything else the tool always draws a freehand stroke.
-//   Preview       the button under the tool: a line in the color at the
-//                 style's opacity (for Highlight as thick as the freehand
-//                 preset), which opens the settings card.
-//   Settings card the five colors; the opacity slider (10–100%, remembered per
+//   Preview       the button under the tool: a slim pill split in two, the
+//                 color at full strength and the color at the style's
+//                 opacity on the page's paper, which opens the settings card.
+//                 Its name says the color and opacity.
+//   Settings card the five colors; the opacity slider (20–100%, remembered per
 //                 style, its default tick emphasised, a drag settling on it
 //                 within ±3%, a double-click on the thumb going back to it;
 //                 freehand strokes use the Highlight opacity); the thickness
-//                 presets, for drawings only.
+//                 presets, for drawings only, drawn in the color at a
+//                 preview strength that follows the slider (55% at 20%
+//                 opacity up to 100% at 100%), so they answer it as the
+//                 pill does without fading out.
 //
 // One card at a time. Every change applies at once and is remembered (api.py's
 // set_highlight_*), so it is still the reader's choice in the next PDF.
@@ -26,7 +30,7 @@
 const hlToolBtn = document.getElementById("highlightBtn");
 const highlightStyleBtn = document.getElementById("highlightStyleBtn");
 const highlightColorBtn = document.getElementById("highlightColorBtn");
-const highlightPreviewLine = document.getElementById("highlightPreviewLine");
+const highlightPreviewSwatch = document.getElementById("highlightPreviewSwatch");
 const highlightStyleCard = document.getElementById("highlightStyleCard");
 const highlightOptions = document.getElementById("highlightOptions");
 const highlightOptionsSwatches = document.getElementById("highlightOptionsSwatches");
@@ -41,10 +45,13 @@ const HIGHLIGHT_STYLE_KEYS = { h: "highlight", u: "underline", s: "strikethrough
 // (36pt) this tall, the rest scaled the same, never thinner than the floor.
 const THICKNESS_PREVIEW_MAX_PX = 16;
 const THICKNESS_PREVIEW_MIN_PX = 2;
-// The preview button's line: a Highlight as thick as the freehand preset (on
-// the same scale, a little thicker at the least), a line style 2px.
-const PREVIEW_HIGHLIGHT_MIN_PX = 3;
-const PREVIEW_LINE_PX = 2;
+// How strong the presets' lines are drawn: this at the slider's lowest,
+// rising in a straight line to full strength at its highest. A preview of the
+// opacity, not the result (that is the pill's right half), with a floor so a
+// faint setting never leaves a line too pale to read as a width.
+const PRESET_STRENGTH_FLOOR = 0.55;
+// What the preview button is called after the color and opacity it shows.
+const PREVIEW_BUTTON_ROLE = "Color, opacity and thickness";
 // The opacity slider's Page Up / Page Down step, in percent (the arrows step 1).
 const OPACITY_PAGE_STEP = 10;
 // How long the opacity slider waits after the last step before writing the
@@ -89,20 +96,32 @@ function opacityPct(style) {
 }
 
 // How tall a preset's line is drawn for a stroke `width` points wide.
-function thicknessPreviewPx(width, minPx = THICKNESS_PREVIEW_MIN_PX) {
+function thicknessPreviewPx(width) {
   const widest = Math.max(...highlightOptionsState.ink_widths);
-  return Math.max(minPx, (width / widest) * THICKNESS_PREVIEW_MAX_PX);
+  return Math.max(THICKNESS_PREVIEW_MIN_PX, (width / widest) * THICKNESS_PREVIEW_MAX_PX);
 }
 
 // --- The opacity control (settings card and editor) ------------------------ //
 
-// Builds "Opacity        60%" over [slider with ticks] into `root`. hooks: {
+// The presets' preview strength for an opacity, in percent to one decimal
+// (60% opacity: 77.5). An opacity under the slider's range gets the floor.
+function presetStrengthPct(pct) {
+  const { opacity_min: min, opacity_max: max } = highlightOptionsState;
+  const along = Math.min(1, Math.max(0, (pct - min) / (max - min)));
+  return Math.round((PRESET_STRENGTH_FLOOR + (1 - PRESET_STRENGTH_FLOOR) * along) * 1000) / 10;
+}
+
+// Builds "Opacity        60%" over [slider with ticks] and its two end labels
+// ("20%" at the left, "100%" at the right) into `root`. hooks: {
 //   onChange(pct)  a new value, by drag, key, tick or reset,
 //   onGesture()    a new drag, key press, tick or reset begins (the editor
 //                  makes each one undo step),
 //   onRelease()    a drag ended,
 // }
-// Returns { set(pct, defaultPct), input }.
+// Returns { set(pct, defaultPct), input }. `set` takes the value as it is: one
+// under the slider's range (a highlight written at 10% when that was allowed,
+// or by another app) is shown as it is, the knob resting at the low end, and
+// stays so until the slider is moved.
 function createOpacityControl(root, hooks) {
   const range = highlightOptionsState;
   const label = document.createElement("span");
@@ -122,6 +141,9 @@ function createOpacityControl(root, hooks) {
   input.max = String(range.opacity_max);
   input.step = "1";
   input.setAttribute("aria-labelledby", label.id);
+  // Said outright: the range a screen reader announces.
+  input.setAttribute("aria-valuemin", String(range.opacity_min));
+  input.setAttribute("aria-valuemax", String(range.opacity_max));
   const ticks = document.createElement("div");
   ticks.className = "range-ticks";
   for (let pct = range.opacity_min; pct <= range.opacity_max; pct += range.opacity_tick_step) {
@@ -137,12 +159,26 @@ function createOpacityControl(root, hooks) {
   const wrap = document.createElement("div");
   wrap.className = "range-slider-wrap";
   wrap.append(input, ticks);
-  root.replaceChildren(head, wrap);
+  // The track's two ends, named; the slider's own range says it to a screen
+  // reader, so these are for the eye only.
+  const ends = document.createElement("div");
+  ends.className = "range-ends";
+  ends.setAttribute("aria-hidden", "true");
+  for (const pct of [range.opacity_min, range.opacity_max]) {
+    const end = document.createElement("span");
+    end.textContent = `${pct}%`;
+    ends.append(end);
+  }
+  const slider = document.createElement("div");
+  slider.className = "range-slider-block";
+  slider.append(wrap, ends);
+  root.replaceChildren(head, slider);
   placeRangeTicks(ticks, (pct) => (pct - range.opacity_min) / (range.opacity_max - range.opacity_min));
 
   let defaultPct = range.opacity_max;
+  const clampPct = (pct) => Math.min(range.opacity_max, Math.max(range.opacity_min, pct));
   const show = (pct) => {
-    input.value = String(pct);
+    input.value = String(clampPct(pct));
     value.textContent = `${pct}%`;
     input.setAttribute("aria-valuetext", `${pct}%`);
     paintRangeFill(input);
@@ -155,12 +191,14 @@ function createOpacityControl(root, hooks) {
   input.addEventListener("pointerdown", (ev) => { if (ev.button === 0) gesture(); });
   input.addEventListener("keydown", (ev) => {
     if (!ev.repeat) gesture();
-    // Page Up / Page Down move a tick's worth, whatever the browser's own step.
+    // Page Up / Page Down move a tick's worth, whatever the browser's own
+    // step, and at either end do nothing, as the arrows do there.
     const page = { PageUp: OPACITY_PAGE_STEP, PageDown: -OPACITY_PAGE_STEP }[ev.key];
     if (!page) return;
     ev.preventDefault();
     ev.stopPropagation();
-    choose(Math.min(range.opacity_max, Math.max(range.opacity_min, Number(input.value) + page)));
+    const next = clampPct(Number(input.value) + page);
+    if (next !== Number(input.value)) choose(next);
   });
   bindRangeSlider(input, ticks, {
     // Only a drag settles on the default, so the arrow keys can step past it.
@@ -190,7 +228,8 @@ function createOpacityControl(root, hooks) {
 // (relative to the others) as its stroke. `selectOnArrow`: the settings card's
 // arrows choose as they move (a setting); the editor's only move, since each
 // choice there is an undo step. hooks: { onPick(width) }.
-// Returns { set(width), paint(colorCss, opacity) }.
+// Returns { set(width), paint(colorCss, opacityPct) }. The lines are the
+// color at the preview strength for that opacity (presetStrengthPct).
 function createThicknessControl(root, { selectOnArrow }, hooks) {
   root.replaceChildren(...highlightOptionsState.ink_widths.map((width) => {
     const preset = document.createElement("button");
@@ -213,16 +252,16 @@ function createThicknessControl(root, { selectOnArrow }, hooks) {
         preset.classList.toggle("selected", Number(preset.dataset.width) === width);
       });
     },
-    paint(colorCss, opacity) {
+    paint(colorCss, pct) {
       root.style.setProperty("--preset-color", colorCss);
-      root.style.setProperty("--preset-opacity", String(opacity));
+      root.style.setProperty("--preset-strength", `${presetStrengthPct(pct)}%`);
     },
   };
 }
 
 // --- What the options change elsewhere -------------------------------------- //
 
-// The rail (the tool's icon and name, the preview line), the style card's
+// The rail (the tool's icon and name, the preview pill), the style card's
 // check, the settings card, the drag's release wash and the freehand preview,
 // brought in line with the options and the active color.
 function showHighlightOptions() {
@@ -242,17 +281,24 @@ function showHighlightOptions() {
   popoverOpacity.set(opacityPct(style), defaultOpacityPct(style));
   popoverThickness.set(highlightOptionsState.ink_width);
   const inkOpacity = opacityPct("highlight") / 100;
-  if (activeHighlightColor) popoverThickness.paint(swatchColor(activeHighlightColor), inkOpacity);
-  const previewPx = style === "highlight"
-    ? thicknessPreviewPx(highlightOptionsState.ink_width, PREVIEW_HIGHLIGHT_MIN_PX)
-    : PREVIEW_LINE_PX;
-  highlightPreviewLine.style.setProperty("--preview-height", `${previewPx}px`);
-  highlightPreviewLine.style.setProperty("--preview-opacity", String(opacityPct(style) / 100));
+  // The presets answer the slider right above them, live as it moves.
+  if (activeHighlightColor) popoverThickness.paint(swatchColor(activeHighlightColor), opacityPct(style));
+  showPreviewSwatch(opacityPct(style));
   // The wash a drag turns into on release (reading.css, .selection-rect.applied)
   // shows the highlight before the re-rendered page does, so it is drawn at
   // the opacity that page is about to show.
   document.documentElement.style.setProperty("--applied-opacity", String(opacityPct(style) / 100));
   setInkStyle({ width: highlightOptionsState.ink_width, opacity: inkOpacity });
+}
+
+// The pill under the tool: its right half the color at `pct` on the paper
+// (reading.css mixes it); its name and tooltip the color and opacity.
+function showPreviewSwatch(pct) {
+  highlightPreviewSwatch.style.setProperty("--preview-opacity", `${pct}%`);
+  if (!activeHighlightColor) return;
+  const name = `${highlightColorLabel(activeHighlightColor)}, ${pct}% opacity. ${PREVIEW_BUTTON_ROLE}`;
+  highlightColorBtn.title = name;
+  highlightColorBtn.setAttribute("aria-label", name);
 }
 
 function adoptHighlightOptions(options) {

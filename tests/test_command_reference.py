@@ -137,6 +137,14 @@ class NothingListedThatDoesNotWorkTests(unittest.TestCase):
                 self.assertEqual((parsed["intent"], parsed["opacity"]), (grammar.SET_OPACITY, 40))
         self.assertEqual(reference.panel()["opacity_values"], list(grammar.OPACITY_VALUES))
 
+    def test_what_can_i_say_offers_twenty_to_a_hundred_not_ten(self):
+        values = reference.panel()["opacity_values"]
+        self.assertEqual((values[0], values[-1]), (20, 100))
+        self.assertNotIn(10, values)
+        (card,) = [c for c in all_commands() if any(reference.OPACITY in p for p in c["phrases"])]
+        self.assertIn("20 to 100", card["description"])
+        self.assertNotIn("10 to 100", card["description"])
+
     def test_every_phrase_is_a_pattern_not_one_invented_example(self):
         # A variable is a placeholder the page fills with the real range. A
         # digit in a phrase would be a single made-up example presented as

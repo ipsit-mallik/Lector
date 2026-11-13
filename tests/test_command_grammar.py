@@ -468,15 +468,17 @@ class HighlightToolSettingTests(unittest.TestCase):
     "thicker"/"thinner", and "<style> mode"."""
 
     def test_opacity_takes_exactly_the_tick_values(self):
-        for spoken, value in (("opacity forty", 40), ("opacity 40", 40), ("opacity ten", 10),
+        for spoken, value in (("opacity forty", 40), ("opacity 40", 40), ("opacity twenty", 20),
                               ("opacity one hundred", 100), ("opacity seventy percent", 70)):
             with self.subTest(spoken=spoken):
                 result = cg.parse(spoken)
                 self.assertEqual((result["intent"], result["opacity"]), (cg.SET_OPACITY, value))
-        self.assertEqual(cg.OPACITY_VALUES, tuple(range(10, 101, 10)))
+        self.assertEqual(cg.OPACITY_VALUES, tuple(range(20, 101, 10)))
 
     def test_opacity_off_the_ticks_or_out_of_range_sets_nothing(self):
-        for spoken in ("opacity forty five", "opacity five", "opacity zero", "opacity two hundred",
+        # "opacity ten" too: 10% is no longer offered.
+        for spoken in ("opacity ten", "opacity 10", "opacity ten percent",
+                       "opacity forty five", "opacity five", "opacity zero", "opacity two hundred",
                        "opacity", "opacity percent"):
             with self.subTest(spoken=spoken):
                 result = cg.parse(spoken)

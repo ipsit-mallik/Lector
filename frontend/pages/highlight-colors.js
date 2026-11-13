@@ -411,18 +411,27 @@ function positionHighlightEditor() {
 
 // The editor's opacity slider and (for a drawing) its thickness presets, set
 // to the highlight's own. The emphasised tick is its style's default; a
-// drawing's is the Highlight default, as new strokes use.
+// drawing's is the Highlight default, as new strokes use. An opacity under
+// the slider's range (10%, from when that was the lowest) is shown as it is,
+// the knob at the low end; nothing changes it until the slider is moved.
 function showEditedAppearance(highlight) {
   if (!editorOpacity) return;
   const ink = highlight.kind === "ink";
   const style = ink ? "highlight" : highlight.style || "highlight";
   const pct = Math.round((highlight.opacity == null ? 1 : highlight.opacity) * 100);
-  editorOpacity.set(Math.min(100, Math.max(10, pct)), defaultOpacityPct(style));
+  editorOpacity.set(Math.min(100, Math.max(0, pct)), defaultOpacityPct(style));
   highlightEditorThickness.hidden = !ink;
   if (ink) {
     editorThickness.set(highlight.width);
-    editorThickness.paint(swatchColor(highlight.color || activeHighlightColor), highlight.opacity);
+    paintEditorPresets(pct);
   }
+}
+
+// A drawing's presets, at the preview strength for `pct` (the editor's slider,
+// live as it moves).
+function paintEditorPresets(pct) {
+  if (!highlightEditing || highlightEditing.highlight.kind !== "ink") return;
+  editorThickness.paint(swatchColor(highlightEditing.highlight.color || activeHighlightColor), pct);
 }
 
 function newEditorGesture() {
@@ -501,7 +510,10 @@ async function initHighlightColors() {
 function initHighlightEditorControls() {
   editorOpacity = createOpacityControl(highlightEditorOpacity, {
     onGesture: newEditorGesture,
-    onChange: (pct) => changeEditedAppearance({ opacity: pct }),
+    onChange: (pct) => {
+      paintEditorPresets(pct);
+      changeEditedAppearance({ opacity: pct });
+    },
   });
   editorThickness = createThicknessControl(highlightEditorThicknessGroup, { selectOnArrow: false }, {
     onPick: (width) => {

@@ -18,8 +18,11 @@ DEFAULT_STYLE = HIGHLIGHT
 # Opacity in whole percent, remembered per style. A highlight at 60% through
 # Multiply reads as the colour with what is under it showing; a line is thin
 # enough to be drawn solid. Freehand strokes use the Highlight value, so a
-# stroke beside a text highlight is the same colour.
-OPACITY_MIN_PCT = 10
+# stroke beside a text highlight is the same colour. Nothing lower: at 10% a
+# highlight could hardly be seen on the page. (10 was the minimum once; a
+# remembered opacity under this one is raised to it, settings/store.py. An
+# annotation already in a PDF keeps whatever it has.)
+OPACITY_MIN_PCT = 20
 OPACITY_MAX_PCT = 100
 DEFAULT_OPACITY_PCT: dict[str, int] = {HIGHLIGHT: 60, UNDERLINE: 100, STRIKETHROUGH: 100}
 # A drag on the slider settles on the style's default within this many

@@ -185,6 +185,8 @@
   --popover-surface: var(--surface-input);
   --popover-shadow: var(--shadow-2);
   --badge-border: var(--border);
+  /* The edge round the highlight tool's colour pill on the rail. */
+  --rail-swatch-edge: var(--border);
   --shadow-3: 0 24px 48px rgba(22, 26, 24, 0.22), 0 8px 16px rgba(22, 26, 24, 0.10);
   --shadow-page: 0 4px 24px rgba(22, 26, 24, 0.18);
 
@@ -269,6 +271,7 @@
   --popover-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   /* The faint dark --border vanishes round a small badge on the rail. */
   --badge-border: var(--border-strong);
+  --rail-swatch-edge: var(--border-strong);
   --shadow-3: 0 24px 56px rgba(0, 0, 0, 0.6), 0 8px 16px rgba(0, 0, 0, 0.35);
   --shadow-page: 0 4px 24px rgba(0, 0, 0, 0.5);
 
@@ -343,6 +346,7 @@
   --popover-surface: var(--surface-input);
   --popover-shadow: var(--shadow-2);
   --badge-border: var(--border);
+  --rail-swatch-edge: var(--border);
   --shadow-3: 0 24px 48px rgba(59, 47, 32, 0.24), 0 8px 16px rgba(59, 47, 32, 0.12);
   --shadow-page: 0 4px 24px rgba(59, 47, 32, 0.2);
 

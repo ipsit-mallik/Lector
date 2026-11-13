@@ -239,8 +239,8 @@
              the chosen style (its icon: highlighter, underline or
              strikethrough), and the badge on its corner (or a right-click on
              it) opens the style card. Under it, the preview of what the tool
-             draws (a line in the color, at the opacity), which opens the
-             settings card. One card at a time, beside the rail, over the page
+             draws (a pill: the color at full strength, and the color at the
+             opacity on the page's paper), which opens the settings card. One card at a time, beside the rail, over the page
              (highlight-options.js). -->
         <div class="rail-highlight">
           <div class="tool-split">
@@ -251,9 +251,9 @@
               <span class="style-badge-face" data-icon="chevron_left"></span>
             </button>
           </div>
-          <button class="preview-btn" id="highlightColorBtn" type="button" title="Color, opacity, thickness"
-                  aria-label="Color, opacity, thickness" aria-haspopup="dialog" aria-expanded="false" aria-controls="highlightOptions">
-            <span class="preview-line" id="highlightPreviewLine"></span>
+          <button class="preview-btn" id="highlightColorBtn" type="button" title="Color, opacity and thickness"
+                  aria-label="Color, opacity and thickness" aria-haspopup="dialog" aria-expanded="false" aria-controls="highlightOptions">
+            <span class="preview-swatch" id="highlightPreviewSwatch"></span>
           </button>
           <div class="rail-card style-card" id="highlightStyleCard" role="menu" aria-label="Highlight style" hidden>
             <button class="style-item" type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-style="highlight">
@@ -270,8 +270,9 @@
             <div class="swatch-row" id="highlightOptionsSwatches" aria-label="Color"></div>
             <div class="hl-options-divider"></div>
             <!-- Built by highlight-options.js: "Opacity" and the value over the
-                 slider, with a tick every 10%. -->
+                 slider, with a tick every 10% and its ends named under it. -->
             <div class="hl-options-row opacity-control" id="highlightOpacityControl"></div>
+            <div class="hl-options-divider hl-options-divider--after-slider"></div>
             <div class="hl-options-row">
               <div class="hl-options-head">
                 <span class="hl-options-label" id="highlightThicknessLabel">Thickness</span>

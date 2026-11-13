@@ -339,6 +339,41 @@ class AppearanceEditTests(_DocTest):
         self.assertAlmostEqual(annot.opacity, 0.9, places=3)
 
 
+class UnderTheMinimumTests(unittest.TestCase):
+    """A highlight already in a PDF below the slider's 20% (written at 10%
+    when that was allowed, or by another app) is left exactly as it is."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory(prefix="lector-styles-faint-")
+        self.addCleanup(self.dir.cleanup)
+        source = pymupdf.open(str(pdf_support.plain_text(Path(self.dir.name))))
+        page = source[0]
+        annot = page.add_highlight_annot(page.get_text("words")[0][:4])
+        annot.set_colors(stroke=(0xF7 / 255, 0xDE / 255, 0x7A / 255))  # --highlight-yellow
+        annot.set_opacity(0.1)
+        annot.update()
+        self.path = str(Path(self.dir.name) / "faint.pdf")
+        source.save(self.path)
+        source.close()
+        self.doc = PdfDocument()
+        self.doc.open(self.path)
+        self.addCleanup(self.doc.close)
+
+    def test_it_opens_at_its_own_opacity(self):
+        (found,) = self.doc.highlights_on_page(0)
+        self.assertAlmostEqual(found.shape.opacity, 0.1, places=3)
+
+    def test_saving_with_other_changes_leaves_it_at_ten_percent(self):
+        self.doc.add_ink_stroke(0, [(80, 300), (240, 300)])
+        copy = str(Path(self.dir.name) / "copy.pdf")
+        self.doc.save_copy(copy)
+        reopened = pymupdf.open(copy)
+        self.addCleanup(reopened.close)
+        faint = [a for a in reopened[0].annots() if a.type[0] == pymupdf.PDF_ANNOT_HIGHLIGHT]
+        self.assertEqual(len(faint), 1)
+        self.assertAlmostEqual(faint[0].opacity, 0.1, places=3)
+
+
 class SettingsTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory(prefix="lector-styles-settings-")
@@ -384,6 +419,32 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(store.get_highlight_opacities(), {"highlight": 60, "underline": 100, "strikethrough": 70})
         self.assertEqual(store.get_ink_width(), 14)
 
+    def test_a_remembered_ten_percent_loads_as_twenty_and_is_written_back(self):
+        self.path.write_text(json.dumps({
+            "highlight_style": "underline",
+            "highlight_opacity": {"highlight": 10, "underline": 15, "strikethrough": 70},
+        }), encoding="utf-8")
+        self.assertEqual(store.get_highlight_opacities(), {"highlight": 20, "underline": 20, "strikethrough": 70})
+        saved = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["highlight_opacity"], {"highlight": 20, "underline": 20, "strikethrough": 70})
+        # Nothing else in the file changes.
+        self.assertEqual(saved["highlight_style"], "underline")
+        self.assertEqual(store.get_highlight_opacity("highlight"), 20)
+
+    def test_settings_at_or_above_the_minimum_are_not_rewritten(self):
+        self.path.write_text(json.dumps({"highlight_opacity": {"highlight": 20}}), encoding="utf-8")
+        before = self.path.read_bytes()
+        self.assertEqual(store.get_highlight_opacities()["highlight"], 20)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_the_slider_s_minimum_is_twenty(self):
+        with self.assertRaises(ValueError):
+            store.set_highlight_opacity("highlight", 10)
+        with self.assertRaises(ValueError):
+            store.set_highlight_opacity("highlight", 19)
+        store.set_highlight_opacity("highlight", 20)
+        self.assertEqual(store.get_highlight_opacity("highlight"), 20)
+
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
@@ -403,7 +464,7 @@ class ApiTests(unittest.TestCase):
             "styles": ["highlight", "underline", "strikethrough"],
             "opacity": {"highlight": 60, "underline": 100, "strikethrough": 100},
             "default_opacity": {"highlight": 60, "underline": 100, "strikethrough": 100},
-            "opacity_min": 10,
+            "opacity_min": 20,
             "opacity_max": 100,
             "opacity_snap": 3,
             "opacity_tick_step": 10,

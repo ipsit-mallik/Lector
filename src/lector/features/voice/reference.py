@@ -302,13 +302,13 @@ def _reading_sections() -> list[dict]:
                                         WORDS)],
                      "Any of the above in that color, this once. The color new "
                      "highlights use stays as it was.",
-                     "Pick the color from the line under the highlight tool, then drag",
+                     "Pick the color from the color under the highlight tool, then drag",
                      _READING),
             _command(_then(grammar.HIGHLIGHT_COLOR_PREFIXES, COLOR),
                      "Makes that the color every new highlight, underline and "
                      "strikethrough is drawn in, until you change it again — it is "
                      "remembered next time you open Lector.",
-                     "Click the line under the highlight tool and pick one", _READING),
+                     "Click the color under the highlight tool and pick one", _READING),
             _command(_all(p, grammar.HIGHLIGHT_MODE),
                      "Turns the highlight tool on, highlighting.",
                      "Press H, or choose Highlight from the badge on the highlight tool",
@@ -324,17 +324,17 @@ def _reading_sections() -> list[dict]:
             _command([f"{grammar.OPACITY_PREFIX} {OPACITY}",
                       f"{grammar.OPACITY_PREFIX} {OPACITY} {grammar.OPACITY_SUFFIX}"],
                      "Sets how strong the style you are using is drawn, in tens from "
-                     "10 to 100. Each style keeps its own; drawings use the "
+                     "20 to 100. Each style keeps its own; drawings use the "
                      "highlight's.",
-                     "Click the line under the highlight tool, then the Opacity slider",
+                     "Click the color under the highlight tool, then the Opacity slider",
                      _READING),
             _command(_all(p, grammar.THICKER),
                      "Draws on pictures and blank paper one thickness wider.",
-                     "Click the line under the highlight tool, then a thickness",
+                     "Click the color under the highlight tool, then a thickness",
                      _READING),
             _command(_all(p, grammar.THINNER),
                      "One thickness narrower.",
-                     "Click the line under the highlight tool, then a thickness",
+                     "Click the color under the highlight tool, then a thickness",
                      _READING),
         ]),
         _section("undo_redo", "Undo and redo", scope, [

@@ -171,7 +171,7 @@ STYLE_MODE_INTENTS: dict[str, str] = {
 _MODE_WORD = "mode"
 
 # "opacity <number>": the lead, an optional "percent" after the number, and
-# the values it may take — the opacity slider's ticks, 10 to 100 in tens, so
+# the values it may take — the opacity slider's ticks, 20 to 100 in tens, so
 # a half-heard number never sets an opacity nobody chose. `highlight_options`
 # owns the range; the grammar repeats only that it is the ticks.
 OPACITY_PREFIX = "opacity"

@@ -397,15 +397,44 @@ def set_highlight_style(style: str) -> None:
     _save(data)
 
 
+# The opacity slider's lowest before it was raised to OPACITY_MIN_PCT.
+_OLDER_OPACITY_MIN_PCT = 10
+
+
+def _below_minimum_pct(value) -> bool:
+    """A whole percent under the slider's lowest that an older Lector could
+    have stored (its minimum was 10%). Anything lower was never offered, so
+    is a hand-edited value and falls back to the default like any other."""
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and _OLDER_OPACITY_MIN_PCT <= value < highlight_options.OPACITY_MIN_PCT
+    )
+
+
+def _read_opacity(value, default: int) -> int:
+    if highlight_options.is_opacity_pct(value):
+        return value
+    if _below_minimum_pct(value):
+        return highlight_options.OPACITY_MIN_PCT
+    return default
+
+
+@_serialized
 def get_highlight_opacities() -> dict[str, int]:
     """Every style's opacity in whole percent; a missing or bad one is its
-    style's default."""
-    stored = _load().get(_HIGHLIGHT_OPACITY_KEY)
+    style's default. One under the minimum is raised to it, and the raised
+    value is written back, so the file says what the slider shows."""
+    data = _load()
+    stored = data.get(_HIGHLIGHT_OPACITY_KEY)
     stored = stored if isinstance(stored, dict) else {}
-    return {
-        style: stored[style] if highlight_options.is_opacity_pct(stored.get(style)) else default
+    opacities = {
+        style: _read_opacity(stored.get(style), default)
         for style, default in highlight_options.DEFAULT_OPACITY_PCT.items()
     }
+    if any(_below_minimum_pct(stored.get(style)) for style in highlight_options.STYLES):
+        _save({**data, _HIGHLIGHT_OPACITY_KEY: opacities})
+    return opacities
 
 
 def get_highlight_opacity(style: str) -> int:

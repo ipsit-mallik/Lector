@@ -4,19 +4,28 @@ plus their markup and look.
 
 What is held here:
 
-* **The opacity slider** has a tick every 10% from 10 to 100; the tick at the
+* **The opacity slider** has a tick every 10% from 20 to 100; the tick at the
   style's default is the emphasised one and moves when the style changes;
   a click on a tick jumps there; a drag settles on the default within ±3%
-  and nowhere else; the arrow keys never snap and Page Up/Down move 10; a
-  double-click on the thumb (and only on the thumb) resets to the default.
-  The setting is written once the slider rests or the drag ends, and before
-  the card closes.
+  and nowhere else; the arrow keys never snap and Page Up/Down move 10 (and
+  at 20 Page Down stays there); a double-click on the thumb (and only on the
+  thumb) resets to the default. The setting is written once the slider rests
+  or the drag ends, and before the card closes. A value under the range (an
+  annotation written at 10%) is shown as it is, the knob at 20, and is only
+  changed by moving the slider.
 * **The thickness presets** are drawn proportional to their width (36pt is
-  16px, 4pt 2px at the least), each named "<n> pt", the chosen one marked,
-  the arrows choosing as they move; a pick is written and reaches the
-  freehand preview.
+  16px, 4pt 2px at the least), in the colour at a preview strength that
+  follows the opacity slider (55% at 20%, 77.5% at 60%, 100% at 100%), live
+  during a drag, each named "<n> pt", the chosen one a paper tile with its
+  ring inside the button, the arrows choosing as they move; a pick is written
+  and reaches the freehand preview.
+* **The slider's range** is named under it ("20%", "100%", hidden from
+  screen readers) and said by aria-valuemin / aria-valuemax.
+* **The preview pill** under the tool: its right half mixed at the current
+  style's opacity, its name and tooltip the colour and opacity, both kept up
+  to date as the colour, opacity or style changes.
 * **The style** changes the tool's icon, name and tooltip key, the style
-  card's check, the opacity shown, the preview line and the release wash's
+  card's check, the opacity shown, the preview pill and the release wash's
   opacity, and is written.
 * **The split button**: the badge (and a right-click on the tool) opens the
   style card on the chosen style; the arrows move, a row or its letter
@@ -106,18 +115,18 @@ const fireDoc = (type, ev) => (docListeners[type] || []).forEach((fn) => fn({ bu
 
 document.documentElement = fakeElement("html");
 const els = {};
-for (const id of ["highlightBtn", "highlightStyleBtn", "highlightColorBtn", "highlightPreviewLine", "highlightStyleCard",
+for (const id of ["highlightBtn", "highlightStyleBtn", "highlightColorBtn", "highlightPreviewSwatch", "highlightStyleCard",
                   "highlightOptions", "highlightOptionsSwatches", "highlightOpacityControl", "highlightThicknessGroup"]) {
   els[id] = fakeElement(id.endsWith("Btn") ? "button" : "div", id);
 }
 // The rail item the cards are placed in: the tool at its top, the preview
-// button 10px under the tool's 40px.
+// button's 24px centred on its 10px pill, 4px under the tool's 40px.
 const rail = fakeElement("div", "railHighlight");
-rail.rect = { left: 0, top: 100, width: 40, height: 74 };
+rail.rect = { left: 0, top: 100, width: 40, height: 61 };
 els.highlightBtn.rect = { left: 0, top: 100, width: 40, height: 40 };
-els.highlightColorBtn.rect = { left: 0, top: 150, width: 40, height: 24 };
+els.highlightColorBtn.rect = { left: 0, top: 137, width: 40, height: 24 };
 rail.append(els.highlightBtn, els.highlightStyleBtn, els.highlightColorBtn, els.highlightStyleCard, els.highlightOptions);
-els.highlightColorBtn.append(els.highlightPreviewLine);
+els.highlightColorBtn.append(els.highlightPreviewSwatch);
 els.highlightStyleCard.hidden = true;
 els.highlightOptions.hidden = true;
 els.highlightBtn.dataset.icon = "highlight";
@@ -143,7 +152,7 @@ const OPTIONS = {
   style: "highlight", styles: ["highlight", "underline", "strikethrough"],
   opacity: { highlight: 60, underline: 100, strikethrough: 100 },
   default_opacity: { highlight: 60, underline: 100, strikethrough: 100 },
-  opacity_min: 10, opacity_max: 100, opacity_snap: 3, opacity_tick_step: 10,
+  opacity_min: 20, opacity_max: 100, opacity_snap: 3, opacity_tick_step: 10,
   ink_width: 14, ink_widths: [4, 8, 14, 24, 36],
 };
 let options = JSON.parse(JSON.stringify(OPTIONS));
@@ -167,6 +176,7 @@ const context = vm.createContext({
   buildSwatches: async () => {},
   markSwatch: () => {},
   swatchColor: (name) => `var(--highlight-${name})`,
+  highlightColorLabel: (name) => name.charAt(0).toUpperCase() + name.slice(1),
   highlightPalette: ["yellow", "green", "blue", "pink", "orange"],
   closeHighlightEditor: () => { editorClosed += 1; },
   initHighlightEditorControls: () => {},
@@ -175,8 +185,11 @@ const context = vm.createContext({
 for (const file of process.argv.slice(1)) vm.runInContext(fs.readFileSync(file, "utf8"), context);
 const run = (expr) => vm.runInContext(expr, context);
 const tick = () => new Promise((r) => setImmediate(r));
-const preview = () => ({ height: els.highlightPreviewLine.style.getPropertyValue("--preview-height"),
-                         opacity: els.highlightPreviewLine.style.getPropertyValue("--preview-opacity") });
+const preview = () => ({ opacity: els.highlightPreviewSwatch.style.getPropertyValue("--preview-opacity"),
+                         label: els.highlightColorBtn.getAttribute("aria-label"),
+                         title: els.highlightColorBtn.title });
+const presetPaint = () => ({ color: els.highlightThicknessGroup.style.getPropertyValue("--preset-color") || null,
+                             strength: els.highlightThicknessGroup.style.getPropertyValue("--preset-strength") || null });
 
 (async () => {
   const out = {};
@@ -203,18 +216,30 @@ const preview = () => ({ height: els.highlightPreviewLine.style.getPropertyValue
   out.radio = radio;
   out.inkStyle = { ...inkStyle };
   out.appliedOpacity = document.documentElement.style.getPropertyValue("--applied-opacity");
+  out.presetPaint = presetPaint();
+  out.strengthOf = Object.fromEntries([10, 20, 30, 60, 100].map((pct) => [pct, run("presetStrengthPct")(pct)]));
+  const ends = control.querySelector("div.range-ends");
+  out.ends = { texts: ends.children.map((e) => e.textContent), hidden: ends.getAttribute("aria-hidden"),
+               min: input.getAttribute("aria-valuemin"), max: input.getAttribute("aria-valuemax"),
+               block: control.children[1].className, blockKids: control.children[1].children.map((c) => c.className) };
 
   // A drag: snaps within 3 of the default, nowhere else; written once, on release.
   calls.length = 0;
   input.fire("pointerdown");
   const dragged = [];
-  for (const v of [62, 64, 57, 56]) { input.value = String(v); input.fire("input"); dragged.push(Number(input.value)); }
+  const strengthDuringDrag = [];
+  for (const v of [62, 64, 57, 56]) {
+    input.value = String(v); input.fire("input"); dragged.push(Number(input.value));
+    strengthDuringDrag.push(presetPaint().strength);
+  }
+  out.strengthDuringDrag = strengthDuringDrag;
   out.dragged = dragged;
   out.savesBeforeRelease = calls.filter((c) => c[0] === "set_highlight_opacity").length;
   fireDoc("pointerup", {});
   out.savesAfterRelease = calls.filter((c) => c[0] === "set_highlight_opacity");
   out.inkAfterDrag = inkStyle.opacity;
   out.previewAfterDrag = preview();
+  out.presetPaintAfterDrag = presetPaint();
 
   // The arrow keys: no snap; written once the slider rests.
   calls.length = 0;
@@ -233,12 +258,21 @@ const preview = () => ({ height: els.highlightPreviewLine.style.getPropertyValue
   out.paged = paged;
   timers.splice(0).forEach((fn) => fn());
 
+  // At the low end, Page Down stays at 20 and writes nothing new.
+  ticks.find((t) => t.dataset.value === "20").fire("click");
+  timers.splice(0).forEach((fn) => fn());
+  calls.length = 0;
+  const atLow = input.fire("keydown", { key: "PageDown" });
+  timers.splice(0).forEach((fn) => fn());
+  out.pageDownAtLow = { value: Number(input.value), text: control.querySelector("output").textContent,
+                        prevented: atLow.defaultPrevented, saves: calls.filter((c) => c[0] === "set_highlight_opacity") };
+
   // A tick, then a double-click on the thumb (and one beside it).
   ticks.find((t) => t.dataset.value === "30").fire("click");
   out.afterTick = shown();
   input.fire("dblclick", { clientX: 150 });
   out.afterDblclickOffThumb = Number(input.value);
-  input.fire("dblclick", { clientX: 6 + (20 / 90) * 200 });
+  input.fire("dblclick", { clientX: 6 + (10 / 80) * 200 });
   out.afterDblclickThumb = Number(input.value);
 
   // The style card, from the badge: open on the chosen style, the arrows
@@ -331,6 +365,24 @@ const preview = () => ({ height: els.highlightPreviewLine.style.getPropertyValue
   out.afterButtonPress = pop.hidden;
   fireDoc("pointerdown", { target: outside });
   out.afterOutsidePress = pop.hidden;
+
+  // A new colour: the pill's name follows it, at the current style's opacity.
+  run("showActiveHighlightColor")("pink");
+  out.pink = preview();
+
+  // The editor's slider (the same control) on an annotation written at 10%:
+  // shown as it is, the knob at the low end, unchanged until it is moved.
+  const editorRoot = fakeElement("div", "editorOpacity");
+  const changes = [];
+  const editor = run("createOpacityControl")(editorRoot, { onChange: (pct) => changes.push(pct) });
+  const editorShown = () => ({ value: Number(editor.input.value), text: editorRoot.querySelector("output").textContent,
+                               valuetext: editor.input.getAttribute("aria-valuetext") });
+  editor.set(10, 60);
+  out.legacy = { shown: editorShown(), changes: changes.slice() };
+  editor.input.fire("keydown", { key: "PageDown" });
+  out.legacyPageDown = { shown: editorShown(), changes: changes.slice() };
+  editor.input.fire("keydown", { key: "PageUp" });
+  out.legacyPageUp = { shown: editorShown(), changes: changes.slice() };
   console.log(JSON.stringify(out));
 })().catch((err) => { console.error(err); process.exit(1); });
 """
@@ -349,14 +401,14 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
 
     # --- The opacity slider ------------------------------------------------- #
 
-    def test_a_tick_every_ten_percent_placed_along_the_track(self):
-        self.assertEqual([value for value, _ in self.out["ticks"]], list(range(10, 101, 10)))
+    def test_a_tick_every_ten_percent_from_twenty_placed_along_the_track(self):
+        self.assertEqual([value for value, _ in self.out["ticks"]], list(range(20, 101, 10)))
         self.assertEqual(self.out["ticks"][0][1], "0.000")
         self.assertEqual(self.out["ticks"][-1][1], "1.000")
-        self.assertEqual(self.out["ticks"][5][1], f"{50 / 90:.3f}")
+        self.assertEqual(self.out["ticks"][3][1], f"{30 / 80:.3f}")  # 50%
 
     def test_the_label_and_value_sit_over_the_slider(self):
-        self.assertEqual(self.out["head"], ["hl-options-head", "range-slider-wrap"])
+        self.assertEqual(self.out["head"], ["hl-options-head", "range-slider-block"])
 
     def test_it_starts_at_the_style_s_opacity_with_its_default_emphasised(self):
         self.assertEqual(self.out["major"], ["60"])
@@ -370,7 +422,7 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
         self.assertEqual(self.out["savesBeforeRelease"], 0)
         self.assertEqual(self.out["savesAfterRelease"], [["set_highlight_opacity", "highlight", 56]])
         self.assertAlmostEqual(self.out["inkAfterDrag"], 0.56)
-        self.assertEqual(self.out["previewAfterDrag"]["opacity"], "0.56")
+        self.assertEqual(self.out["previewAfterDrag"]["opacity"], "56%")
 
     def test_the_arrow_keys_never_snap_and_are_written_once_rested(self):
         self.assertEqual(self.out["keyed"], 61)
@@ -378,6 +430,9 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
 
     def test_page_up_and_down_move_ten(self):
         self.assertEqual(self.out["paged"], [[71, True], [81, True], [91, True], [100, True], [90, True]])
+
+    def test_the_slider_s_minimum_is_twenty_and_page_down_there_stays(self):
+        self.assertEqual(self.out["pageDownAtLow"], {"value": 20, "text": "20%", "prevented": True, "saves": []})
 
     def test_a_tick_jumps_and_a_double_click_on_the_thumb_resets(self):
         self.assertEqual(self.out["afterTick"], {"value": 30, "text": "30%"})
@@ -428,11 +483,28 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
         self.assertAlmostEqual(underline["inkOpacity"], 0.6)
         self.assertEqual(underline["calls"], ["set_highlight_style"])
 
-    def test_the_preview_is_the_style_s_line(self):
-        # Highlight: as thick as the 14pt preset on the presets' scale.
-        self.assertEqual(self.out["preview"], {"height": f"{max(3, 14 / 36 * 16)}px", "opacity": "0.6"})
-        # A line style: 2px, at its own opacity.
-        self.assertEqual(self.out["underline"]["preview"], {"height": "2px", "opacity": "1"})
+    def test_the_pill_mixes_its_right_half_at_each_style_s_opacity(self):
+        self.assertEqual(self.out["preview"]["opacity"], "60%")
+        self.assertEqual(self.out["underline"]["preview"]["opacity"], "100%")
+        # Strikethrough, left at 45% by the settings card.
+        self.assertEqual(self.out["pink"]["opacity"], "45%")
+
+    def test_the_pill_s_name_says_the_colour_and_opacity_and_follows_them(self):
+        def named(text):
+            return {"label": text, "title": text}
+
+        def name_of(preview):
+            return {"label": preview["label"], "title": preview["title"]}
+
+        self.assertEqual(name_of(self.out["preview"]), named("Yellow, 60% opacity. Color, opacity and thickness"))
+        # The opacity changes it ...
+        self.assertEqual(name_of(self.out["previewAfterDrag"]),
+                         named("Yellow, 56% opacity. Color, opacity and thickness"))
+        # ... the style ...
+        self.assertEqual(name_of(self.out["underline"]["preview"]),
+                         named("Yellow, 100% opacity. Color, opacity and thickness"))
+        # ... and the colour.
+        self.assertEqual(name_of(self.out["pink"]), named("Pink, 45% opacity. Color, opacity and thickness"))
 
     def test_a_right_click_on_the_tool_opens_it_and_esc_returns_there(self):
         self.assertEqual(self.out["rightClick"], {"prevented": True, "hidden": False})
@@ -461,6 +533,23 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
         self.assertEqual(self.out["nonKeys"], [None, None, None, "strikethrough"])
 
     # --- Thickness and voice's helpers -------------------------------------- #
+
+    def test_the_presets_preview_strength_follows_the_opacity_with_a_floor(self):
+        # 0.55 + 0.45 * (opacity - 20) / 80; under the range, the floor.
+        self.assertEqual(self.out["strengthOf"], {"10": 55, "20": 55, "30": 60.6, "60": 77.5, "100": 100})
+        self.assertEqual(self.out["presetPaint"], {"color": "var(--highlight-yellow)", "strength": "77.5%"})
+
+    def test_the_presets_strength_updates_during_a_drag(self):
+        # 62 and 57 snap to the 60 default; 64 and 56 do not; each before the release.
+        self.assertEqual(self.out["strengthDuringDrag"], ["77.5%", "79.8%", "77.5%", "75.3%"])
+        self.assertEqual(self.out["savesBeforeRelease"], 0)
+        self.assertEqual(self.out["presetPaintAfterDrag"], {"color": "var(--highlight-yellow)", "strength": "75.3%"})
+
+    def test_the_slider_names_its_ends_and_says_its_range(self):
+        self.assertEqual(self.out["ends"], {
+            "texts": ["20%", "100%"], "hidden": "true", "min": "20", "max": "100",
+            "block": "range-slider-block", "blockKids": ["range-slider-wrap", "range-ends"],
+        })
 
     def test_presets_are_proportional_and_named(self):
         heights = {width: float(height[:-2]) for width, height, _, _ in self.out["presets"]}
@@ -499,7 +588,7 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
         opened = self.out["opened"]
         self.assertFalse(opened["hidden"])
         self.assertEqual(opened["expanded"], "true")
-        self.assertEqual(opened["caret"], "62px")  # 50px down, 24px tall
+        self.assertEqual(opened["caret"], "49px")  # 37px down, 24px tall
         self.assertTrue(opened["styleHidden"])
 
     def test_it_closes_on_esc_or_a_press_outside_only(self):
@@ -509,6 +598,19 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
         self.assertEqual(self.out["afterEsc"]["saves"], [["set_highlight_opacity", "strikethrough", 45]])
         self.assertFalse(self.out["afterButtonPress"])
         self.assertTrue(self.out["afterOutsidePress"])
+
+    # --- An annotation under the range (the editor) -------------------------- #
+
+    def test_an_annotation_at_ten_percent_is_shown_as_it_is(self):
+        self.assertEqual(self.out["legacy"],
+                         {"shown": {"value": 20, "text": "10%", "valuetext": "10%"}, "changes": []})
+
+    def test_it_keeps_its_value_until_the_slider_moves(self):
+        # Page Down has nowhere to go: nothing changes, the label still 10%.
+        self.assertEqual(self.out["legacyPageDown"], self.out["legacy"])
+        # Moving the slider changes it, to 20% or more.
+        self.assertEqual(self.out["legacyPageUp"],
+                         {"shown": {"value": 30, "text": "30%", "valuetext": "30%"}, "changes": [30]})
 
 
 class StyleKeyGuardTests(unittest.TestCase):
@@ -558,7 +660,8 @@ class HighlightOptionsLookTests(unittest.TestCase):
             self.assertIn(decl, style)
         self.assertIn("height: 36px;", self.rule(".style-item"))
         settings = self.rule(".highlight-options")
-        for decl in ("width: 252px;", "padding: 14px;", "gap: 14px;"):
+        for decl in ("width: calc(5 * 52px + 4 * var(--space-1) + 2 * 18px + 2px);",
+                     "padding: 16px 18px 18px;", "gap: 16px;"):
             self.assertIn(decl, settings)
         self.assertIn("width: 26px; height: 26px;", READING_CSS[READING_CSS.index(".highlight-options .swatch {"):])
         self.assertIn("animation: rail-card-in var(--dur-quick) var(--ease-out);", self.rule(".rail-card"))
@@ -612,9 +715,39 @@ class HighlightOptionsLookTests(unittest.TestCase):
 
     def test_the_preview_button_opens_the_settings_card(self):
         tag = re.search(r'<button class="preview-btn" id="highlightColorBtn"[^>]*>', READING_HTML).group(0)
-        for attr in ('aria-haspopup="dialog"', 'aria-controls="highlightOptions"', 'title="Color, opacity, thickness"'):
+        for attr in ('aria-haspopup="dialog"', 'aria-controls="highlightOptions"',
+                     'title="Color, opacity and thickness"'):
             self.assertIn(attr, tag)
-        self.assertIn("width: 26px;", self.rule(".preview-line"))
+        self.assertIn('<span class="preview-swatch" id="highlightPreviewSwatch"></span>', READING_HTML)
+
+    def test_the_pill_is_one_slim_split_swatch_on_the_paper(self):
+        pill = self.rule(".preview-swatch")
+        for decl in ("width: 32px;", "height: var(--preview-pill-height);", "border-radius: 5px;",
+                     "border: 1px solid var(--rail-swatch-edge);", "background-clip: padding-box;",
+                     "var(--swatch) 50%,",
+                     "color-mix(in srgb, var(--swatch) var(--preview-opacity, 100%), var(--paper)) 50%);"):
+            with self.subTest(decl=decl):
+                self.assertIn(decl, pill)
+        # Never drawn translucent onto the rail.
+        self.assertNotIn("opacity:", pill)
+        theme = (ROOT / "frontend" / "shared" / "theme.css").read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"--rail-swatch-edge: (var\(--[a-z-]+\));", theme),
+                         ["var(--border)", "var(--border-strong)", "var(--border)"])
+        self.assertIn("--paper: #FFFFFF;", theme)
+
+    def test_the_pill_sits_six_pixels_under_the_tool_its_target_centred_on_it(self):
+        item = self.rule(".rail-highlight")
+        for decl in ("--preview-pill-gap: 6px;", "--preview-pill-height: 10px;", "--preview-btn-height: 24px;"):
+            self.assertIn(decl, item)
+        self.assertNotIn("gap: 10px;", item)
+        button = self.rule(".preview-btn")
+        self.assertIn("width: 40px;", button)
+        self.assertIn("height: var(--preview-btn-height);", button)
+        self.assertIn("margin-top: calc(var(--preview-pill-gap) - "
+                      "(var(--preview-btn-height) - var(--preview-pill-height)) / 2);", button)
+        # Over the tool's lower edge, under the style badge (z-index 1).
+        self.assertIn("z-index: 0;", button)
+        self.assertIn("z-index: 1;", self.rule(".style-badge"))
 
     def test_the_settings_card_rows_in_order_with_no_style_switcher(self):
         card = self.block('id="highlightOptions"', '<!-- Always shown.')
@@ -635,12 +768,41 @@ class HighlightOptionsLookTests(unittest.TestCase):
                               "highlight-options.js", "freehand.js", "reading.js")]
         self.assertEqual(order, sorted(order))
 
-    def test_the_selected_preset_has_the_accent_ring(self):
-        self.assertIn("box-shadow: inset 0 0 0 2px var(--accent);", self.rule(".thickness-preset.selected"))
+    def test_presets_are_52_by_36_tiles_with_a_30px_line(self):
+        preset = self.rule(".thickness-preset")
+        for decl in ("width: 52px;", "height: 36px;", "border-radius: var(--radius-md);", "flex: none;"):
+            self.assertIn(decl, preset)
+        self.assertIn("justify-content: space-between;", self.rule(".thickness-row"))
         line = self.rule(".thickness-line")
-        self.assertIn("width: 26px;", line)
+        self.assertIn("width: 30px;", line)
         self.assertIn("border-radius: 999px;", line)
-        self.assertIn("opacity: var(--preset-opacity, 1);", line)
+        self.assertIn("var(--preset-color, var(--highlight-yellow)) var(--preset-strength, 100%), var(--paper));", line)
+        self.assertNotIn("opacity:", line)
+        self.assertIn("background-color: var(--state-hover);", self.rule(".thickness-preset:hover"))
+
+    def test_the_selected_preset_is_a_paper_tile_ringed_inside_its_bounds(self):
+        start = READING_CSS.index(".thickness-preset.selected,")
+        selected = READING_CSS[start:READING_CSS.index("}", start)]
+        self.assertIn("background-color: var(--paper);", selected)
+        # Inset, so nothing reaches past the button; no outline, no outer shadow.
+        self.assertIn("box-shadow: inset 0 0 0 2px var(--accent);", selected)
+        self.assertNotIn("outline", selected)
+        self.assertEqual(selected.count("box-shadow"), 1)
+        for state in (".thickness-preset.selected:hover", ".thickness-preset.selected:active"):
+            self.assertIn(state, selected)
+
+    def test_the_card_s_blocks_and_dividers(self):
+        card = self.block('id="highlightOptions"', '<!-- Always shown.')
+        order = [card.index(m) for m in ('id="highlightOpacityControl"',
+                                          'class="hl-options-divider hl-options-divider--after-slider"', '>Thickness<')]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("gap: 10px;", self.rule(".highlight-options .hl-options-row"))
+        # 10px from the end labels to the divider under them, in a 16px gap.
+        self.assertIn("margin-top: calc(10px - 16px);", self.rule(".hl-options-divider--after-slider"))
+        ends = self.rule(".range-ends")
+        for decl in ("justify-content: space-between;", "font-size: var(--text-xs);", "color: var(--text-muted);",
+                     "margin-top: calc(21px + 4px - 26px);"):
+            self.assertIn(decl, ends)
 
     def test_ticks_are_the_asked_strengths(self):
         minor = self.rule(".range-tick::before")

@@ -125,7 +125,8 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <button class="ib" onClick="{{undo}}" disabled="{{noUndo}}" aria-label="Undo" title="Undo (Ctrl+Z)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 010 10h-3"></path></svg></button>
 <button class="ib" onClick="{{redo}}" disabled="{{noRedo}}" aria-label="Redo" title="Redo (Ctrl+Y)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H9a5 5 0 000 10h3"></path></svg></button>
 <span style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></span>
-<button class="btn" onClick="{{exit}}" title="Back to reading (Esc)">Done</button>
+<button class="btn2" onClick="{{cancelOrg}}" title="Back to reading without changing the pages (Esc)">Cancel</button>
+<button class="btn" onClick="{{exit}}" title="Apply the page changes and go back to reading">Done</button>
 </div>
 
 <div style="height: 52px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--page);">
@@ -235,8 +236,11 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>Undo brings them back. The PDF on disk doesn't change until you save.</span></div>
 </div>
 </sc-if>
+<sc-if value="{{isDiscard}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 18px; color: var(--ts);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px;"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>To keep them, choose Keep editing, then Done.</span></div>
+</sc-if>
 </div>
-<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 14px 32px; background: var(--s1); border-top: 1px solid var(--border); border-radius: 0 0 16px 16px;"><button class="btn2" onClick="{{closeDlg}}">Cancel</button><button class="btn {{primaryCls}}" onClick="{{confirmDlg}}">{{dlgPrimary}}</button></div>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 14px 32px; background: var(--s1); border-top: 1px solid var(--border); border-radius: 0 0 16px 16px;"><button class="btn2" onClick="{{closeDlg}}">{{dismissLabel}}</button><button class="btn {{primaryCls}}" onClick="{{confirmDlg}}">{{dlgPrimary}}</button></div>
 </div>
 </div>
 </sc-if>
@@ -262,7 +266,7 @@ class Component extends DCLogic {
     super(p);
     const pages = [];
     for (let i = 1; i <= 12; i++) pages.push({ id: 'p' + i, orig: i, rot: i === 7 ? 90 : 0, pic: i === 3 || i === 7 || i === 10, isNew: false });
-    this.state = { mode: p.startIn === 'organise pages' ? 'organise' : 'reading', menu: true, pages, sel: ['p4', 'p5', 'p6'], anchor: 'p4', past: [], future: [], changes: 0, dlg: null, where: 'after', alsoDel: false, toast: null, toastUndo: false, dragId: null, overId: null };
+    this.state = { mode: p.startIn === 'organise pages' ? 'organise' : 'reading', menu: true, pages, sel: ['p4', 'p5', 'p6'], anchor: 'p4', orig: pages, past: [], future: [], changes: 0, dlg: null, where: 'after', alsoDel: false, toast: null, toastUndo: false, dragId: null, overId: null };
   }
   destVals(key, stem, ext, originPath, originLabel, hint, nameLabel) {
     const s = this.state;
@@ -344,7 +348,8 @@ class Component extends DCLogic {
       this.commit(next, { dlg: null, sel: add.map((x) => x.id), toast: 'Inserted 3 pages from Appendix A — Financials.pdf', toastUndo: true });
     };
     const dot = (on) => 'flex: none; width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: ' + (on ? '5px solid var(--accent)' : '1.5px solid var(--tt)') + '; background: var(--input);';
-    const isExtract = s.dlg === 'extract', isInsert = s.dlg === 'insert', isDelete = s.dlg === 'delete';
+    const isExtract = s.dlg === 'extract', isInsert = s.dlg === 'insert', isDelete = s.dlg === 'delete', isDiscard = s.dlg === 'discard';
+    const danger = isDelete || isDiscard;
     const pagesWord = n === 1 ? '1 page' : n + ' pages';
     const dv = this.destVals('extract', 'Annual Report 2025 (' + rangeText(selIdx) + ')', '.pdf', 'D:\\Reports', 'Beside the original', '', 'Name');
     return {
@@ -353,7 +358,8 @@ class Component extends DCLogic {
       reading: s.mode === 'reading', organising: s.mode === 'organise',
       pageOf: 'Page ' + Math.min(4, s.pages.length) + ' of ' + s.pages.length,
       menu: s.menu, moreCls: s.menu ? 'on' : '', toggleMenu: () => this.setState({ menu: !s.menu }),
-      enter: () => this.setState({ mode: 'organise', menu: false }),
+      enter: () => this.setState({ mode: 'organise', menu: false, orig: s.pages, past: [], future: [], changes: 0, toast: null }),
+      cancelOrg: () => (s.changes ? this.setState({ dlg: 'discard', toast: null }) : this.setState({ mode: 'reading', menu: false, toast: null })),
       exit: () => this.setState({ mode: 'reading', menu: false, toast: s.changes ? 'Page changes are unsaved — Ctrl+S saves them with your highlights' : null, toastUndo: false }),
       lines: [100, 96, 100, 88, 100, 93, 62, 0, 100, 97, 100, 91, 100, 70].map((w) => ({ s: w === 0 ? 'height: 10px;' : 'height: 8px; border-radius: 3px; background: var(--line); width: ' + w + '%;' })),
       cards,
@@ -371,22 +377,24 @@ class Component extends DCLogic {
       noUndo: !s.past.length, noRedo: !s.future.length,
       openExtract: () => this.setState({ dlg: 'extract', alsoDel: false }),
       openInsert: () => this.setState({ dlg: 'insert', where: selIdx.length ? 'after' : 'end' }),
-      dlgOpen: !!s.dlg, isExtract, isInsert, isDelete,
-      dlgTitle: isDelete ? 'Delete ' + pagesWord + '?' : isExtract ? 'Extract ' + pagesWord : 'Insert pages',
-      dlgDesc: isDelete ? (rangeText(selIdx).charAt(0).toUpperCase() + rangeText(selIdx).slice(1)) + (n === 1 ? ' is' : ' are') + ' removed from Annual Report 2025.' : isExtract ? 'Saves ' + rangeText(selIdx) + ' as a new PDF.' : 'Adds pages from another PDF or from images.',
-      badgeStyle: 'width: 40px; height: 40px; flex: none; border-radius: 10px; display: flex; align-items: center; justify-content: center; ' + (isDelete ? 'background: var(--dangerSoft); color: var(--danger);' : 'background: var(--accentSoft); color: var(--accentStrong);'),
-      primaryCls: isDelete ? 'danger' : '',
+      dlgOpen: !!s.dlg, isExtract, isInsert, isDelete, isDiscard,
+      dismissLabel: isDiscard ? 'Keep editing' : 'Cancel',
+      dlgTitle: isDiscard ? 'Discard page changes?' : isDelete ? 'Delete ' + pagesWord + '?' : isExtract ? 'Extract ' + pagesWord : 'Insert pages',
+      dlgDesc: isDiscard ? 'Your ' + (s.changes === 1 ? 'change' : s.changes + ' changes') + ' to the pages won’t be applied. The document stays as it was.' : isDelete ? (rangeText(selIdx).charAt(0).toUpperCase() + rangeText(selIdx).slice(1)) + (n === 1 ? ' is' : ' are') + ' removed from Annual Report 2025.' : isExtract ? 'Saves ' + rangeText(selIdx) + ' as a new PDF.' : 'Adds pages from another PDF or from images.',
+      badgeStyle: 'width: 40px; height: 40px; flex: none; border-radius: 10px; display: flex; align-items: center; justify-content: center; ' + (danger ? 'background: var(--dangerSoft); color: var(--danger);' : 'background: var(--accentSoft); color: var(--accentStrong);'),
+      primaryCls: danger ? 'danger' : '',
       delThumbs: s.pages.map((p, i) => ({ p, i })).filter((x) => selSet.has(x.p.id)).slice(0, 6).map((x) => ({ num: String(x.i + 1), paper: 'width: 36px; height: 46px; background: var(--paper); box-shadow: 0 0 0 1px var(--border), var(--shadow1); transform: rotate(' + x.p.rot + 'deg);' })),
       delMore: n > 6, delMoreText: '+' + (n - 6) + ' more',
-      dlgIcon: isDelete ? 'M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13' : isExtract ? 'M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h5M14 3v4h4v3M15 17h7M19 14l3 3-3 3' : 'M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h10a1 1 0 001-1V7zM14 3v4h4M12 11v6M9 14h6',
+      dlgIcon: isDiscard ? 'M9 14L4 9l5-5M4 9h11a5 5 0 010 10h-3' : isDelete ? 'M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13' : isExtract ? 'M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h5M14 3v4h4v3M15 17h7M19 14l3 3-3 3' : 'M14 3H7a1 1 0 00-1 1v16a1 1 0 001 1h10a1 1 0 001-1V7zM14 3v4h4M12 11v6M9 14h6',
       exName: 'Annual Report 2025 (' + rangeText(selIdx) + ').pdf',
       alsoDel: s.alsoDel, toggleAlsoDel: () => this.setState({ alsoDel: !s.alsoDel }),
       wheres: [['before', 'Before the selection', selIdx.length ? 'before page ' + (selIdx[0] + 1) : ''], ['after', 'After the selection', selIdx.length ? 'after page ' + (selIdx[selIdx.length - 1] + 1) : ''], ['end', 'At the end', 'after page ' + s.pages.length]]
         .filter((w) => selIdx.length || w[0] === 'end')
         .map(([v, t, d]) => ({ t, d, on: s.where === v, cls: s.where === v ? 'sel' : '', dot: dot(s.where === v), pick: () => this.setState({ where: v }) })),
-      dlgPrimary: isDelete ? 'Delete ' + pagesWord : isExtract ? 'Extract' : 'Insert 3 pages',
+      dlgPrimary: isDiscard ? 'Discard changes' : isDelete ? 'Delete ' + pagesWord : isExtract ? 'Extract' : 'Insert 3 pages',
       closeDlg: () => this.setState({ dlg: null, locOpen: false, loc: 'orig' }),
       confirmDlg: () => {
+        if (isDiscard) { this.setState({ pages: s.orig, sel: [], past: [], future: [], changes: 0, dlg: null, mode: 'reading', menu: false, toast: null }); return; }
         if (isInsert) { insertNew(); return; }
         if (isDelete) { this.commit(s.pages.filter((p) => !selSet.has(p.id)), { dlg: null, sel: [], toast: 'Deleted ' + pagesWord, toastUndo: true }); return; }
         const msg = 'Saved ' + dv.fullName + dv.savedClause;

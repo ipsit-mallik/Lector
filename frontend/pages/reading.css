@@ -344,6 +344,18 @@ html, body { height: 100%; }
   opacity: 0.75;
 }
 
+/* The opacity slider's two ends, named under it ("20%" at the left, "100%"
+   at the right, highlight-options.js): small and muted, 4px under the line of
+   the tallest tick (which ends 21px down the 26px slider). */
+.range-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: calc(21px + 4px - 26px);
+  font-size: var(--text-xs);
+  line-height: 1;
+  color: var(--text-muted);
+}
+
 /* --- The chips ----------------------------------------------------------- */
 .zoom-chips {
   display: flex;
@@ -638,15 +650,20 @@ html, body { height: 100%; }
 /* ------------------------------------------------------------------ */
 
 /* The highlight tool, a split button, with its preview button under it: one
-   rail item, so the rail's 8px gap separates it from Undo. The preview sits
-   10px under the tool, clear of the style badge's hit area (6px below the
-   tool). Positioned so the cards can sit beside it. */
+   rail item, so the rail's 8px gap separates it from Undo. The preview's pill
+   sits 6px under the tool, 3px clear of the style badge's chip (which hangs
+   3px below the tool), close enough to read as the tool's own; its button,
+   24px tall and centred on the pill, so reaches 1px up over the tool's lower
+   edge (and takes the press there), and under the style badge's hit area
+   (which keeps the press there). Positioned so the cards can sit beside it. */
 .rail-highlight {
+  --preview-pill-gap: 6px;
+  --preview-pill-height: 10px;
+  --preview-btn-height: 24px;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
 }
 
 /* The tool and its badge as one control: one wrapper with the button's
@@ -730,14 +747,16 @@ html, body { height: 100%; }
   outline-offset: var(--focus-ring-offset);
 }
 
-/* The preview: what the tool draws, a 26px line in the color at the style's
-   opacity, as thick as highlight-options.js says (--preview-height). */
+/* The preview: what the tool draws, as a slim pill split in two (below). */
 .preview-btn {
+  position: relative;
+  z-index: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 40px;
-  height: 24px;
+  height: var(--preview-btn-height);
+  margin-top: calc(var(--preview-pill-gap) - (var(--preview-btn-height) - var(--preview-pill-height)) / 2);
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);
@@ -749,12 +768,23 @@ html, body { height: 100%; }
 .preview-btn[aria-expanded="true"] { background-color: var(--state-hover); }
 .preview-btn:active { background-color: var(--state-pressed); }
 
-.preview-line {
-  width: 26px;
-  height: var(--preview-height, 3px);
-  border-radius: 999px;
-  background-color: var(--swatch);
-  opacity: var(--preview-opacity, 1);
+/* One 32×10 pill, fully round, in a 1px --rail-swatch-edge: its left half the
+   color at full strength, its right half the color at the style's opacity
+   (--preview-opacity, highlight-options.js) mixed onto the page's paper, as
+   the page will show it (a highlight multiplied onto white is that same mix).
+   Never drawn translucent onto the rail, where a low opacity would vanish.
+   One gradient, not two boxes, so there is no seam between the halves at any
+   display scaling; at 100% the halves are the same. */
+.preview-swatch {
+  box-sizing: border-box;
+  width: 32px;
+  height: var(--preview-pill-height);
+  border-radius: 5px;
+  border: 1px solid var(--rail-swatch-edge);
+  background-clip: padding-box;
+  background-image: linear-gradient(to right,
+    var(--swatch) 50%,
+    color-mix(in srgb, var(--swatch) var(--preview-opacity, 100%), var(--paper)) 50%);
 }
 
 /* The rail's two cards (highlight-options.js) and the highlight editor
@@ -858,13 +888,20 @@ html, body { height: 100%; }
   font-weight: 500;
 }
 
-/* The settings card: colors, a divider, opacity, thickness; no titles but the
-   two sliders'. */
+/* The settings card: colors, a divider, opacity, a divider, thickness; no
+   titles but the two sliders'. 16px between sections, except 10px from the
+   slider's end labels down to the divider under them. As wide as the five
+   52px presets with 4px between them, inside 18px sides and the 1px border. */
 .highlight-options {
-  width: 252px;
-  padding: 14px;
-  gap: 14px;
+  width: calc(5 * 52px + 4 * var(--space-1) + 2 * 18px + 2px);
+  padding: 16px 18px 18px;
+  gap: 16px;
 }
+
+/* Inside a block, 10px from the label row to its control. */
+.highlight-options .hl-options-row { gap: 10px; }
+
+.hl-options-divider--after-slider { margin-top: calc(10px - 16px); }
 
 .highlight-options .swatch-row { justify-content: space-between; }
 .highlight-options .swatch { width: 26px; height: 26px; }
@@ -904,24 +941,30 @@ html, body { height: 100%; }
   color: var(--text-primary);
 }
 
-/* Thickness: five presets, each a 26px round-capped line in the active colour
-   at the Highlight opacity (--preset-color, --preset-opacity), as tall as its
-   width in points scaled so 36pt is 16px (and 4pt 2px). The chosen one has a
-   2px accent ring inside its edge. */
+/* Thickness: five 52×36 presets spread across the row, each a 30px
+   round-capped line as tall as its width in points scaled so 36pt is 16px
+   (and 4pt 2px). The line is the active colour (--preset-color) at a preview
+   strength that follows the opacity slider (--preset-strength,
+   highlight-options.js: 55% at 20% opacity up to 100% at 100%), mixed onto
+   the paper as the pill is, so it never turns muddy on a dark card. The
+   chosen one is a paper tile with a 2px accent ring inside its edge (inset,
+   so nothing reaches past the button); the others have no frame. */
 .thickness-row {
   display: flex;
+  justify-content: space-between;
   gap: var(--space-1);
 }
 
 .thickness-preset {
-  flex: 1;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  width: 52px;
+  height: 36px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out),
@@ -930,14 +973,19 @@ html, body { height: 100%; }
 
 .thickness-preset:hover { background-color: var(--state-hover); }
 .thickness-preset:active { background-color: var(--state-pressed); }
-.thickness-preset.selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.thickness-preset.selected,
+.thickness-preset.selected:hover,
+.thickness-preset.selected:active {
+  background-color: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 .thickness-preset:focus-visible { outline-offset: 2px; }
 
 .thickness-line {
-  width: 26px;
+  width: 30px;
   border-radius: 999px;
-  background-color: var(--preset-color, var(--highlight-yellow));
-  opacity: var(--preset-opacity, 1);
+  background-color: color-mix(in srgb,
+    var(--preset-color, var(--highlight-yellow)) var(--preset-strength, 100%), var(--paper));
 }
 
 
