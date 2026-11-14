@@ -22,6 +22,7 @@ text. Theirs are cut to what holds no content (see `_library_text`).
 """
 import logging
 import logging.handlers
+import os
 import re
 import sys
 import threading
@@ -37,8 +38,11 @@ BACKUP_COUNT = 3
 FORMAT = "%(asctime)s %(levelname)s %(name)s [%(threadName)s] %(message)s"
 
 # Lector's own records are kept from INFO up; everyone else's (pywebview,
-# PIL, ...) only from WARNING, which is where their chatter stops.
+# PIL, ...) only from WARNING, which is where their chatter stops. With
+# DEBUG_ENV set to "1", Lector's own DEBUG records are kept too (a developer's
+# switch: Organise's timing probe reports only then).
 _APP_LOGGER = "lector"
+DEBUG_ENV = "LECTOR_DEBUG"
 _WARNINGS_LOGGER = "py.warnings"
 
 WITHHELD = "(message withheld)"
@@ -99,9 +103,18 @@ def setup(log_dir: Path) -> logging.Handler | None:
     handler.setFormatter(ContentFreeFormatter(FORMAT))
     handler.addFilter(_keep_record)
     logging.getLogger().addHandler(handler)
-    logging.getLogger(_APP_LOGGER).setLevel(logging.INFO)
+    logging.getLogger(_APP_LOGGER).setLevel(_app_level())
     logging.captureWarnings(True)
     return handler
+
+
+def debug_enabled() -> bool:
+    """Whether this run keeps Lector's DEBUG records (`DEBUG_ENV`)."""
+    return os.environ.get(DEBUG_ENV) == "1"
+
+
+def _app_level() -> int:
+    return logging.DEBUG if debug_enabled() else logging.INFO
 
 
 def _is_lectors(record: logging.LogRecord) -> bool:
@@ -110,7 +123,7 @@ def _is_lectors(record: logging.LogRecord) -> bool:
 
 def _keep_record(record: logging.LogRecord) -> bool:
     if _is_lectors(record):
-        return record.levelno >= logging.INFO
+        return record.levelno >= _app_level()
     return record.levelno >= logging.WARNING
 
 

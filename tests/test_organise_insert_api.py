@@ -172,7 +172,8 @@ class InsertActionTests(_InsertCase):
                 self.assertFalse(self.api.organise_action("insert", args)["ok"])
         self.api.organise_action("insert", {"source": source, "gap": 0})
         twice = self.api.organise_action("insert", {"source": source, "gap": 0})
-        self.assertEqual(twice, {"ok": False, "reason": page_plan.BAD_SOURCE})
+        self.assertEqual((twice["ok"], twice["reason"]), (False, page_plan.BAD_SOURCE))
+        self.assertEqual(len(twice["pages"]), 7)  # the draft as it stays, for the page to go back to
 
     def test_done_applies_the_inserted_pages(self):
         source = self.api.organise_add_source(str(self._other_pdf(2)))["source"]

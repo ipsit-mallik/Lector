@@ -5,6 +5,7 @@
 leaks a log file into other tests.
 """
 import logging
+import os
 import sys
 import tempfile
 import threading
@@ -59,6 +60,24 @@ class SetupTests(LogFileTestCase):
 
         self.assertIn("INFO lector.features.example", self.written())
         self.assertIn("opened page 3", self.written())
+
+    def test_debug_records_are_kept_only_in_a_debug_run(self):
+        for switch, kept in ((None, False), ("0", False), ("1", True)):
+            with self.subTest(LECTOR_DEBUG=switch):
+                env = {} if switch is None else {app_log.DEBUG_ENV: switch}
+                with mock.patch.dict(os.environ, env, clear=False):
+                    if switch is None:
+                        os.environ.pop(app_log.DEBUG_ENV, None)
+                    handler = app_log.setup(self.log_dir)
+                    try:
+                        logging.getLogger("lector.features.example").debug("probe %s", switch)
+                        logging.getLogger("somelib").debug("library chatter")
+                        self.assertEqual(f"probe {switch}" in self.written(), kept)
+                        self.assertEqual(app_log.debug_enabled(), kept)
+                        self.assertNotIn("library chatter", self.written())  # theirs never
+                    finally:
+                        handler.close()
+                        logging.getLogger().removeHandler(handler)
 
     def test_other_libraries_only_from_warning_up(self):
         self.start()

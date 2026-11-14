@@ -7,6 +7,14 @@
 // ("Page changes"), through page-change-busy.js. The grid itself is
 // organise-grid.js; reading.js opens this view and asks it, before the reader
 // is left or the window closes, to apply what is pending.
+//
+// Optimistic (docs/ARCHITECTURE.md § "Optimistic Organise"): an action shows
+// in the frame of its input, from the page's own copy of the draft
+// (organise-plan.js), and is then sent to Python, one at a time in the order
+// taken. When Python's answer is the same draft nothing more happens; when it
+// refuses or differs, the grid goes to Python's draft and a toast says what
+// couldn't be done, and actions queued behind it are dropped (they were
+// predicted from the draft that didn't happen).
 "use strict";
 
 const ORGANISE_HINT = "Drag to reorder · Ctrl+←/→ moves the selection · Ctrl+A selects all";
@@ -18,6 +26,8 @@ const ORGANISE_APPLY_FAILED = "Couldn't apply the page changes. The PDF is as it
 const ORGANISE_REASONS = {
   every_page: "A PDF needs at least one page. Leave one unselected.",
 };
+// What a refused or different answer says, by action.
+const ORGANISE_VERBS = { move: "move", shift: "move", rotate: "rotate", delete: "delete", insert: "insert" };
 
 const organiseView = document.getElementById("organiseView");
 const organiseDocName = document.getElementById("organiseDocName");
@@ -39,8 +49,14 @@ let organiseHooks = {
   openOutput: () => {},
 };
 let organiseOpen = false;
-let organiseDraft = { pages: [], can_undo: false, can_redo: false, steps: 0 };
+// The draft as this page has it (OrganisePlan.history): Python's, plus the
+// actions taken since that Python hasn't answered yet.
+let organiseHistory = OrganisePlan.history({ pages: [], steps: 0, can_redo: false });
 let organiseActionToast = null;
+// Steps to Python, one at a time, in order. A resync (or leaving) starts a
+// new epoch, and the steps of an older one are not sent.
+let organiseQueue = Promise.resolve();
+let organiseEpoch = 0;
 
 function configureOrganise(hooks) {
   organiseHooks = { ...organiseHooks, ...hooks };
@@ -54,10 +70,22 @@ const organiseGrid = createOrganiseGrid({
   grid: document.getElementById("organiseGrid"),
   scroller: document.getElementById("organiseScroll"),
   insertionBar: document.getElementById("organiseInsertion"),
-  thumbnail: (page) => callApi("organise_thumbnail", page.source, page.index, Math.round(120 * devicePixelRatio)),
-  onMove: ({ kind, ...args }) => organiseAct(kind, args),
+  thumbnail: (page, turn) => {
+    const painted = OrganiseTiming.thumbRequested();
+    return callApi("organise_thumbnail", page.source, page.index, Math.round(120 * devicePixelRatio), turn)
+      .finally(painted);
+  },
+  onMove: ({ kind, at, ...args }) => {
+    OrganiseTiming.input(kind, args.positions.length, at);
+    organiseAct(kind, args);
+  },
   onSelectionChange: () => updateOrganiseChrome(),
   onDelete: () => organiseDelete(),
+  onRendered: () => {
+    OrganiseTiming.mark("render");
+    OrganiseTiming.changed();
+  },
+  onSettled: () => OrganiseTiming.mark("settled"),
 });
 
 function organisePlural(count, one, many) {
@@ -76,9 +104,10 @@ function updateOrganiseChrome() {
     button.setAttribute("aria-disabled", String(!chosen));
     button.title = chosen ? "" : ORGANISE_NEEDS_SELECTION;
   }
-  setOrganiseHistoryButton(organiseUndoBtn, organiseDraft.can_undo, "Undo  (Ctrl+Z)", "Nothing to undo");
-  setOrganiseHistoryButton(organiseRedoBtn, organiseDraft.can_redo, "Redo  (Ctrl+Y)", "Nothing to redo");
-  const changes = organiseDraft.steps;
+  const counts = OrganisePlan.counts(organiseHistory);
+  setOrganiseHistoryButton(organiseUndoBtn, counts.can_undo, "Undo  (Ctrl+Z)", "Nothing to undo");
+  setOrganiseHistoryButton(organiseRedoBtn, counts.can_redo, "Redo  (Ctrl+Y)", "Nothing to redo");
+  const changes = counts.steps;
   organiseCount.textContent = changes
     ? `${pagesText} · ${organisePlural(changes, "unsaved change", "unsaved changes")}`
     : pagesText;
@@ -89,10 +118,16 @@ function setOrganiseHistoryButton(button, enabled, title, emptyTitle) {
   button.title = enabled ? title : emptyTitle;
 }
 
+// Takes Python's draft as it is (opening, and after a step that went
+// differently than predicted).
 function showOrganiseDraft(view, { selection } = {}) {
-  organiseDraft = view;
+  organiseHistory = OrganisePlan.history(view);
   organiseGrid.render(view.pages, { selection });
   updateOrganiseChrome();
+}
+
+function organiseSteps() {
+  return OrganisePlan.counts(organiseHistory).steps;
 }
 
 // Opens the view, focused on the page being read. False, with a toast saying
@@ -105,6 +140,7 @@ async function openOrganise() {
     return false;
   }
   organiseOpen = true;
+  OrganiseTiming.enable(view.debug);
   // Its own grammar ("done", "cancel"), the globals still heard.
   callApi("set_voice_context", "organise");
   organiseDocName.textContent = organiseHooks.title();
@@ -118,7 +154,9 @@ async function openOrganise() {
 }
 
 function closeOrganiseView() {
+  organiseGrid.cancelDrag();
   organiseOpen = false;
+  organiseEpoch += 1;
   callApi("set_voice_context", "reading");
   if (organiseActionToast) organiseActionToast();
   organiseView.hidden = true;
@@ -127,23 +165,106 @@ function closeOrganiseView() {
   organiseHooks.onClose();
 }
 
-// One action on the draft: `rotate`, `move` or `shift` (a delete comes from
-// its confirmation, organiseDeleteConfirmed). A refusal says why; a move
-// offers Undo.
-async function organiseAct(kind, args) {
+// One action on the draft: `rotate`, `move`, `shift`, `insert` (with the
+// file's page `count`) or `delete` (from its confirmation). Shown at once,
+// from the page's own copy of the draft, then sent to Python. Returns `{ok,
+// changed, selection}`; a refusal the page can already see says why and
+// sends nothing. A move offers Undo.
+function organiseAct(kind, args) {
   if (!organiseOpen || isPageChangeBusy()) return null;
-  const view = await callApi("organise_action", kind, args);
-  if (!view.ok) {
-    const reason = ORGANISE_REASONS[view.reason];
+  let predicted;
+  try {
+    predicted = OrganisePlan.apply(OrganisePlan.current(organiseHistory), kind, args);
+  } catch (err) {
+    if (!(err instanceof OrganisePlanError)) throw err;
+    const reason = ORGANISE_REASONS[err.reason];
     if (reason) showToast(reason);
-    return view;
+    return { ok: false, reason: err.reason };
   }
-  showOrganiseDraft(view, { selection: view.selection });
-  if (view.selection && view.selection.length) organiseGrid.focusPosition(view.selection[0]);
-  if (view.changed && (kind === "move" || kind === "shift")) {
-    showOrganiseUndoToast(`Moved ${organisePlural(args.positions.length, "page", "pages")}`);
+  const { history, changed } = OrganisePlan.push(organiseHistory, predicted.plan);
+  organiseHistory = history;
+  const { selection } = predicted;
+  const moving = kind === "move" || kind === "shift";
+  organiseGrid.render(predicted.plan, {
+    selection,
+    focus: selection.length ? selection[0] : undefined,
+    lead: moving ? selection : [],
+    rotated: kind === "rotate" ? selection : [],
+  });
+  updateOrganiseChrome();
+  const { count, ...sent } = args;
+  const pages = args.positions ? args.positions.length : count;
+  queueOrganiseStep({ kind, call: ["organise_action", kind, sent], expected: predicted.plan, pages });
+  if (changed && moving) showOrganiseUndoToast(`Moved ${organisePlural(pages, "page", "pages")}`);
+  return { ok: true, changed, selection };
+}
+
+// Sends one step to Python behind those already queued. `expected` is the
+// plan the page has shown for it (null when it couldn't predict one: an
+// Undo or Redo past what it has seen, which then shows Python's answer).
+function queueOrganiseStep({ kind, call, expected, pages }) {
+  const epoch = organiseEpoch;
+  const counts = OrganisePlan.counts(organiseHistory);
+  const run = OrganiseTiming.current();
+  organiseQueue = organiseQueue.then(async () => {
+    if (epoch !== organiseEpoch || !organiseOpen) return;
+    OrganiseTiming.mark("bridge", run);
+    let reply = null;
+    try {
+      reply = await callApi(...call);
+    } catch (err) {
+      console.error("organise: a step failed", err);
+    }
+    OrganiseTiming.mark("python", run);
+    if (epoch !== organiseEpoch || !organiseOpen) return;
+    if (expected === null && reply && reply.ok) {
+      showOrganiseDraft(reply);
+      return;
+    }
+    if (reply && reply.ok && organiseAgrees(reply, expected, counts)) return;
+    await resyncOrganise(kind, pages, reply);
+  });
+}
+
+function organiseAgrees(reply, expected, counts) {
+  return OrganisePlan.samePlan(reply.pages, expected) && reply.steps === counts.steps
+    && reply.can_undo === counts.can_undo && reply.can_redo === counts.can_redo;
+}
+
+// Python refused a step, or did something else: the grid goes to Python's
+// draft (moving there as any change does), and the steps queued behind it
+// are dropped.
+async function resyncOrganise(kind, pages, reply) {
+  organiseEpoch += 1;
+  let view = reply && Array.isArray(reply.pages) ? reply : null;
+  if (!view) {
+    try {
+      view = await callApi("organise_begin");
+    } catch (err) {
+      console.error("organise: reading the draft failed", err);
+    }
   }
-  return view;
+  if (!organiseOpen) return;
+  if (view && Array.isArray(view.pages)) {
+    showOrganiseDraft(view, { selection: view.ok ? view.selection : undefined });
+    keepOrganiseFocus();
+  }
+  showOrganiseToast(organiseFailedText(kind, pages));
+}
+
+function organiseFailedText(kind, pages) {
+  if (kind === "undo" || kind === "redo") return `Couldn't ${kind} that change`;
+  return `Couldn't ${ORGANISE_VERBS[kind] || "change"} ${pages === 1 ? "that page" : "those pages"}`;
+}
+
+// Resolves once Python has every step taken so far (Done, Extract and
+// leaving read Python's draft, so they wait for it).
+async function organiseSettled() {
+  let seen;
+  do {
+    seen = organiseQueue;
+    await seen;
+  } while (seen !== organiseQueue);
 }
 
 function showOrganiseUndoToast(text) {
@@ -176,7 +297,9 @@ function organiseVoiceSelect(all) {
 
 function organiseRotate(degrees) {
   const positions = organiseGrid.selectedPositions();
-  if (positions.length) organiseAct("rotate", { positions, degrees });
+  if (!positions.length) return;
+  OrganiseTiming.input("rotate", positions.length);
+  organiseAct("rotate", { positions, degrees });
 }
 
 // Delete (the button, the Delete key): always asks first, unless it would
@@ -197,7 +320,8 @@ async function organiseDelete() {
     organiseGrid.focusCurrent();
     return;
   }
-  const view = await organiseAct("delete", { positions });
+  OrganiseTiming.input("delete", positions.length);
+  const view = organiseAct("delete", { positions });
   // Focus where the deleted pages were: the page now in the first one's place.
   if (view && view.ok) organiseGrid.focusPosition(Math.min(positions[0], organiseGrid.pageCount() - 1));
   if (view && view.ok && view.changed) {
@@ -217,6 +341,8 @@ async function organiseExtract() {
   if (!organiseOpen || !positions.length || organiseExtracting || isPageChangeBusy()) return;
   organiseExtracting = true;
   try {
+    // Extract reads Python's draft by position.
+    await organiseSettled();
     const done = await OrganiseExtractDialog.open({ positions });
     if (!done || !organiseOpen) {
       if (organiseOpen) organiseGrid.focusCurrent();
@@ -226,7 +352,7 @@ async function organiseExtract() {
     const saved = `Saved ${name}${savePlaceClause(where)}`;
     const showInFolder = { label: "Show in folder", onAction: () => showFileJobOutput(path) };
     if (done.alsoDelete) {
-      const view = await organiseAct("delete", { positions });
+      const view = organiseAct("delete", { positions });
       if (view && view.ok && view.changed) {
         organiseGrid.focusPosition(Math.min(positions[0], organiseGrid.pageCount() - 1));
         showOrganiseToast(`${saved} and removed ${positions.length === 1 ? "it" : "them"} here`, {
@@ -302,7 +428,8 @@ async function organiseInsert() {
       organiseGrid.focusCurrent();
       return;
     }
-    const view = await organiseAct("insert", { source: chosen.source, gap: chosen.gap });
+    OrganiseTiming.input("insert", chosen.pages);
+    const view = organiseAct("insert", { source: chosen.source, gap: chosen.gap, count: chosen.pages });
     if (view && view.ok && view.changed) {
       showOrganiseUndoToast(`Inserted ${organisePlural(chosen.pages, "page", "pages")} from ${chosen.name}`);
     }
@@ -317,17 +444,27 @@ function keepOrganiseFocus() {
   if (!organiseView.contains(document.activeElement)) organiseGrid.focusCurrent();
 }
 
-async function organiseUndo() {
-  if (!organiseOpen || !organiseDraft.can_undo || isPageChangeBusy()) return;
-  const view = await callApi("organise_undo");
-  if (view.ok) showOrganiseDraft(view);
-  keepOrganiseFocus();
+// Undo and Redo take the same path as an action: the page shows the plan it
+// already has for that step, then Python is asked.
+function organiseUndo() {
+  organiseStepHistory("undo", OrganisePlan.undo, "can_undo");
 }
 
-async function organiseRedo() {
-  if (!organiseOpen || !organiseDraft.can_redo || isPageChangeBusy()) return;
-  const view = await callApi("organise_redo");
-  if (view.ok) showOrganiseDraft(view);
+function organiseRedo() {
+  organiseStepHistory("redo", OrganisePlan.redo, "can_redo");
+}
+
+function organiseStepHistory(kind, step, can) {
+  if (!organiseOpen || !OrganisePlan.counts(organiseHistory)[can] || isPageChangeBusy()) return;
+  OrganiseTiming.input(kind, 0);
+  const moved = step(organiseHistory);
+  if (moved) {
+    organiseHistory = moved;
+    organiseGrid.render(OrganisePlan.current(moved));
+    updateOrganiseChrome();
+  }
+  const expected = moved ? OrganisePlan.current(moved) : null;
+  queueOrganiseStep({ kind, call: [`organise_${kind}`], expected, pages: 0 });
   keepOrganiseFocus();
 }
 
@@ -338,7 +475,11 @@ async function applyOrganiseDraft(options) {
   organiseGrid.freeze();
   let state = null;
   try {
-    state = await runPageChange(() => callApi("organise_done"), options);
+    // Python has every step first: the card is already up meanwhile.
+    state = await runPageChange(async () => {
+      await organiseSettled();
+      return callApi("organise_done");
+    }, options);
   } catch (err) {
     console.error("Applying the page changes failed:", err);
     state = { error: ORGANISE_APPLY_FAILED };
@@ -355,7 +496,8 @@ async function applyOrganiseDraft(options) {
 // (page-change-busy.js). If applying fails the draft stays open.
 async function finishOrganise() {
   if (!organiseOpen || isPageChangeBusy()) return;
-  if (!organiseDraft.steps) {
+  if (!organiseSteps()) {
+    await organiseSettled();
     await callApi("organise_done");
     closeOrganiseView();
     return;
@@ -371,13 +513,17 @@ async function finishOrganise() {
 // is exactly as it was before Organise opened.
 async function cancelOrganise() {
   if (!organiseOpen || isPageChangeBusy() || OrganiseDiscardDialog.isOpen()) return;
-  if (organiseDraft.steps) {
-    const discard = await OrganiseDiscardDialog.open({ changes: organiseDraft.steps });
+  if (organiseSteps()) {
+    const discard = await OrganiseDiscardDialog.open({ changes: organiseSteps() });
     if (!discard) {
       organiseGrid.focusCurrent();
       return;
     }
   }
+  // The draft is dropped: steps not sent yet never are; one on its way lands
+  // first.
+  organiseEpoch += 1;
+  await organiseSettled();
   await callApi("organise_cancel");
   closeOrganiseView();
 }
@@ -389,10 +535,11 @@ async function cancelOrganise() {
 async function applyOrganiseBeforeLeaving() {
   if (!organiseOpen) return { state: null, changed: false };
   let state;
-  if (organiseDraft.steps) {
+  if (organiseSteps()) {
     state = await applyOrganiseDraft({ reload: false });
     if (!state) return null;
   } else {
+    await organiseSettled();
     state = await callApi("organise_done");
   }
   closeOrganiseView();

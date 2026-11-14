@@ -138,6 +138,11 @@
   overflow: auto;
   padding: 20px 28px;
   box-sizing: border-box;
+  /* A reorder keeps the scroll where it is; the pages slide instead
+     (organise-motion.js). The browser's scroll anchoring would otherwise
+     jump the view a row to follow whichever page it picked as its anchor
+     (measured: a page dragged from the top to row 7 scrolled it 186px). */
+  overflow-anchor: none;
 }
 
 .organise-grid-wrap { position: relative; min-height: 100%; }
@@ -257,8 +262,52 @@
 
 .organise-page.is-new .organise-new { display: block; }
 
-/* Being dragged; the insertion bar says where they will land. */
+/* Being dragged (organise-drag.js): the pages stay in place, faded, while
+   the lifted preview follows the pointer; the insertion bar says where they
+   will land. No text selection anywhere in the grid while it goes. */
 .organise-page.is-dragging { opacity: 0.4; }
+
+.organise-grid.is-pointer-dragging,
+.organise-grid.is-pointer-dragging * {
+  user-select: none;
+  cursor: grabbing;
+}
+
+/* The lifted preview: the pressed page's own image, at about 90%, raised to
+   --shadow-3, moved by a transform once a frame. It takes no pointer events,
+   so the grid under it still answers. */
+.organise-lift {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 400;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.organise-lift .organise-paper {
+  box-shadow: var(--shadow-3);
+  transition: none;
+}
+
+/* "3 pages", on the preview's top-right corner when several are lifted. */
+.organise-lift-count {
+  position: absolute;
+  top: -10px;
+  right: -14px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background-color: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--shadow-2);
+}
+
+/* Deleted, fading out (organise-motion.js): no longer a page of the draft,
+   so it takes no clicks, drops or focus while it goes. */
+.organise-page.is-leaving { pointer-events: none; }
 
 .organise-insertion {
   position: absolute;

@@ -401,9 +401,12 @@ class PdfDocument:
         return self._thumbnail(self._doc[index], width_px)
 
     @staticmethod
-    def _thumbnail(page: "pymupdf.Page", width_px: int):
+    def _thumbnail(page: "pymupdf.Page", width_px: int, turn: int = 0):
+        """`page` scaled to `width_px` wide, then turned `turn` degrees
+        clockwise: the same scale either way, so a turned image is the
+        unturned one's pixels on their side."""
         scale = max(1, width_px) / page.rect.width if page.rect.width else 1
-        return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
+        return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale).prerotate(turn), alpha=False)
 
     @_reads
     def outline(self) -> list[OutlineEntry]:
@@ -1077,16 +1080,18 @@ class PdfDocument:
             doc.close()
 
     @_reads
-    def render_plan_thumbnail(self, source: str, index: int, width_px: int):
-        """A page of the plan, `width_px` wide, as it is now (Organise turns
-        it on screen): the open document's own page, or one of a source
-        Insert holds. None for a page that isn't there."""
+    def render_plan_thumbnail(self, source: str, index: int, width_px: int, turn: int = 0):
+        """A page of the plan, `width_px` wide as it is now, then turned
+        `turn` degrees clockwise (a multiple of 90): the open document's own
+        page, or one of a source Insert holds. None for a page that isn't
+        there."""
         if source == page_plan.DOC:
-            return self.render_thumbnail(index, width_px)
-        doc = self._page_sources.get(source)
-        if doc is None or not 0 <= index < len(doc):
+            doc = self._doc
+        else:
+            doc = self._page_sources.get(source)
+        if not doc or not 0 <= index < len(doc):
             return None
-        return self._thumbnail(doc[index], width_px)
+        return self._thumbnail(doc[index], width_px, turn)
 
     def _plan_pages(self, plan: page_plan.Plan) -> list[tuple[str | None, int, int]]:
         """`plan` as `engine.apply_page_plan` takes it; ValueError unless

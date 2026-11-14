@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import threading
+import time
 from pathlib import Path
 
 import webview
@@ -39,7 +40,7 @@ from lector.features.settings import store as settings
 from lector.features.voice import command_grammar, reference, router
 from lector.features.voice import engine as engine_module
 from lector.features.voice.engine import VoiceEngine
-from lector.shared import highlight_options, window_chrome
+from lector.shared import app_log, highlight_options, window_chrome
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ MAX_GESTURE_CHARS = 64
 # little more.
 MIN_THUMBNAIL_PX = 16
 MAX_THUMBNAIL_PX = 480
+# Organise's timing probe (frontend/pages/organise-timing.js, debug runs
+# only): the fields one report may carry, all numbers but `kind`.
+ORGANISE_TIMING_FIELDS = ("pages", "bridge", "python", "render", "frame", "settled", "thumbs", "thumbsDone")
+ORGANISE_TIMING_KINDS = ("move", "shift", "rotate", "delete", "insert", "undo", "redo")
 
 # `request_microphone`'s error when no capture could be opened. A code, not
 # the audio library's text, which can name devices and drivers.
@@ -945,6 +950,7 @@ class Api:
             "can_undo": history.can_undo,
             "can_redo": history.can_redo,
             "steps": history.steps,
+            "debug": app_log.debug_enabled(),
             **extra,
         }
 
@@ -966,9 +972,20 @@ class Api:
         `organise_add_source`, and `gap`). Returns the new draft and the
         pages to select (where the moved or inserted pages are). `{ok:
         False, reason}` for one the plan refuses (`page_plan.EVERY_PAGE`,
-        ...)."""
-        if self._organise is None or not isinstance(args, dict):
+        ...), with the draft as it stays: the page has already shown the
+        action (organise-plan.js) and goes back to this."""
+        started = time.perf_counter()
+        if self._organise is None:
             return {"ok": False, "reason": page_plan.BAD_POSITIONS}
+        if not isinstance(args, dict):
+            return self._organise_refused(page_plan.BAD_POSITIONS)
+        try:
+            return self._organise_act(kind, args)
+        finally:
+            log.debug("organise %s: %.1f ms in Python", kind if kind in ORGANISE_TIMING_KINDS else "?",
+                      (time.perf_counter() - started) * 1000)
+
+    def _organise_act(self, kind: str, args: dict) -> dict:
         plan = self._organise.current
         positions = args.get("positions")
         try:
@@ -979,9 +996,18 @@ class Api:
             else:
                 new, selection = self._organise_step(plan, kind, positions, args)
         except page_plan.PlanError as exc:
-            return {"ok": False, "reason": exc.reason}
+            return self._organise_refused(exc.reason)
         changed = self._organise.push(new)
         return self._organise_view(changed=changed, selection=list(selection))
+
+    @staticmethod
+    def _is_turn(value) -> bool:
+        """Exactly one of a plan's turns: an int (not a bool, not 90.0)."""
+        return type(value) is int and value in page_plan.TURNS
+
+    def _organise_refused(self, reason: str) -> dict:
+        """A refused action or step: why, and the draft as it is."""
+        return {**self._organise_view(), "ok": False, "reason": reason}
 
     @staticmethod
     def _one_of(value, allowed: tuple[int, ...]) -> int:
@@ -1099,14 +1125,32 @@ class Api:
             folder = os.path.dirname(self._doc.path)
         return {"stem": tool_destinations.extract_stem(self._doc.path, numbers, folder)}
 
-    def organise_undo(self) -> dict:
-        if self._organise is None or self._organise.undo() is None:
+    def organise_debug_timing(self, report: dict) -> dict:
+        """One action's timings from Organise's probe (organise-timing.js),
+        written to the log at DEBUG: only in a debug run, and only numbers
+        (the action's kind is one of a fixed few)."""
+        if not app_log.debug_enabled() or not isinstance(report, dict):
             return {"ok": False}
+        kind = report.get("kind")
+        numbers = {name: report[name] for name in ORGANISE_TIMING_FIELDS if _finite(report.get(name))}
+        log.debug("organise timing %s %s", kind if kind in ORGANISE_TIMING_KINDS else "?",
+                  " ".join(f"{name}={value}" for name, value in numbers.items()))
+        return {"ok": True}
+
+    def organise_undo(self) -> dict:
+        """Organise's own Undo: the draft one step back, or `{ok: False}`
+        (with the draft as it is) when there is nothing to undo."""
+        if self._organise is None:
+            return {"ok": False}
+        if self._organise.undo() is None:
+            return self._organise_refused("nothing")
         return self._organise_view()
 
     def organise_redo(self) -> dict:
-        if self._organise is None or self._organise.redo() is None:
+        if self._organise is None:
             return {"ok": False}
+        if self._organise.redo() is None:
+            return self._organise_refused("nothing")
         return self._organise_view()
 
     def organise_cancel(self) -> dict:
@@ -1117,14 +1161,16 @@ class Api:
         self._doc.drop_page_sources()
         return {**self._state(), "pages_changed": False, "history_trimmed": False}
 
-    def organise_thumbnail(self, source: str, index: int, width: int) -> dict:
-        """A page of the draft, `width` pixels wide (clamped), as the page
-        is now; the grid turns it by the plan's `turn` on screen."""
+    def organise_thumbnail(self, source: str, index: int, width: int, turn: int = 0) -> dict:
+        """A page of the draft, `width` pixels wide (clamped) as the page is
+        now, then turned `turn` degrees clockwise (0, 90, 180 or 270): at
+        once the grid turns the image it has on screen, and a turned page's
+        own image replaces it when this answers."""
         index = _page_index(index)
-        if not isinstance(source, str) or index is None or not _finite(width):
+        if not isinstance(source, str) or index is None or not _finite(width) or not self._is_turn(turn):
             return {"image": None, "width": 0, "height": 0}
         width = max(MIN_THUMBNAIL_PX, min(int(width), MAX_THUMBNAIL_PX))
-        pix = self._doc.render_plan_thumbnail(source, index, width)
+        pix = self._doc.render_plan_thumbnail(source, index, width, turn)
         if pix is None:
             return {"image": None, "width": 0, "height": 0}
         return {"image": _pixmap_to_png_b64(pix), "width": pix.width, "height": pix.height}

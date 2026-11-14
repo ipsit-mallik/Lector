@@ -3,6 +3,7 @@ actions, its own Undo/Redo, Done applying it as one reader undo step, the
 reader's state after it, and scanned pages after a move — their text from
 the disk OCR cache, voice highlighting on their own words.
 """
+import os
 import sys
 import tempfile
 import unittest
@@ -115,10 +116,12 @@ class OrganiseApiTests(_ApiCase):
 
     def test_refused_actions_say_why_and_change_nothing(self):
         self.api.organise_begin()
-        self.assertEqual(
-            self.api.organise_action("delete", {"positions": [0, 1, 2, 3, 4]}),
-            {"ok": False, "reason": page_plan.EVERY_PAGE},
-        )
+        refused = self.api.organise_action("delete", {"positions": [0, 1, 2, 3, 4]})
+        self.assertEqual((refused["ok"], refused["reason"]), (False, page_plan.EVERY_PAGE))
+        # With the draft as it stays: the page has already shown the action
+        # and goes back to this.
+        self.assertEqual(self._keys(refused), [f"doc:{i}" for i in range(5)])
+        self.assertEqual((refused["steps"], refused["can_undo"]), (0, False))
         for kind, args in (
             ("rotate", {"positions": [0], "degrees": 45}),
             ("rotate", {"positions": "0", "degrees": 90}),
@@ -185,6 +188,72 @@ class OrganiseApiTests(_ApiCase):
         for args in ((page_plan.DOC, 9, 92), ("insert-0", 0, 92), (page_plan.DOC, -1, 92), (3, 0, 92)):
             with self.subTest(args=args):
                 self.assertIsNone(self.api.organise_thumbnail(*args)["image"])
+
+    def test_turned_thumbnails_are_the_same_page_on_its_side(self):
+        self.api.organise_begin()
+        upright = self.api.organise_thumbnail(page_plan.DOC, 2, 92)
+        for turn in (90, 270):
+            with self.subTest(turn=turn):
+                turned = self.api.organise_thumbnail(page_plan.DOC, 2, 92, turn)
+                self.assertEqual((turned["width"], turned["height"]), (upright["height"], upright["width"]))
+        half = self.api.organise_thumbnail(page_plan.DOC, 2, 92, 180)
+        self.assertEqual((half["width"], half["height"]), (upright["width"], upright["height"]))
+        self.assertEqual(self.api.organise_thumbnail(page_plan.DOC, 2, 92, 0)["image"], upright["image"])
+        for turn in (45, -90, 360, 90.0, True, "90", None):
+            with self.subTest(turn=turn):
+                self.assertIsNone(self.api.organise_thumbnail(page_plan.DOC, 2, 92, turn)["image"])
+
+    def test_a_turned_thumbnail_is_the_upright_one_rotated_clockwise(self):
+        # So the grid can swap one for the other with nothing visibly changing.
+        import base64
+        import io
+
+        from PIL import Image, ImageChops, ImageStat
+
+        self.api.organise_begin()
+
+        def image(turn):
+            data = self.api.organise_thumbnail(page_plan.DOC, 0, 92, turn)["image"]
+            return Image.open(io.BytesIO(base64.b64decode(data))).convert("L")
+
+        upright = image(0)
+        for turn, transpose in ((90, Image.Transpose.ROTATE_270), (270, Image.Transpose.ROTATE_90)):
+            with self.subTest(turn=turn):
+                diff = ImageChops.difference(upright.transpose(transpose), image(turn))
+                self.assertLess(ImageStat.Stat(diff).mean[0], 4)  # a rasterising edge at most
+
+    def test_refused_steps_carry_the_draft_as_it_stays(self):
+        self.api.organise_begin()
+        self.api.organise_action("move", {"positions": [0], "gap": 5})
+        for refused in (
+            self.api.organise_action("move", {"positions": [9], "gap": 0}),
+            self.api.organise_action("rotate", None),
+        ):
+            self.assertFalse(refused["ok"])
+            self.assertEqual(self._keys(refused), [f"doc:{i}" for i in (1, 2, 3, 4, 0)])
+            self.assertEqual(refused["steps"], 1)
+        self.api.organise_undo()
+        nothing = self.api.organise_undo()
+        self.assertEqual((nothing["ok"], nothing["steps"], nothing["can_redo"]), (False, 0, True))
+        self.api.organise_redo()
+        nothing = self.api.organise_redo()
+        self.assertEqual((nothing["ok"], nothing["steps"], nothing["can_undo"]), (False, 1, True))
+
+    def test_the_timing_probe_logs_numbers_only_and_only_in_a_debug_run(self):
+        report = {"kind": "move", "pages": 1, "bridge": 0.4, "python": 9.1, "frame": 12, "text": "Page one",
+                  "render": "x", "thumbs": True}
+        with self.assertNoLogs("lector.api", level="DEBUG"), mock.patch.dict(os.environ, {"LECTOR_DEBUG": "0"}):
+            self.assertFalse(self.api.organise_debug_timing(report)["ok"])
+        with mock.patch.dict(os.environ, {"LECTOR_DEBUG": "1"}), self.assertLogs("lector.api", level="DEBUG") as logs:
+            self.assertTrue(self.api.organise_debug_timing(report)["ok"])
+            self.api.organise_debug_timing({**report, "kind": "<script>"})
+            self.assertFalse(self.api.organise_debug_timing(["not", "a", "report"])["ok"])
+        self.assertEqual(logs.records[0].getMessage(), "organise timing move pages=1 bridge=0.4 python=9.1 frame=12")
+        self.assertEqual(logs.records[1].getMessage(), "organise timing ? pages=1 bridge=0.4 python=9.1 frame=12")
+        with mock.patch.dict(os.environ, {"LECTOR_DEBUG": "1"}):
+            self.assertTrue(self.api.organise_begin()["debug"])
+        with mock.patch.dict(os.environ, {"LECTOR_DEBUG": ""}):
+            self.assertFalse(self.api.organise_begin()["debug"])
 
     def test_reader_undo_does_nothing_while_organise_is_open(self):
         # Found in review: an undone page change under an open draft let Done

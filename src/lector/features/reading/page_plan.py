@@ -22,6 +22,8 @@ DOC = "doc"
 
 QUARTER_TURN = 90
 FULL_TURN = 360
+# Every turn a page can have in a plan.
+TURNS = tuple(range(0, FULL_TURN, QUARTER_TURN))
 
 # PlanError reasons.
 EVERY_PAGE = "every_page"

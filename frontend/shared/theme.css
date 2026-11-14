@@ -71,6 +71,18 @@
   --drop-distance: -4px;
   --dur-quick: 140ms;
 
+  /* Organise pages' reorder (organise-motion.js): pages slide to their new
+   * places over --dur-reorder, a little quicker than --dur-base so a run of
+   * moves keeps up; the moved pages themselves over --dur-quick, so they
+   * land first. Asked for by name, like --dur-quick. Nothing moves under
+   * reduced motion (the script checks the media query itself). */
+  --dur-reorder: 180ms;
+
+  /* A drag in Organise pages called off (Esc, a lost pointer or focus): its
+   * lifted page goes back to where it came from over --dur-return. Asked for
+   * by name, like --dur-reorder. At once under reduced motion. */
+  --dur-return: 150ms;
+
   /* The one looping animation: a search field's halo while voice is typing
    * into it (shared/search-field.css). Slow, so it reads as breathing rather
    * than as an alert. */

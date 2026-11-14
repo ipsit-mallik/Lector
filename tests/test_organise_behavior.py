@@ -32,7 +32,8 @@ from pathlib import Path
 
 PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
 SCRIPTS = [PAGES / name for name in (
-    "page-change-busy.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise-insert.js",
+    "page-change-busy.js", "organise-timing.js", "organise-plan.js", "organise-thumbs.js", "organise-motion.js",
+    "organise-drag.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise-insert.js",
     "organise-extract.js", "organise.js",
 )]
 
@@ -42,6 +43,24 @@ const vm = require("vm");
 
 const COLS = 7, CELL_W = 148, CELL_H = 168, GAP_X = 8, GAP_Y = 12;
 const docListeners = { capture: {}, bubble: {} };
+let domMoves = 0;
+// Web Animations: each runs until the next macrotask (settle() lets it end),
+// or until the test lets it go when `holdAnimations` is set.
+const animations = [];
+let holdAnimations = false;
+let reducedMotion = process.env.REDUCED_MOTION === "1";
+function startAnimation(el, keyframes, options) {
+  let resolve;
+  const anim = {
+    el, keyframes, options, playState: "running",
+    finished: new Promise((r) => { resolve = r; }),
+    finish() { if (this.playState !== "running") return; this.playState = "finished"; resolve(this); },
+    cancel() { this.finish(); },
+  };
+  animations.push(anim);
+  if (!holdAnimations) setTimeout(() => anim.finish(), 0);
+  return anim;
+}
 const byId = {};
 let activeElement = null;
 let root = null;
@@ -64,7 +83,12 @@ function makeEl(tag, id) {
     getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
     removeAttribute(k) { delete this.attrs[k]; },
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    removeEventListener(type, fn) { const bag = listeners[type] || []; if (bag.includes(fn)) bag.splice(bag.indexOf(fn), 1); },
     listeners,
+    captured: null,
+    setPointerCapture(id) { this.captured = id; },
+    releasePointerCapture(id) { if (this.captured === id) this.captured = null; },
+    hasPointerCapture(id) { return this.captured === id; },
     appendChild(kid) {
       if (kid.isFragment) { const kids = kid.children.slice(); kid.children = []; kids.forEach((k) => this.appendChild(k)); return kid; }
       if (kid.parentNode) kid.parentNode.children.splice(kid.parentNode.children.indexOf(kid), 1);
@@ -73,6 +97,18 @@ function makeEl(tag, id) {
       return kid;
     },
     append(...kids) { kids.forEach((k) => this.appendChild(k)); },
+    insertBefore(kid, ref) {
+      if (!ref) return this.appendChild(kid);
+      if (kid.parentNode) kid.parentNode.children.splice(kid.parentNode.children.indexOf(kid), 1);
+      kid.parentNode = this;
+      this.children.splice(this.children.indexOf(ref), 0, kid);
+      domMoves += 1;
+      return kid;
+    },
+    remove() { if (this.parentNode) { this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1); this.parentNode = null; } },
+    get nextElementSibling() { const sibs = this.parentNode ? this.parentNode.children : []; return sibs[sibs.indexOf(this) + 1] || null; },
+    get nextSibling() { return this.nextElementSibling; },
+    animate(keyframes, options) { return startAnimation(this, keyframes, options); },
     replaceChildren(...kids) { this.children.forEach((k) => { k.parentNode = null; }); this.children = []; kids.forEach((k) => this.appendChild(k)); },
     get lastElementChild() { return this.children[this.children.length - 1] || null; },
     get isConnected() { for (let n = this; n; n = n.parentNode) if (n === root) return true; return false; },
@@ -85,13 +121,18 @@ function makeEl(tag, id) {
       const l = this.layout();
       return { left: l.left, top: l.top, right: l.left + l.width, bottom: l.top + l.height, width: l.width, height: l.height };
     },
+    // The grid scrolls in its 600px-high scroller: cells (and what is in
+    // them, given the cell's box) move up as it does.
     layout() {
+      const scrolled = (byId.organiseScroll && byId.organiseScroll.scrollTop) || 0;
       if (this.parentNode && this.parentNode.id === "organiseGrid") {
         const i = this.parentNode.children.indexOf(this);
         const col = i % COLS, row = Math.floor(i / COLS);
-        return { left: col * (CELL_W + GAP_X), top: row * (CELL_H + GAP_Y), width: CELL_W, height: CELL_H };
+        return { left: col * (CELL_W + GAP_X), top: row * (CELL_H + GAP_Y) - scrolled, width: CELL_W, height: CELL_H };
       }
+      for (let n = this.parentNode; n; n = n.parentNode) if (n.parentNode && n.parentNode.id === "organiseGrid") return n.layout();
       if (this.id === "organiseScroll") return { left: 0, top: 0, width: 1100, height: 600 };
+      if (this.id === "organiseGrid") return { left: 0, top: -scrolled, width: 1100, height: 2000 };
       return { left: 0, top: 0, width: 1100, height: 2000 };
     },
     querySelector(sel) {
@@ -144,23 +185,38 @@ const document = {
   addEventListener(type, fn, capture) { const bag = capture ? docListeners.capture : docListeners.bubble; (bag[type] = bag[type] || []).push(fn); },
 };
 
+// The window's own listeners (capture: first of all; bubble: last).
+const winListeners = { capture: {}, bubble: {} };
+const winBag = (capture) => (capture === true || (capture && capture.capture) ? winListeners.capture : winListeners.bubble);
+const windowListenerCount = () => [winListeners.capture, winListeners.bubble]
+  .reduce((n, bag) => n + Object.values(bag).reduce((m, fns) => m + fns.length, 0), 0);
+
 function dispatch(target, type, props = {}) {
   let stopped = false, immediate = false;
   const ev = {
     type, target, key: "", ctrlKey: false, shiftKey: false, metaKey: false, altKey: false, repeat: false,
-    clientX: 0, clientY: 0, relatedTarget: null, defaultPrevented: false,
+    clientX: 0, clientY: 0, relatedTarget: null, defaultPrevented: false, timeStamp: performance.now(),
     dataTransfer: { setData() {}, effectAllowed: "", dropEffect: "" },
     preventDefault() { this.defaultPrevented = true; },
     stopPropagation() { stopped = true; },
     stopImmediatePropagation() { stopped = true; immediate = true; },
     ...props,
   };
-  for (const fn of docListeners.capture[type] || []) { fn(ev); if (immediate) return ev; }
+  const run = (fns) => { for (const fn of [...(fns || [])]) { fn(ev); if (immediate) return true; } return false; };
+  if (run(winListeners.capture[type]) || stopped) return ev;
+  if (target === "window") { run(winListeners.bubble[type]); return ev; }
+  if (run(docListeners.capture[type])) return ev;
   for (let n = target; n && !stopped; n = n.parentNode) {
-    for (const fn of n.listeners[type] || []) { fn(ev); if (immediate) return ev; }
+    if (run(n.listeners[type])) return ev;
   }
-  if (!stopped) for (const fn of docListeners.bubble[type] || []) { fn(ev); if (immediate) return ev; }
+  if (!stopped && run(docListeners.bubble[type])) return ev;
+  if (!stopped) run(winListeners.bubble[type]);
   return ev;
+}
+
+// A mouse pointer event (pointer 1, the primary button held).
+function pointer(target, type, x, y, props = {}) {
+  return dispatch(target, type, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, clientX: x, clientY: y, ...props });
 }
 
 const observed = [];
@@ -172,49 +228,79 @@ function intersectAll() {
   if (batch.length && gridObserver) gridObserver.cb(batch.map(({ el }) => ({ target: el, isIntersecting: true })));
 }
 
-// Python's draft, as far as this view can tell.
-let pagesNow = Array.from({ length: 12 }, (_, i) => ({ key: `doc:${i}`, source: "doc", index: i, turn: 0, new: false }));
-let steps = 0;
+// Python's draft, as far as this view can tell: a PlanHistory of its own
+// (not organise-plan.js, so it checks the page's predictions).
+let plans = [Array.from({ length: 12 }, (_, i) => ({ key: `doc:${i}`, source: "doc", index: i, turn: 0, new: false }))];
+let at = 0;
+const sourcePages = {};
 const calls = [];
-const held = { thumbnails: [], done: null };
+const held = { thumbnails: [], done: null, actions: [] };
 let nextSource = 0;
 let jobCount = 0;
-let holdThumbnails = false, holdDone = false, actionReply = null, doneReply = null;
+let holdThumbnails = false, holdDone = false, holdActions = false, actionReply = null, doneReply = null;
+// Python doing something other than the page predicted: the next action
+// answers with the draft as it was plus a step of its own.
+let divergeNext = false;
+const pagesNow = () => plans[at];
+const sameDraft = (a, b) => a.length === b.length && a.every((p, i) => p.key === b[i].key && p.turn === b[i].turn);
 function draft(extra = {}) {
-  return { ok: true, pages: pagesNow.map((p) => ({ ...p })), can_undo: steps > 0, can_redo: false, steps, ...extra };
+  return { ok: true, pages: pagesNow().map((p) => ({ ...p })), can_undo: at > 0, can_redo: at < plans.length - 1, steps: at, ...extra };
 }
-function moveTo(positions, gap) {
-  const block = positions.map((i) => pagesNow[i]);
-  const rest = pagesNow.filter((_, i) => !positions.includes(i));
-  const at = gap - positions.filter((i) => i < gap).length;
-  pagesNow = [...rest.slice(0, at), ...block, ...rest.slice(at)];
-  return block.map((_, k) => at + k);
+function push(next) {
+  if (sameDraft(next, pagesNow())) return false;
+  plans = [...plans.slice(0, at + 1), next];
+  at += 1;
+  return true;
+}
+function moveIn(pages, positions, gap) {
+  const block = positions.map((i) => pages[i]);
+  const rest = pages.filter((_, i) => !positions.includes(i));
+  const to = gap - positions.filter((i) => i < gap).length;
+  return { next: [...rest.slice(0, to), ...block, ...rest.slice(to)], selection: block.map((_, k) => to + k) };
+}
+function act(kind, a) {
+  const pages = pagesNow();
+  if (kind === "insert") {
+    const count = sourcePages[a.source] || 1;
+    const added = Array.from({ length: count }, (_, i) => ({ key: `${a.source}:${i}`, source: a.source, index: i, turn: 0, new: true }));
+    return { next: [...pages.slice(0, a.gap), ...added, ...pages.slice(a.gap)], selection: added.map((_, i) => a.gap + i) };
+  }
+  if (kind === "move") return moveIn(pages, a.positions, a.gap);
+  if (kind === "shift") {
+    const lo = a.positions[0], hi = a.positions[a.positions.length - 1];
+    return moveIn(pages, a.positions, a.step < 0 ? Math.max(lo - 1, 0) : Math.min(hi + 2, pages.length));
+  }
+  if (kind === "rotate") {
+    return { next: pages.map((p, i) => (a.positions.includes(i) ? { ...p, turn: (p.turn + a.degrees + 360) % 360 } : p)), selection: a.positions };
+  }
+  if (kind === "delete") return { next: pages.filter((_, i) => !a.positions.includes(i)), selection: [] };
+  return null;
+}
+function answerAction(kind, a) {
+  if (actionReply) return { ...draft(), ...actionReply };
+  if (divergeNext) {
+    divergeNext = false;
+    const { next } = act("rotate", { positions: [pagesNow().length - 1], degrees: 180 });
+    push(next);
+    return draft({ changed: true, selection: [] });
+  }
+  const { next, selection } = act(kind, a);
+  const changed = push(next);
+  return draft({ changed, selection });
 }
 function callApi(method, ...args) {
   calls.push([method, ...args]);
   if (method === "organise_begin") return Promise.resolve(draft({ page_index: 2 }));
   if (method === "organise_thumbnail") {
-    const reply = { image: "AAAA", width: 85, height: 120 };
+    const turn = args[3] || 0;
+    const reply = { image: `AAAA${turn}`, width: turn % 180 ? 120 : 85, height: turn % 180 ? 85 : 120 };
     if (!holdThumbnails) return Promise.resolve(reply);
     return new Promise((resolve) => held.thumbnails.push(() => resolve(reply)));
   }
   if (method === "organise_action") {
-    if (actionReply) return Promise.resolve(actionReply);
-    steps += 1;
     const [kind, a] = args;
-    if (kind === "insert") {
-      const count = a.source === "insert-0" ? 3 : 1;
-      const added = Array.from({ length: count }, (_, i) => ({ key: `${a.source}:${i}`, source: a.source, index: i, turn: 0, new: true }));
-      pagesNow = [...pagesNow.slice(0, a.gap), ...added, ...pagesNow.slice(a.gap)];
-      return Promise.resolve(draft({ changed: true, selection: added.map((_, i) => a.gap + i) }));
-    }
-    if (kind === "move") return Promise.resolve(draft({ changed: true, selection: moveTo(a.positions, a.gap) }));
-    if (kind === "shift") {
-      const lo = a.positions[0], hi = a.positions[a.positions.length - 1];
-      const gap = a.step < 0 ? Math.max(lo - 1, 0) : Math.min(hi + 2, pagesNow.length);
-      return Promise.resolve(draft({ changed: true, selection: moveTo(a.positions, gap) }));
-    }
-    return Promise.resolve(draft({ changed: true, selection: a.positions }));
+    if (!holdActions) return Promise.resolve(answerAction(kind, a));
+    return new Promise((resolve) => held.actions.push(() => resolve(answerAction(kind, a))));
   }
   if (method === "organise_add_source") {
     const [path, password] = args;
@@ -224,23 +310,33 @@ function callApi(method, ...args) {
       return Promise.resolve({ ok: false, reason: password ? "wrong_password" : "password", error: "The password isn't right. Try again.", name });
     }
     const source = `insert-${nextSource++}`;
-    return Promise.resolve({ ok: true, source, pages: name === "locked.pdf" ? 1 : 3, name });
+    sourcePages[source] = name === "locked.pdf" ? 1 : 3;
+    return Promise.resolve({ ok: true, source, pages: sourcePages[source], name });
   }
   if (method === "organise_extract_setup") {
     const [positions] = args;
     const run = positions.length === 1 ? `page ${positions[0] + 1}` : `pages ${positions[0] + 1}–${positions[positions.length - 1] + 1}`;
     return Promise.resolve({
-      ok: true, count: positions.length, label: run, every_page: positions.length === pagesNow.length,
+      ok: true, count: positions.length, label: run, every_page: positions.length === pagesNow().length,
       output: { folder: "C:/Docs", stem: `Annual Report (${run})`, extension: ".pdf" },
     });
   }
   if (method === "check_tool_destination") return Promise.resolve({ ok: true, exists: false, name: `${args[3]}.pdf`, folder: args[2] });
   if (method === "start_file_job") return Promise.resolve({ ok: true, id: `job-${++jobCount}` });
-  if (method === "organise_undo") { steps = Math.max(0, steps - 1); return Promise.resolve(draft()); }
-  if (method === "organise_cancel") { steps = 0; return Promise.resolve({ is_open: true, pages_changed: false }); }
+  if (method === "organise_undo" || method === "organise_redo") {
+    const answer = () => {
+      const back = method === "organise_undo";
+      if (back ? !at : at >= plans.length - 1) return draft({ ok: false, reason: "nothing" });
+      at += back ? -1 : 1;
+      return draft();
+    };
+    if (!holdActions) return Promise.resolve(answer());
+    return new Promise((resolve) => held.actions.push(() => resolve(answer())));
+  }
+  if (method === "organise_cancel") { plans = [plans[0]]; at = 0; return Promise.resolve({ is_open: true, pages_changed: false }); }
   if (method === "organise_done") {
     if (doneReply === "reject") return Promise.reject(new Error("bridge"));
-    const reply = doneReply || { is_open: true, pages_changed: steps > 0, history_trimmed: false };
+    const reply = doneReply || { is_open: true, pages_changed: at > 0, history_trimmed: false };
     if (!holdDone) return Promise.resolve(reply);
     return new Promise((resolve) => { held.done = () => resolve(reply); });
   }
@@ -332,8 +428,13 @@ const storage = {};
 const deleted = [];
 let reloads = 0;
 const context = vm.createContext({
-  document, console, setTimeout, clearTimeout,
-  window: { location: { reload: () => { reloads += 1; } }, addEventListener() {} },
+  document, console, setTimeout, clearTimeout, performance,
+  matchMedia: (query) => ({ matches: query.includes("reduce") && reducedMotion }),
+  window: {
+    location: { reload: () => { reloads += 1; } },
+    addEventListener(type, fn, capture) { const bag = winBag(capture); (bag[type] = bag[type] || []).push(fn); },
+    removeEventListener(type, fn, capture) { const fns = winBag(capture)[type] || []; if (fns.includes(fn)) fns.splice(fns.indexOf(fn), 1); },
+  },
   sessionStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); }, removeItem: (k) => { delete storage[k]; } },
   IntersectionObserver: FakeObserver,
   requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
@@ -357,10 +458,22 @@ const context = vm.createContext({
 for (const file of process.argv.slice(2)) vm.runInContext(fs.readFileSync(file, "utf8"), context);
 vm.runInContext(
   "configureOrganise({ title: () => 'Annual Report' });" +
-  "this.__api = { openOrganise, isOrganiseOpen, finishOrganise, cancelOrganise };",
+  "this.__api = { openOrganise, isOrganiseOpen, finishOrganise, cancelOrganise, organiseAct };",
   context
 );
 const api = context.__api;
+const organiseActNow = (kind, args) => api.organiseAct(kind, args);
+// The draft the grid shows (not the pages fading out of it), and Python's:
+// "doc:3", or "doc:3@90deg" when turned (from the cell's own label, since a
+// turned page's own image is shown unrotated once it has arrived).
+const liveKeys = () => grid.children.filter((c) => !c.classList.contains("is-leaving")).map((c) => {
+  const turned = /rotated (\d+)°/.exec(c.attrs["aria-label"] || "");
+  return turned ? `${c.dataset.key}@${turned[1]}deg` : c.dataset.key;
+});
+const pyKeys = () => pagesNow().map((p) => (p.turn ? `${p.key}@${p.turn}deg` : p.key));
+// Microtasks only: what runs before the next frame.
+const flush = async () => { for (let i = 0; i < 10; i++) await null; };
+const failureToasts = () => toasts.filter((t) => t.text.startsWith("Couldn't")).map((t) => t.text);
 const tick = () => new Promise((r) => setTimeout(r, 0));
 async function settle() { for (let i = 0; i < 6; i++) await tick(); }
 const cell = (i) => grid.children[i];
@@ -368,6 +481,27 @@ const selectedPositions = () => grid.children.map((c, i) => (c.attrs["aria-selec
 const key = (target, k, mods = {}) => dispatch(target, "keydown", { key: k, ...mods });
 const actions = () => calls.filter((c) => c[0] === "organise_action").map((c) => [c[1], c[2]]);
 const spot = (i) => { const r = cell(i).getBoundingClientRect(); return { left: r.left + 20, right: r.right - 20, y: r.top + 60 }; };
+// A mouse drag of the page in `from` to (x, y), as the browser sends it:
+// pressed, moved past the 5px threshold, moved there, then released (with
+// the click that follows a release). `end`: "up", or "none" to leave it held,
+// or how it is called off: "esc", "cancel" (pointercancel), "blur".
+function pdrag(from, x, y, { end = "up" } = {}) {
+  const r = from.getBoundingClientRect();
+  const sx = r.left + 70, sy = r.top + 60;
+  pointer(from, "pointerdown", sx, sy);
+  pointer(from, "pointermove", sx + 6, sy);
+  pointer(grid, "pointermove", x, y);
+  if (end === "up") release(x, y);
+  else if (end === "esc") dispatch(activeElement || grid, "keydown", { key: "Escape" });
+  else if (end === "cancel") pointer(grid, "pointercancel", x, y, { buttons: 0 });
+  else if (end === "blur") dispatch("window", "blur");
+}
+function release(x, y) {
+  pointer(grid, "pointerup", x, y, { buttons: 0 });
+  dispatch(grid, "click", { clientX: x, clientY: y });
+}
+const lifted = () => document.body.children.find((k) => k.classList.contains("organise-lift")) || null;
+const order = () => liveKeys().join(" ");
 
 const scenarios = {
   async selection() {
@@ -422,32 +556,165 @@ const scenarios = {
   },
   async drag() {
     await api.openOrganise(); await settle();
+    intersectAll(); await settle();
     dispatch(cell(3), "click"); dispatch(cell(4), "click", { shiftKey: true });
-    dispatch(cell(8), "dragstart");
-    const out = { draggingSelected: selectedPositions(), faded: cell(8).classList.contains("is-dragging") };
     const p = spot(1);
-    dispatch(grid, "dragover", { clientX: p.left, clientY: p.y });
+    const cell8 = cell(8).getBoundingClientRect();
+    pdrag(cell(8), p.left, p.y, { end: "none" });
+    // Placed at once where the drag began (6px on from the press); the
+    // frame after moves it to the pointer.
+    const before = lifted() && lifted().style.transform;
+    await tick();
+    const preview = lifted();
     const bar = byId.organiseInsertion;
-    out.bar = { shown: !bar.hidden, left: bar.style.left };
-    dispatch(grid, "drop", { clientX: p.left, clientY: p.y }); await settle();
+    const out = {
+      draggingSelected: selectedPositions(), faded: cell(8).classList.contains("is-dragging"),
+      noTextSelection: grid.classList.contains("is-pointer-dragging"),
+      captured: grid.captured,
+      previewAtStart: before,
+      pointerMoved: [p.left - (cell8.left + 76), p.y - (cell8.top + 60)],
+      preview: preview && {
+        transform: preview.style.transform,
+        sameImage: preview.children[0].children[0].src === cell(8).children[0].children[0].children[0].src,
+        badge: preview.children.length > 1,
+      },
+      bar: { shown: !bar.hidden, left: bar.style.left },
+    };
+    // Moves between frames: drawn once, at the last of them, moved exactly
+    // as far as the pointer.
+    for (const dx of [5, 10, 15, 20]) pointer(grid, "pointermove", p.left + dx, p.y + dx);
+    out.betweenFrames = preview.style.transform === out.preview.transform;
+    await tick();
+    out.nextFrame = preview.style.transform;
+    release(p.left + 20, p.y + 20); await settle();
     out.move = actions()[0];
     out.order = grid.children.slice(0, 3).map((c) => c.dataset.key);
+    out.selectedAfter = selectedPositions(); // the click after the release cleared nothing
     out.barAfterDrop = bar.hidden;
     out.fadedAfterDrop = grid.children.some((c) => c.classList.contains("is-dragging"));
+    out.previewAfterDrop = Boolean(lifted());
+    out.textSelectionAfter = grid.classList.contains("is-pointer-dragging");
+    out.capturedAfter = grid.captured;
+    out.windowListeners = windowListenerCount();
     // A block dropped back on itself: nothing to do.
     dispatch(cell(3), "click"); dispatch(cell(4), "click", { shiftKey: true });
-    dispatch(cell(3), "dragstart");
     const q = spot(4);
-    dispatch(grid, "dragover", { clientX: q.right, clientY: q.y });
-    dispatch(grid, "drop", { clientX: q.right, clientY: q.y }); await settle();
+    pdrag(cell(3), q.right, q.y); await settle();
     out.selfDrop = actions().length;
+    // Two lifted: the badge says so.
+    pdrag(cell(3), q.right, q.y, { end: "none" }); await tick();
+    out.badge = lifted().children[1] ? lifted().children[1].textContent : null;
+    release(q.right, q.y); await settle();
     // Past the right half of a row's last page: after it.
-    dispatch(cell(0), "dragstart");
+    dispatch(cell(0), "click");
     const r = spot(6);
-    dispatch(grid, "dragover", { clientX: r.right, clientY: r.y });
+    pdrag(cell(0), r.right, r.y, { end: "none" }); await tick();
     out.rowEndBar = bar.style.left;
-    dispatch(grid, "drop", { clientX: r.right, clientY: r.y }); await settle();
+    release(r.right, r.y); await settle();
     out.rowEnd = actions()[1];
+    return out;
+  },
+  // A press that moves less than 5px is a click; the same moves dragged and
+  // by Ctrl+arrow end the same; a drag called off changes nothing.
+  async pointerDragging() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    const thumbs = () => calls.filter((c) => c[0] === "organise_thumbnail").length;
+    const drawn = thumbs();
+    const out = {};
+    const r = cell(2).getBoundingClientRect();
+    const down = pointer(cell(2), "pointerdown", r.left + 70, r.top + 60);
+    out.pressPrevented = down.defaultPrevented; // no native image drag or selection
+    pointer(cell(2), "pointermove", r.left + 73, r.top + 62);
+    await tick();
+    pointer(cell(2), "pointerup", r.left + 73, r.top + 62, { buttons: 0 });
+    dispatch(cell(2), "click"); await settle();
+    out.click = {
+      selected: selectedPositions(), dragged: grid.children.some((c) => c.classList.contains("is-dragging")),
+      preview: Boolean(lifted()), actions: actions().length, listeners: windowListenerCount(),
+    };
+    const undoAll = async () => { while (at > 0) { key(activeElement, "z", { ctrlKey: true }); await settle(); } };
+    const result = () => ({ order: order(), python: pyKeys().join(" "), selected: selectedPositions() });
+    // One page dragged after the next one; then the same by Ctrl+→.
+    dispatch(cell(0), "click");
+    pdrag(cell(0), spot(1).right, spot(1).y); await settle();
+    out.oneDragged = result();
+    await undoAll();
+    dispatch(cell(0), "click");
+    key(activeElement, "ArrowRight", { ctrlKey: true }); await settle();
+    out.oneKeyed = result();
+    await undoAll();
+    // Two pages (3 and 4) dragged after page 6, the second of them pressed.
+    dispatch(cell(3), "click"); dispatch(cell(4), "click", { shiftKey: true });
+    pdrag(cell(4), spot(5).right, spot(5).y); await settle();
+    out.twoDragged = result();
+    await undoAll();
+    dispatch(cell(3), "click"); dispatch(cell(4), "click", { shiftKey: true });
+    key(activeElement, "ArrowRight", { ctrlKey: true }); await settle();
+    out.twoKeyed = result();
+    await undoAll();
+    const sentBefore = actions().length;
+    // Called off three ways: nothing changes, Organise stays open, the
+    // preview goes back to its page.
+    for (const how of ["esc", "cancel", "blur"]) {
+      const was = order();
+      const animated = animations.length;
+      dispatch(cell(5), "click");
+      pdrag(cell(5), spot(9).left, spot(9).y, { end: how });
+      const back = animations.slice(animated).find((a) => a.el.classList.contains("organise-lift"));
+      // The release after Esc or a lost focus is no drop (or click) either;
+      // a pointercancel is the end of the pointer, with no release to come.
+      if (how !== "cancel") release(spot(9).left, spot(9).y);
+      await settle();
+      out[how] = {
+        same: order() === was, open: api.isOrganiseOpen(), sent: actions().length - sentBefore,
+        back: back ? back.options.duration : null, previewLeft: Boolean(lifted()),
+        faded: grid.children.some((c) => c.classList.contains("is-dragging")), bar: !byId.organiseInsertion.hidden,
+        listeners: windowListenerCount(), selected: selectedPositions(),
+      };
+    }
+    // HTML5 drag-and-drop is not used at all: nothing draggable, no drag
+    // listeners, so a drag of pages never reaches pywebview's drop handler.
+    const dragTypes = ["dragstart", "dragover", "dragenter", "dragleave", "drop", "dragend"];
+    const listens = (el) => dragTypes.some((t) => (el.listeners[t] || []).length);
+    out.native = {
+      draggable: grid.children.some((c) => c.draggable === true),
+      listeners: [grid, scroller, ...grid.children].some(listens),
+    };
+    out.thumbs = thumbs() - drawn;
+    return out;
+  },
+  // Near the grid's bottom edge a drag scrolls it, faster nearer the edge,
+  // and the slot follows the pages under the pointer.
+  async autoscroll() {
+    await api.openOrganise(); await settle();
+    scroller.scrollHeight = 1200; scroller.clientHeight = 600; scroller.scrollTop = 0;
+    dispatch(cell(0), "click");
+    const x = spot(2).left;
+    pdrag(cell(0), x, 590, { end: "none" });
+    const steps = [];
+    for (let i = 0; i < 4; i++) { await tick(); steps.push(scroller.scrollTop); }
+    const out = { steps };
+    pointer(grid, "pointermove", x, 570); // further from the edge: slower
+    await tick();
+    const was = scroller.scrollTop;
+    await tick();
+    out.slower = scroller.scrollTop - was;
+    pointer(grid, "pointermove", x, 250); // clear of the edge: stops
+    await tick();
+    const still = scroller.scrollTop;
+    await tick();
+    out.stopped = scroller.scrollTop === still;
+    out.scrolled = scroller.scrollTop;
+    // Where the drop lands, worked out from the scrolled pages: the bar there.
+    const y = 250 + scroller.scrollTop;
+    const row = Math.floor(y / (CELL_H + GAP_Y));
+    out.expectedGap = row * COLS + 2;
+    out.inCell = y % (CELL_H + GAP_Y) < CELL_H;
+    out.barTop = byId.organiseInsertion.style.top;
+    out.expectedBarTop = `${row * (CELL_H + GAP_Y) + 10}px`;
+    release(x, 250); await settle();
+    out.move = actions()[0];
     return out;
   },
   async thumbnails() {
@@ -463,9 +730,8 @@ const scenarios = {
     while (held.thumbnails.length) { held.thumbnails.shift()(); await settle(); }
     out.total = thumbCalls().length;
     dispatch(cell(11), "click");
-    dispatch(cell(11), "dragstart");
     const p = spot(0);
-    dispatch(grid, "drop", { clientX: p.left, clientY: p.y }); await settle();
+    pdrag(cell(11), p.left, p.y); await settle();
     intersectAll(); await settle();
     out.afterMove = thumbCalls().length;
     out.movedPainted = cell(0).children[0].children[0].children[0].src.startsWith("data:image/png");
@@ -491,8 +757,9 @@ const scenarios = {
     dispatch(byId.organiseDoneBtn, "click");
     out.busyAtOnce = !byId.pageChangeBusy.hidden;
     out.ariaBusy = document.body.attrs["aria-busy"];
-    out.doneAsked = calls.filter((c) => c[0] === "organise_done").length;
     while (held.thumbnails.length) { held.thumbnails.shift()(); await settle(); }
+    // Asked once the rotation has reached Python (the reply is still held).
+    out.doneAsked = calls.filter((c) => c[0] === "organise_done").length;
     out.thumbsStartedAfterDone = calls.filter((c) => c[0] === "organise_thumbnail").length - thumbsBefore;
     const before = calls.length;
     const ev = key(cell(0), "z", { ctrlKey: true }); await settle();
@@ -691,6 +958,198 @@ const scenarios = {
     out.everyPage = extractDialog().check;
     return out;
   },
+  // Each kind of action shows in the grid before Python has answered, and
+  // what it shows is what Python then answers.
+  async optimistic() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    holdActions = true;
+    const out = {};
+    const steps = () => calls.filter((c) => /^organise_(action|undo|redo)$/.test(c[0])).length;
+    async function check(name, act) {
+      const before = steps();
+      act();
+      // Microtasks only (a dialog's answer is one): still before the next
+      // frame, and before Python has answered.
+      for (let i = 0; i < 10; i++) await null;
+      const shown = liveKeys();
+      const answered = held.actions.length === 0;
+      while (held.actions.length) { held.actions.shift()(); await settle(); }
+      out[name] = { shownAtOnce: shown, answered, python: pyKeys(), grid: liveKeys(), sent: steps() - before, toasts: failureToasts() };
+    }
+    await check("drag", () => {
+      dispatch(cell(4), "click");
+      const p = spot(1);
+      pdrag(cell(4), p.left, p.y);
+    });
+    await check("shift", () => key(activeElement, "ArrowRight", { ctrlKey: true }));
+    await check("rotate", () => { dispatch(cell(6), "click"); dispatch(byId.organiseRotateRightBtn, "click"); });
+    key(activeElement, "Delete"); await settle();
+    await check("delete", () => question("organiseDelete").answer(true));
+    await settle();
+    await check("undo", () => key(activeElement, "z", { ctrlKey: true }));
+    await check("redo", () => key(activeElement, "y", { ctrlKey: true }));
+    picks.push({ path: "C:/Files/Appendix.pdf" });
+    dispatch(byId.organiseInsertBtn, "click"); await settle();
+    await check("insert", () => insertDialog().answer(true));
+    out.count = byId.organiseCount.textContent;
+    return out;
+  },
+  // Python answers differently (or refuses): the grid goes to Python's
+  // draft, says so, and drops what was queued behind it.
+  async diverged() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    holdActions = true;
+    dispatch(cell(0), "click");
+    divergeNext = true;
+    key(activeElement, "ArrowRight", { ctrlKey: true });
+    const out = { shownAtOnce: liveKeys().slice(0, 3) };
+    key(activeElement, "ArrowRight", { ctrlKey: true }); // queued behind it
+    out.queuedShown = liveKeys().slice(0, 3);
+    await tick();
+    out.inFlight = held.actions.length;
+    while (held.actions.length) { held.actions.shift()(); await settle(); }
+    out.grid = liveKeys();
+    out.python = pyKeys();
+    out.sent = actions().length;
+    out.toast = toasts[toasts.length - 1].text;
+    out.count = byId.organiseCount.textContent;
+    out.undoTitle = byId.organiseUndoBtn.title;
+    return out;
+  },
+  // Five Ctrl+→ in a row, faster than Python answers: each shows at once,
+  // they reach Python one at a time and in order, and end where they should.
+  async rapid() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    holdActions = true;
+    dispatch(cell(0), "click");
+    const out = { shown: [], inFlight: [] };
+    for (let i = 0; i < 5; i++) {
+      key(activeElement, "ArrowRight", { ctrlKey: true });
+      out.shown.push(liveKeys().indexOf("doc:0"));
+      await tick();
+      out.inFlight.push(held.actions.length);
+    }
+    while (held.actions.length) {
+      held.actions.shift()(); await settle();
+      out.inFlight.push(held.actions.length);
+    }
+    out.sent = actions().map(([kind, a]) => [kind, a.positions, a.step]);
+    out.grid = liveKeys();
+    out.python = pyKeys();
+    out.toasts = failureToasts();
+    out.focus = activeElement && activeElement.dataset.key;
+    return out;
+  },
+  // Thumbnails: none for a move, delete, undo or redo; one in the
+  // background for each page Rotate turned.
+  async thumbnailRequests() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    const thumbs = () => calls.filter((c) => c[0] === "organise_thumbnail");
+    const out = { drawn: thumbs().length };
+    const imgOf = (c) => c.children[0].children[0].children[0];
+    const imgs = new Map(grid.children.map((c) => [c.dataset.key, imgOf(c)]));
+    const count = async (act) => { const before = thumbs().length; await act(); await settle(); return thumbs().length - before; };
+    dispatch(cell(2), "click");
+    out.drag = await count(async () => {
+      const before = thumbs().length;
+      const p = spot(9);
+      pdrag(cell(2), p.right, p.y, { end: "none" });
+      for (let i = 0; i < 3; i++) await tick();
+      out.duringDrag = thumbs().length - before;
+      release(p.right, p.y);
+    });
+    out.shift = await count(() => key(activeElement, "ArrowLeft", { ctrlKey: true }));
+    out.delete = await count(async () => { key(activeElement, "Delete"); await settle(); question("organiseDelete").answer(true); });
+    out.undo = await count(() => key(activeElement, "z", { ctrlKey: true }));
+    out.redo = await count(() => key(activeElement, "y", { ctrlKey: true }));
+    out.undoAgain = await count(() => key(activeElement, "z", { ctrlKey: true }));
+    // The same <img> elements throughout (a deleted page's comes back with
+    // it), never cleared.
+    out.sameImages = grid.children.length === 12 && grid.children.every((c) => imgs.get(c.dataset.key) === imgOf(c));
+    out.noneCleared = grid.children.every((c) => !imgOf(c).hidden);
+    dispatch(cell(1), "click"); dispatch(cell(3), "click", { ctrlKey: true });
+    out.rotatedKeys = [cell(1).dataset.key, cell(3).dataset.key];
+    out.rotate = await count(() => dispatch(byId.organiseRotateRightBtn, "click"));
+    out.rotateCalls = thumbs().slice(-2).map((c) => [`${c[1]}:${c[2]}`, c[4]]);
+    out.rotateBack = await count(() => dispatch(byId.organiseRotateLeftBtn, "click"));
+    out.undoRotate = await count(() => key(activeElement, "z", { ctrlKey: true }));
+    out.redoRotate = await count(() => key(activeElement, "y", { ctrlKey: true }));
+    return out;
+  },
+  // A turn: the image on screen turns at once and is never cleared; the
+  // page drawn at its new turn takes its place once the rotation is over,
+  // turned back to 0 with no transition, so nothing visibly changes.
+  async rotateSwap() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    const paper = () => cell(4).children[0].children[0];
+    const img = () => paper().children[0];
+    dispatch(cell(4), "click");
+    const srcBefore = img().src;
+    dispatch(byId.organiseRotateRightBtn, "click");
+    const out = { turnAtOnce: paper().style["--turn"], imageKept: img().src === srcBefore && !img().hidden };
+    await settle();
+    out.whileTurning = { turn: paper().style["--turn"], same: img().src === srcBefore };
+    await new Promise((r) => setTimeout(r, 260)); await settle();
+    out.after = { turn: paper().style["--turn"], swapped: img().src !== srcBefore, hidden: img().hidden,
+      size: [paper().style.width, paper().style.height] };
+    // Round the clock the short way: back from 90 is -90, never +270.
+    dispatch(byId.organiseRotateLeftBtn, "click");
+    out.back = paper().style["--turn"];
+    return out;
+  },
+  // Motion: a move slides (the moved page first), a second action finishes
+  // the first at once, a delete fades then closes the gap, an insert fades in.
+  async motion() {
+    holdAnimations = true;
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    const out = { onOpen: animations.length };
+    const slides = (from) => animations.slice(from).filter((a) => String(a.keyframes[0].transform || "").startsWith("translate"));
+    dispatch(cell(2), "click");
+    let from = animations.length;
+    key(activeElement, "ArrowRight", { ctrlKey: true });
+    out.move = slides(from).map((a) => [a.el.dataset.key, a.keyframes[0].transform, a.options.duration, a.options.easing]);
+    const first = animations.slice(from);
+    key(activeElement, "ArrowRight", { ctrlKey: true });
+    out.firstFinishedBySecond = first.length > 0 && first.every((a) => a.playState === "finished");
+    animations.forEach((a) => a.finish()); await settle();
+    from = animations.length;
+    key(activeElement, "Delete"); await tick();
+    question("organiseDelete").answer(true); await flush();
+    const fades = animations.slice(from).filter((a) => a.keyframes[1].opacity === 0);
+    out.deleteFade = fades.map((a) => [a.el.dataset.key, a.options.duration, a.keyframes[1].transform]);
+    out.ghosts = grid.children.filter((c) => c.classList.contains("is-leaving")).length;
+    out.liveDuringFade = liveKeys().length;
+    out.slidBeforeFadeEnds = slides(from).length;
+    fades.forEach((a) => a.finish()); await tick(); await tick();
+    out.ghostsAfterFade = grid.children.filter((c) => c.classList.contains("is-leaving")).length;
+    out.gapSlide = slides(from).map((a) => [a.el.dataset.key, a.keyframes[0].transform, a.options.duration]).slice(0, 2);
+    animations.forEach((a) => a.finish()); await settle();
+    // A delete cut short by the next action: the fading pages go at once.
+    dispatch(cell(0), "click");
+    key(activeElement, "Delete"); await tick();
+    question("organiseDelete").answer(true); await flush();
+    out.ghostsBeforeCut = grid.children.filter((c) => c.classList.contains("is-leaving")).length;
+    out.fadingIgnoresClicks = (dispatch(cell(0), "click"), !byId.organiseSelectionText.textContent.includes("selected"));
+    dispatch(grid.children.find((c) => !c.classList.contains("is-leaving")), "click");
+    key(activeElement, "ArrowRight", { ctrlKey: true });
+    out.ghostsWhenCut = grid.children.filter((c) => c.classList.contains("is-leaving")).length;
+    animations.forEach((a) => a.finish()); await settle();
+    from = animations.length;
+    picks.push({ path: "C:/Files/Appendix.pdf" });
+    dispatch(byId.organiseInsertBtn, "click"); await settle();
+    insertDialog().answer(true); await flush();
+    out.insertFades = animations.slice(from).filter((a) => a.keyframes[0].opacity === 0).map((a) => a.el.dataset.key);
+    out.insertSlides = slides(from).length;
+    animations.forEach((a) => a.finish()); await settle();
+    out.total = animations.length;
+    return out;
+  },
   async refusals() {
     await api.openOrganise(); await settle();
     dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
@@ -701,11 +1160,23 @@ const scenarios = {
     dispatch(byId.organiseDeleteBtn, "click"); await settle();
     out.deleteNow = byId.organiseDeleteBtn.attrs["aria-disabled"];
     dispatch(cell(0), "click");
-    actionReply = { ok: false, reason: "every_page" };
-    dispatch(byId.organiseRotateLeftBtn, "click"); await settle();
+    // Python refuses what the page already showed: back to Python's draft.
+    actionReply = { ok: false, reason: "bad_positions" };
+    dispatch(byId.organiseRotateLeftBtn, "click");
+    out.turnedAtOnce = cell(0).children[0].children[0].style["--turn"];
+    await settle();
     out.toast = toasts.map((t) => t.text);
     out.arg = actions()[0];
+    out.turnAfter = cell(0).children[0].children[0].style["--turn"];
+    out.count = byId.organiseCount.textContent;
     out.stillSelected = selectedPositions();
+    // Deleting every page is refused before anything is sent.
+    actionReply = null;
+    key(cell(0), "a", { ctrlKey: true });
+    const sent = actions().length;
+    out.everyPage = organiseActNow("delete", { positions: [...Array(12).keys()] });
+    out.everyPageSent = actions().length - sent;
+    out.everyPageToast = toasts[toasts.length - 1].text;
     return out;
   },
 };
@@ -718,6 +1189,13 @@ scenarios[process.env.SCENARIO]().then(
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+def translate(transform: str) -> tuple[float, float]:
+    """The x and y of a `translate3d(...)` transform."""
+    inner = transform.split("translate3d(", 1)[1].split(")", 1)[0]
+    x, y = (float(part.strip().removesuffix("px")) for part in inner.split(",")[:2])
+    return x, y
+
+
 class OrganiseViewBehaviourTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -777,20 +1255,92 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         out = self.run_scenario("drag")
         self.assertEqual(out["draggingSelected"], [8])  # an unselected page is selected first
         self.assertTrue(out["faded"])
+        self.assertTrue(out["noTextSelection"])
+        self.assertEqual(out["captured"], 1)  # the pointer is held by the grid
+        # The lifted preview: the page's own image, at 90%, following the
+        # pointer from where the drag began (placed then, not a frame later).
+        preview = out["preview"]
+        self.assertTrue(preview["sameImage"])
+        self.assertFalse(preview["badge"])  # one page: no count
+        start = translate(out["previewAtStart"])
+        now = translate(preview["transform"])
+        self.assertEqual((now[0] - start[0], now[1] - start[1]), tuple(out["pointerMoved"]))
+        self.assertTrue(preview["transform"].endswith("scale(0.9)"))
+        # Moves between frames draw nothing; the next frame draws the last.
+        self.assertTrue(out["betweenFrames"])
+        later = translate(out["nextFrame"])
+        self.assertEqual((later[0] - now[0], later[1] - now[1]), (20, 20))
         self.assertTrue(out["bar"]["shown"])
         self.assertEqual(out["bar"]["left"], "150.5px")  # in the column gap left of page 2
         self.assertEqual(out["move"], ["move", {"positions": [8], "gap": 1}])
         self.assertEqual(out["order"], ["doc:0", "doc:8", "doc:1"])
+        self.assertEqual(out["selectedAfter"], [1])  # the click after the release cleared nothing
         self.assertTrue(out["barAfterDrop"])
         self.assertFalse(out["fadedAfterDrop"])
+        self.assertFalse(out["previewAfterDrop"])
+        self.assertFalse(out["textSelectionAfter"])
+        self.assertIsNone(out["capturedAfter"])
+        self.assertEqual(out["windowListeners"], 0)  # nothing left listening
         self.assertEqual(out["selfDrop"], 1)  # dropped on itself: no second call
+        self.assertEqual(out["badge"], "2 pages")
         self.assertEqual(out["rowEndBar"], f"{6 * 156 + 148 + 4 - 1.5}px")
         self.assertEqual(out["rowEnd"], ["move", {"positions": [0], "gap": 7}])
+
+    def test_a_press_that_barely_moves_is_a_click_not_a_drag(self):
+        out = self.run_scenario("pointerDragging")
+        self.assertTrue(out["pressPrevented"])  # no native image drag or text selection
+        self.assertEqual(out["click"], {"selected": [2], "dragged": False, "preview": False, "actions": 0, "listeners": 0})
+
+    def test_dragging_ends_where_the_same_ctrl_arrow_move_does(self):
+        out = self.run_scenario("pointerDragging")
+        self.assertEqual(out["oneDragged"], out["oneKeyed"])
+        self.assertEqual(out["oneDragged"]["order"].split()[:2], ["doc:1", "doc:0"])
+        self.assertEqual(out["twoDragged"], out["twoKeyed"])
+        self.assertEqual(out["twoDragged"]["order"].split()[:6], ["doc:0", "doc:1", "doc:2", "doc:5", "doc:3", "doc:4"])
+        self.assertEqual(out["twoDragged"]["order"], out["twoDragged"]["python"])
+
+    def test_a_drag_called_off_changes_nothing(self):
+        out = self.run_scenario("pointerDragging")
+        for how in ("esc", "cancel", "blur"):
+            with self.subTest(how):
+                self.assertEqual(out[how], {
+                    "same": True, "open": True, "sent": 0,  # Esc ends the drag, not Organise
+                    "back": 150,  # the preview goes back to its page
+                    "previewLeft": False, "faded": False, "bar": False, "listeners": 0,
+                    "selected": [5],  # the release after it is no click
+                })
+
+    def test_a_drag_cancelled_under_reduced_motion_goes_back_at_once(self):
+        out = self.run_scenario("pointerDragging", REDUCED_MOTION="1")
+        for how in ("esc", "cancel", "blur"):
+            with self.subTest(how):
+                self.assertIsNone(out[how]["back"])
+                self.assertFalse(out[how]["previewLeft"])
+
+    def test_dragging_pages_uses_no_native_drag_and_drop(self):
+        out = self.run_scenario("pointerDragging")
+        # Nothing for pywebview's document drop listener (Api.bind_file_drop)
+        # to hear: no page is draggable and nothing listens for drag events.
+        self.assertEqual(out["native"], {"draggable": False, "listeners": False})
+        self.assertEqual(out["thumbs"], 0)  # no thumbnail drawn again for any of it
+
+    def test_dragging_near_the_bottom_edge_scrolls_the_grid(self):
+        out = self.run_scenario("autoscroll")
+        # 10px from the edge: 20 * (1 - 10/48) px a frame, every frame.
+        step = 20 * (1 - 10 / 48)
+        for i, at in enumerate(out["steps"]):
+            self.assertAlmostEqual(at, step * (i + 1))
+        self.assertAlmostEqual(out["slower"], 20 * (1 - 30 / 48))  # 30px away: slower
+        self.assertTrue(out["stopped"])  # clear of the edge
+        # The drop lands among the pages scrolled under the pointer.
+        self.assertTrue(out["inCell"])
+        self.assertEqual(out["barTop"], out["expectedBarTop"])
+        self.assertEqual(out["move"], ["move", {"positions": [0], "gap": out["expectedGap"]}])
 
     def test_thumbnails_are_lazy_three_at_a_time_and_drawn_once(self):
         out = self.run_scenario("thumbnails")
         self.assertEqual(out["first"], 3)
-        self.assertEqual(out["args"], ["organise_thumbnail", "doc", 0, 120])
+        self.assertEqual(out["args"], ["organise_thumbnail", "doc", 0, 120, 0])  # the page at its turn
         self.assertEqual(out["afterOne"], 4)
         self.assertEqual(out["painted"], [True, "85px", False])
         self.assertEqual(out["total"], 12)
@@ -861,7 +1411,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertTrue(out["keyAsks"])  # the Delete key asks too
         self.assertEqual(out["deleted"], ["delete", {"positions": [3, 4, 5]}])
         self.assertEqual(out["toast"], ["Deleted 3 pages", "Undo"])
-        self.assertEqual(out["count"], "12 pages · 1 unsaved change")
+        self.assertEqual(out["count"], "9 pages · 1 unsaved change")
         self.assertEqual(out["scattered"], ["Delete 3 pages?", "3 pages are removed from Annual Report."])
         self.assertEqual(out["single"], ["Delete 1 page?", "Page 2 is removed from Annual Report.", "Delete 1 page"])
         self.assertEqual(out["many"], ["1", "2", "3", "4", "5", "6", "+2 more"])
@@ -919,7 +1469,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
             "open": True, "phase": "Taking the pages", "buttons": ["Cancel"], "actions": 0,  # Esc didn't close it
         })
         self.assertEqual(out["afterDone"], {
-            "open": False, "deleted": ["delete", {"positions": [3, 4, 5]}], "count": "12 pages · 1 unsaved change",
+            "open": False, "deleted": ["delete", {"positions": [3, 4, 5]}], "count": "9 pages · 1 unsaved change",
         })
         self.assertEqual(out["deleteToast"], [
             "Saved Annual Report (pages 4–6).pdf, beside the original and removed them here", ["Undo", "Show in folder"],
@@ -950,14 +1500,112 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
                 self.assertEqual(out["toast"], toast)
                 self.assertGreater(out["thumbsAfter"], 0)  # the grid is not left frozen
 
+    def test_every_kind_of_action_shows_at_once_and_matches_python(self):
+        out = self.run_scenario("optimistic")
+        for kind in ("drag", "shift", "rotate", "delete", "undo", "redo", "insert"):
+            with self.subTest(kind):
+                step = out[kind]
+                # Shown before Python answered, and exactly what it answered.
+                self.assertEqual(step["shownAtOnce"], step["python"])
+                self.assertEqual(step["grid"], step["python"])
+                self.assertEqual(step["sent"], 1)
+                self.assertFalse(step["answered"])
+                self.assertEqual(step["toasts"], [])
+        self.assertEqual(out["drag"]["shownAtOnce"][:3], ["doc:0", "doc:4", "doc:1"])
+        self.assertIn("doc:6@90deg", out["rotate"]["shownAtOnce"])
+        self.assertEqual(len(out["delete"]["shownAtOnce"]), 11)
+        self.assertEqual(len(out["insert"]["shownAtOnce"]), 14)
+        self.assertEqual(out["count"], "14 pages · 5 unsaved changes")
+
+    def test_a_step_python_does_differently_goes_back_to_pythons_draft(self):
+        out = self.run_scenario("diverged")
+        self.assertEqual(out["shownAtOnce"], ["doc:1", "doc:0", "doc:2"])
+        self.assertEqual(out["queuedShown"], ["doc:1", "doc:2", "doc:0"])
+        self.assertEqual(out["inFlight"], 1)  # one at a time
+        # Python's draft (it turned the last page instead), on screen.
+        self.assertEqual(out["grid"], out["python"])
+        self.assertEqual(out["python"][0], "doc:0")
+        self.assertEqual(out["python"][-1], "doc:11@180deg")
+        self.assertEqual(out["sent"], 1)  # the step queued behind it was dropped
+        self.assertEqual(out["toast"], "Couldn't move that page")
+        self.assertEqual(out["count"], "12 pages · 1 unsaved change")
+        self.assertEqual(out["undoTitle"], "Undo  (Ctrl+Z)")
+
+    def test_five_quick_moves_reach_python_in_order_and_end_right(self):
+        out = self.run_scenario("rapid")
+        self.assertEqual(out["shown"], [1, 2, 3, 4, 5])  # each at once
+        self.assertTrue(all(n <= 1 for n in out["inFlight"]), out["inFlight"])  # never two at once
+        self.assertEqual(out["sent"], [["shift", [i], 1] for i in range(5)])
+        self.assertEqual(out["grid"], out["python"])
+        self.assertEqual(out["python"][:6], ["doc:1", "doc:2", "doc:3", "doc:4", "doc:5", "doc:0"])
+        self.assertEqual(out["toasts"], [])
+        self.assertEqual(out["focus"], "doc:0")
+
+    def test_no_thumbnail_is_fetched_for_a_move_delete_undo_or_redo(self):
+        out = self.run_scenario("thumbnailRequests")
+        self.assertEqual(out["drawn"], 12)
+        self.assertEqual(out["duringDrag"], 0)  # nor while a drag is held
+        for kind in ("drag", "shift", "delete", "undo", "redo", "undoAgain"):
+            with self.subTest(kind):
+                self.assertEqual(out[kind], 0)
+        self.assertTrue(out["sameImages"])
+        self.assertTrue(out["noneCleared"])
+        # Rotate: one background request per turned page, at its new turn.
+        self.assertEqual(out["rotate"], 2)
+        self.assertEqual(sorted(out["rotateCalls"]), sorted([key, 90] for key in out["rotatedKeys"]))
+        # Back to turns already drawn: nothing more.
+        self.assertEqual([out["rotateBack"], out["undoRotate"], out["redoRotate"]], [0, 0, 0])
+
+    def test_a_turn_rotates_the_image_on_screen_then_swaps_in_the_turned_page(self):
+        out = self.run_scenario("rotateSwap")
+        self.assertEqual(out["turnAtOnce"], "90deg")
+        self.assertTrue(out["imageKept"])
+        self.assertEqual(out["whileTurning"], {"turn": "90deg", "same": True})
+        self.assertEqual(out["after"], {"turn": "0deg", "swapped": True, "hidden": False, "size": ["120px", "85px"]})
+        self.assertEqual(out["back"], "-90deg")
+
+    def test_motion_slides_fades_and_never_waits(self):
+        out = self.run_scenario("motion")
+        self.assertEqual(out["onOpen"], 0)  # opening draws the grid still
+        moved = {key: (shift, duration) for key, shift, duration, _ in out["move"]}
+        self.assertEqual(moved["doc:2"], ("translate(-156px, 0px)", 140))  # the moved page lands first
+        self.assertEqual(moved["doc:3"], ("translate(156px, 0px)", 180))
+        self.assertEqual({easing for *_, easing in out["move"]}, {"cubic-bezier(0.2, 0.8, 0.2, 1)"})
+        self.assertTrue(out["firstFinishedBySecond"])
+        self.assertEqual(out["deleteFade"], [["doc:2", 120, "scale(0.92)"]])
+        self.assertEqual((out["ghosts"], out["liveDuringFade"], out["slidBeforeFadeEnds"]), (1, 11, 0))
+        self.assertEqual(out["ghostsAfterFade"], 0)
+        self.assertEqual(out["gapSlide"][0][2], 180)
+        self.assertEqual((out["ghostsBeforeCut"], out["ghostsWhenCut"]), (1, 0))
+        self.assertTrue(out["fadingIgnoresClicks"])
+        self.assertEqual(out["insertFades"], ["insert-0:0", "insert-0:1", "insert-0:2"])
+        self.assertGreater(out["insertSlides"], 0)
+
+    def test_reduced_motion_moves_nothing_and_is_just_as_immediate(self):
+        out = self.run_scenario("motion", REDUCED_MOTION="1")
+        self.assertEqual(out["total"], 0)
+        self.assertEqual((out["ghosts"], out["liveDuringFade"]), (0, 11))  # a deleted page goes at once
+        self.assertEqual(out["insertFades"], [])
+        out = self.run_scenario("rotateSwap", REDUCED_MOTION="1")
+        self.assertEqual(out["turnAtOnce"], "90deg")
+        self.assertEqual(out["whileTurning"]["turn"], "0deg")  # the turned page as soon as it is drawn
+
     def test_disabled_actions_do_nothing_and_refusals_say_why(self):
         out = self.run_scenario("refusals")
         self.assertEqual(out["disabledClick"], 0)
         self.assertEqual(out["extractNow"], ["false", ""])  # Extract arrived with F2.6
         self.assertEqual(out["deleteNow"], "false")  # Delete arrived with F2.4
         self.assertEqual(out["arg"], ["rotate", {"positions": [0], "degrees": -90}])
-        self.assertEqual(out["toast"], ["A PDF needs at least one page. Leave one unselected."])
+        # Shown at once, then taken back when Python refused it, with a toast.
+        self.assertEqual(out["turnedAtOnce"], "-90deg")
+        self.assertEqual(out["toast"], ["Couldn't rotate that page"])
+        self.assertEqual(out["turnAfter"], "0deg")
+        self.assertEqual(out["count"], "12 pages")
         self.assertEqual(out["stillSelected"], [0])
+        # A refusal the page can see itself is said at once and never sent.
+        self.assertEqual(out["everyPage"], {"ok": False, "reason": "every_page"})
+        self.assertEqual(out["everyPageSent"], 0)
+        self.assertEqual(out["everyPageToast"], "A PDF needs at least one page. Leave one unselected.")
 
 
 if __name__ == "__main__":

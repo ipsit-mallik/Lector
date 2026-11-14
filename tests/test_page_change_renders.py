@@ -60,10 +60,10 @@ class HeldRenderTests(_ApiCase):
         inside, release = threading.Event(), threading.Event()
         real = PdfDocument._thumbnail
 
-        def slow_thumbnail(page, width_px):
+        def slow_thumbnail(page, width_px, turn=0):
             inside.set()
             release.wait(5)
-            return real(page, width_px)
+            return real(page, width_px, turn)
 
         results, errors = {}, []
 
