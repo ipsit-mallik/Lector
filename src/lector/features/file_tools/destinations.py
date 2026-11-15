@@ -10,6 +10,7 @@ but never becomes the default.
 No PyMuPDF. The only disk access is looking (`os.path`), listing the known
 folders, and the writable check's empty probe file.
 """
+import datetime
 import logging
 import os
 import tempfile
@@ -96,6 +97,36 @@ def base_stem(tool: str, source: str) -> str:
     }
     label = labels.get(tool)
     return f"{stem} ({label})" if label else stem
+
+
+# Combine's and Convert's dated names: "Combined 14-11-2026", "Images 14-11-2026".
+LIST_DATE_FORMAT = "%d-%m-%Y"
+COMBINED_DATED = "Combined"
+IMAGES_DATED = "Images"
+
+
+def list_stem(tool: str, inputs: list[str], today: datetime.date | None = None) -> str | None:
+    """The automatic name for Combine's or Convert's whole list (before a free
+    one is found), or None for any other tool or an empty list. Combine: the
+    first file's name with " (combined)" when it is a PDF, "Combined
+    <DD-MM-YYYY>" otherwise. Convert: one file's own name; several files,
+    "Images <DD-MM-YYYY>"."""
+    if not inputs or tool not in (messages.COMBINE, messages.CONVERT):
+        return None
+    dated = (today or datetime.date.today()).strftime(LIST_DATE_FORMAT)
+    first = inputs[0]
+    if tool == messages.COMBINE:
+        if os.path.splitext(first)[1].lower() == PDF_EXTENSION:
+            return base_stem(tool, first)
+        return f"{COMBINED_DATED} {dated}"
+    if len(inputs) == 1:
+        return base_stem(tool, first)
+    return f"{IMAGES_DATED} {dated}"
+
+
+def suggested_list_stem(tool: str, inputs: list[str], folder: str, today: datetime.date | None = None) -> str:
+    """`list_stem`, or the first free "… (2)", (3), … in `folder`."""
+    return naming.free_stem(folder, list_stem(tool, inputs, today) or "untitled", extension(tool))
 
 
 def suggested_stem(tool: str, source: str, folder: str) -> str:

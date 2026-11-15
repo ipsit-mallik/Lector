@@ -133,6 +133,55 @@ class CheckTests(_Folders):
         self.assertEqual(destinations.suggested_stem("convert", str(self.reports / "scan.png"), str(other)), "scan")
 
 
+class ListNameTests(_Folders):
+    """Combine's and Convert's automatic name, made from their whole list
+    (`destinations.list_stem`), and what the bridge suggests from it."""
+
+    DAY = __import__("datetime").date(2026, 11, 4)
+
+    def stem(self, tool, *names):
+        return destinations.list_stem(tool, [str(self.reports / n) for n in names], self.DAY)
+
+    def test_combine_starting_with_a_pdf_is_that_pdf_combined(self):
+        self.assertEqual(self.stem("combine", "Annual Report.pdf", "photo.jpg"), "Annual Report (combined)")
+        self.assertEqual(self.stem("combine", "SCAN.PDF", "b.pdf"), "SCAN (combined)")
+
+    def test_combine_starting_with_anything_else_is_dated(self):
+        self.assertEqual(self.stem("combine", "photo.jpg", "Report.pdf"), "Combined 04-11-2026")
+        self.assertEqual(self.stem("combine", "book.epub", "Report.pdf"), "Combined 04-11-2026")
+
+    def test_convert_one_file_is_its_own_name_and_several_are_dated(self):
+        self.assertEqual(self.stem("convert", "scan.png"), "scan")
+        self.assertEqual(self.stem("convert", "scan.png", "page2.jpg"), "Images 04-11-2026")
+
+    def test_no_list_or_another_tool_has_no_list_name(self):
+        self.assertIsNone(self.stem("combine"))
+        self.assertIsNone(self.stem("compress", "Report.pdf"))
+
+    def test_the_date_is_today_by_default(self):
+        today = __import__("datetime").date.today().strftime("%d-%m-%Y")
+        self.assertEqual(destinations.list_stem("convert", ["a.png", "b.png"]), f"Images {today}")
+
+    def test_a_taken_name_gets_the_next_free_number(self):
+        (self.reports / "Images 04-11-2026.pdf").write_bytes(b"%PDF-1.4")
+        paths = [str(self.reports / "a.png"), str(self.reports / "b.png")]
+        self.assertEqual(destinations.suggested_list_stem("convert", paths, str(self.reports), self.DAY),
+                         "Images 04-11-2026 (2)")
+
+    def test_the_bridge_names_from_the_whole_list(self):
+        api = api_module.Api()
+        self.addCleanup(api.shutdown_voice)
+        first, second = str(self.reports / "photo.jpg"), str(self.reports / "Report.pdf")
+        today = __import__("datetime").date.today().strftime("%d-%m-%Y")
+        folder = str(self.reports)
+        self.assertEqual(api.suggest_tool_name("combine", first, folder, [first, second])["stem"], f"Combined {today}")
+        self.assertEqual(api.suggest_tool_name("combine", second, folder, [second, first])["stem"], "Report (combined)")
+        self.assertEqual(api.suggest_tool_name("convert", first, folder, [first])["stem"], "photo")
+        self.assertEqual(api.suggest_tool_name("convert", first, folder, [first, first])["stem"], f"Images {today}")
+        # Without the list (the other tools, and older callers): as before.
+        self.assertEqual(api.suggest_tool_name("combine", second, folder)["stem"], "Report (combined)")
+
+
 class RecentTests(_Folders):
     def test_most_recent_first_and_at_most_three(self):
         for name in ("A", "B", "C", "D"):

@@ -144,14 +144,6 @@
    do when there is nothing to say beside them. */
 .dialog-card--tool .dialog-footer { justify-content: flex-end; }
 
-/* Combine's "3 files · 214 pages", at the footer's left. */
-.tool-footer-count {
-  margin-right: auto;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
 .tool-body > :first-child { margin-top: var(--space-5); }
 
 .tool-facts {
@@ -779,12 +771,140 @@
 .drop-zone-text [data-icon] { width: 18px; height: 18px; color: var(--accent-strong); }
 .drop-zone-text svg { display: block; width: 100%; height: 100%; }
 
-.file-list {
+/* Convert and Combine: the card grows to the window's height less 48px (its
+   width as before), and only the file list gives way: the header, the strip
+   over the list, the Name and Save in rows and the footer keep their size. */
+.dialog-card--file-list {
   display: flex;
   flex-direction: column;
-  max-height: 252px;
-  margin-top: var(--space-3);
+  max-height: calc(100vh - 48px);
+}
+
+.dialog-card--file-list > .dialog-body,
+.dialog-card--file-list .tool-body {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.dialog-card--file-list > .dialog-body > *,
+.dialog-card--file-list .tool-body > *,
+.dialog-card--file-list > .dialog-footer { flex: none; }
+
+.dialog-card--file-list > .dialog-body > .tool-body,
+.dialog-card--file-list .tool-body > .file-list-area { flex: 0 1 auto; min-height: 0; }
+
+/* Tighter spacing in these two cards, so the list gets the room: 16px over
+   the list area and the Name rows and under the body (24 in other dialogs);
+   in a window under 700px tall, a little less again. */
+.dialog-card--file-list .tool-body > .file-list-area { margin-top: var(--space-4); }
+.dialog-card--file-list .tool-body > .save-dest { margin-top: var(--space-4); }
+.dialog-card--file-list > .dialog-body { padding-bottom: var(--space-4); }
+.file-list-area > .drop-zone { margin-top: 0; }
+
+@media (max-height: 699.98px) {
+  .dialog-card--file-list > .dialog-body { padding-top: var(--space-4); }
+  .dialog-card--file-list .tool-body > .save-dest { margin-top: var(--space-3); }
+  .dialog-card--file-list .file-list-strip { padding-bottom: var(--space-1); }
+}
+
+/* The list area: the drop zone, or the strip over the list. --file-row-h and
+   --file-thumb are a row's height and its thumbnail's, smaller in a short
+   window. */
+.file-list-area {
+  --file-row-h: 60px;
+  --file-thumb: 44px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (max-height: 699.98px) {
+  .file-list-area,
+  .file-list-lift {
+    --file-row-h: 46px;
+    --file-thumb: 36px;
+  }
+}
+
+/* With files: "7 files · 7 pages", the drop hint, and Add files…. */
+.file-list-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.file-list-count {
+  flex: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.file-list-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.file-list-hint > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.file-list-hint [data-icon] { flex: none; width: 16px; height: 16px; }
+.file-list-hint svg { display: block; width: 100%; height: 100%; }
+.file-list-strip .btn { flex: none; }
+
+/* The hairlines above and below the list while it overflows (transparent
+   otherwise, so nothing moves when they appear), and the outline while files
+   from outside are dragged over it. */
+.file-list-frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  border-top: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  outline: 1.5px dashed transparent;
+  outline-offset: 2px;
+  transition: border-color var(--dur-fast) var(--ease-out), outline-color var(--dur-fast) var(--ease-out);
+}
+
+.file-list-frame.is-overflowing { border-color: var(--border); }
+.file-list-area.is-drop-target .file-list-frame { outline-color: var(--accent); }
+
+/* A 28px fade at an edge with more beyond it: the bottom until the end is
+   reached, the top once scrolled. */
+.file-list-scroll {
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  overflow-anchor: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent 100%);
+}
+
+.file-list-frame.is-overflowing:not(.is-at-end) > .file-list-scroll { --fade-bottom: 28px; }
+.file-list-frame.is-overflowing.is-scrolled > .file-list-scroll { --fade-top: 28px; }
+
+/* 4px above the first row and below the last, so the insertion line and
+   its rings are inside the list at either end, never clipped or adding to
+   the scroll. */
+.file-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
 }
 
 .file-list-row {
@@ -792,7 +912,7 @@
   align-items: center;
   gap: var(--space-3);
   flex: none;
-  height: 48px;
+  height: var(--file-row-h);
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   outline-offset: -2px;
@@ -800,9 +920,68 @@
 
 .file-list-row:hover,
 .file-list-row:focus-within { background-color: var(--state-hover); }
-.file-list-row.is-dragging { opacity: 0.5; }
-.file-list-row.is-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
-.file-list-row.is-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.file-list-row.is-dragging { opacity: 0.4; }
+
+/* While a row is dragged: no hover tint, no text selection, the grabbing hand. */
+.file-list.is-pointer-dragging,
+.file-list.is-pointer-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.file-list.is-pointer-dragging .file-list-row:hover { background-color: transparent; }
+.file-list.is-pointer-dragging .file-list-actions { opacity: 0; }
+
+/* Where the row will land: a 2px --accent line the rows' width, a small ring
+   at each end, inside it. */
+.file-list-insertion {
+  position: absolute;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--accent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.file-list-insertion[hidden] { display: none; }
+
+.file-list-insertion::before,
+.file-list-insertion::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background-color: var(--surface-2);
+}
+
+.file-list-insertion::before { left: 0; }
+.file-list-insertion::after { right: 0; }
+
+/* The dragged row's preview: its thumbnail and name on a lifted card, hung
+   below and to the right of the pointer. */
+.file-list-lift {
+  --file-thumb: 44px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 320px;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  box-shadow: var(--card-highlight), var(--dialog-edge), var(--shadow-3);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.file-list-lift .file-list-name { font-weight: 500; }
 
 .file-list-handle {
   flex: none;
@@ -825,8 +1004,8 @@
 
 .file-list-thumb {
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: var(--file-thumb);
+  height: var(--file-thumb);
   border-radius: var(--radius-sm);
   background-color: var(--paper);
   box-shadow: 0 0 0 1px var(--border);

@@ -67,8 +67,10 @@ let saveDestCount = 0;
 // `kind` "file" (the extension shows at the field's end) or "folder" (Export,
 // Split: labelled "Folder", no extension). `originLabel` is the first menu
 // item ("Beside the original", or "Beside the first file" for Convert).
-// `suggestName(folder)` resolves to the free name there, followed while the
-// reader hasn't typed in the field; `pickFolder(start)` is the in-app folder
+// `suggestName(folder)` resolves to the free name there, followed (when the
+// folder changes, or the dialog calls `refreshName()`) while the reader
+// hasn't typed in the field; emptying the field hands it back to that, and the
+// automatic name returns when focus leaves it still empty; `pickFolder(start)` is the in-app folder
 // picker, resolving to a folder or null; `onChange()` runs whenever the
 // block's validity may have changed (the dialog then enables or disables its
 // primary button).
@@ -89,6 +91,8 @@ function createSaveDestination({
   let folder = originFolder;
   let atOrigin = true;
   let edited = false;
+  let suggestedStem = stem; // the automatic name, last asked for
+  let nameRequest = 0; // the newest followName(): an older answer is dropped
   let checking = 0; // writable checks in flight
   let folderError = null;
   let nameErrorFromCheck = null; // from Python at Start (e.g. "That's the original file")
@@ -216,18 +220,33 @@ function createSaveDestination({
     onChange();
   }
 
-  // The name follows the folder (the free name there) until the reader types.
+  // The name follows the folder (the free name there), and whatever else the
+  // dialog bases it on, until the reader types. While the field is empty and
+  // being typed in, only its placeholder follows: the name is put back when
+  // focus leaves it (`restoreIfEmpty`), not under the reader's fingers.
   async function followName() {
     if (edited || !suggestName) return;
     const asked = folder;
+    const request = ++nameRequest;
     let suggested = null;
     try {
       suggested = await suggestName(asked);
     } catch (err) {
       console.error("save-destination: couldn't suggest a name", err);
     }
-    if (edited || !suggested || !saveDestSameFolder(asked, folder)) return;
+    if (request !== nameRequest || edited || !suggested || !saveDestSameFolder(asked, folder)) return;
+    suggestedStem = suggested;
+    input.placeholder = suggested;
+    if (!input.value && document.activeElement === input) return;
     input.value = suggested;
+    nameErrorFromCheck = null;
+    paint();
+    onChange();
+  }
+
+  function restoreIfEmpty() {
+    if (edited || input.value.trim() || !suggestedStem) return;
+    input.value = suggestedStem;
     nameErrorFromCheck = null;
     paint();
     onChange();
@@ -432,12 +451,15 @@ function createSaveDestination({
       input.focus();
     }
   });
+  input.placeholder = stem;
   input.addEventListener("input", () => {
-    edited = true;
+    // Emptied, it is the automatic name's again (put back on blur).
+    edited = Boolean(input.value.trim());
     nameErrorFromCheck = null;
     paint();
     onChange();
   });
+  input.addEventListener("blur", restoreIfEmpty);
 
   setHint(hint);
   paint();
@@ -471,6 +493,11 @@ function createSaveDestination({
       paint();
       followName();
     },
+    // What the automatic name is based on changed (Combine's and Convert's
+    // file list): ask again, unless the reader has typed a name.
+    refreshName: () => followName(),
+    // Whether the name is still the automatic one.
+    nameIsAutomatic: () => !edited,
     isMenuOpen: () => Boolean(menu),
     closeMenu,
     focusButton: () => button.focus(),

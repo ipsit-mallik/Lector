@@ -31,7 +31,7 @@ import unittest
 from pathlib import Path
 
 PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
-SCRIPTS = [PAGES / name for name in (
+SCRIPTS = [PAGES.parent / "js" / "pointer-reorder.js"] + [PAGES / name for name in (
     "page-change-busy.js", "organise-timing.js", "organise-plan.js", "organise-thumbs.js", "organise-motion.js",
     "organise-drag.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise-insert.js",
     "organise-extract.js", "organise.js",

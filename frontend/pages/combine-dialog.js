@@ -2,7 +2,8 @@
 // Tools page: several PDFs (and images or e-books) into one new PDF, in the
 // order listed, each file's bookmarks under one named after it. Set up →
 // Working → Result in one card, like Convert to PDF, whose shape this keeps;
-// the list and its drop zone are the shared js/file-list.js.
+// the list and its drop zone are the shared js/file-list.js, which takes the
+// card's spare height (the card grows to the window's height less 48px).
 //
 // Files come from "Add files…" (the in-app Open dialog, listing PDFs, images
 // and e-books) or are dropped on the window while this is open. Python
@@ -40,7 +41,7 @@ const CombineDialog = (() => {
     scrim = el("div", "dialog-scrim dialog-scrim--enter voice-dialog");
     scrim.id = "combineDialog";
     scrim.hidden = true;
-    card = el("div", "dialog-card dialog-card--tool");
+    card = el("div", "dialog-card dialog-card--tool dialog-card--file-list");
     card.setAttribute("role", "dialog");
     card.setAttribute("aria-modal", "true");
     card.setAttribute("aria-labelledby", "combineDialogTitle");
@@ -113,6 +114,7 @@ const CombineDialog = (() => {
   function hide() {
     if (!scrim || scrim.hidden) return;
     if (s && s.destination) s.destination.closeMenu();
+    files.cancelDrag();
     scrim.hidden = true;
     document.body.classList.remove("is-combining");
     if (releaseTrap) releaseTrap();
@@ -188,9 +190,16 @@ const CombineDialog = (() => {
     if (path) await addPaths([path]);
   }
 
-  // The destination block follows the first file: "Beside the first file"
-  // is its folder, and the name is "<its name> (combined)" until the reader
-  // types one.
+  function inputPaths() {
+    return s.files.map((f) => f.path);
+  }
+
+  // The destination block follows the list: "Beside the first file" is the
+  // first file's folder, and the name is "<its name> (combined)" when that is
+  // a PDF, "Combined <DD-MM-YYYY>" otherwise (Python's
+  // destinations.list_stem), until the reader types one. With a block
+  // already there nothing is awaited here: the name catches up in the
+  // background, so a move or a removal is drawn at once.
   async function suggestDest() {
     if (!s) return;
     if (!s.files.length) {
@@ -200,22 +209,31 @@ const CombineDialog = (() => {
     }
     const first = s.files[0].path;
     if (s.destination) {
-      s.destination.setOrigin(dirName(first));
+      if (dirName(first) !== s.originFolder) {
+        s.originFolder = dirName(first);
+        s.destination.setOrigin(s.originFolder);
+      }
+      s.destination.refreshName();
       return;
     }
-    const answer = await callApi("suggest_tool_name", "combine", first, dirName(first));
+    const answer = await callApi("suggest_tool_name", "combine", first, dirName(first), inputPaths());
     if (!s || s.destination || !s.files.length) return;
+    s.originFolder = dirName(s.files[0].path);
     s.destination = createSaveDestination({
       kind: "file",
       extension: ".pdf",
       stem: answer.stem,
-      originFolder: dirName(first),
+      originFolder: s.originFolder,
       originLabel: "Beside the first file",
       suggestName: async (folder) =>
-        s && s.files.length ? (await callApi("suggest_tool_name", "combine", s.files[0].path, folder)).stem : null,
+        s && s.files.length
+          ? (await callApi("suggest_tool_name", "combine", s.files[0].path, folder, inputPaths())).stem
+          : null,
       pickFolder: chooseFolder,
       onChange: updatePrimary,
     });
+    // The list may have changed while the first name was being asked for.
+    s.destination.refreshName();
   }
 
   async function chooseFolder(start) {
@@ -259,18 +277,19 @@ const CombineDialog = (() => {
     onRemove: (index) => remove(index),
   });
 
-  async function move(from, to) {
+  // Drawn in the same task as the drop, key or click; the name follows.
+  function move(from, to) {
     if (to < 0 || to >= s.files.length || from === to) return;
     s.files = moveFileListItem(s.files, from, to);
-    await suggestDest();
+    suggestDest();
     render();
     const row = files.row(to);
     if (row) row.focus();
   }
 
-  async function remove(index) {
+  function remove(index) {
     s.files = s.files.filter((_, i) => i !== index);
-    await suggestDest();
+    suggestDest();
     render();
     const next = files.row(Math.min(index, s.files.length - 1));
     if (next) next.focus();
@@ -346,18 +365,14 @@ const CombineDialog = (() => {
   }
 
   function renderSetup() {
-    bodyEl.appendChild(buildDropZone({ text: "Drop PDFs or images here", onAdd: chooseFile }));
-    if (s.files.length) bodyEl.appendChild(files.build(s.files));
+    // "3 files · 214 pages", at the top of the list.
+    const pages = pageCount();
+    const summary = `${plural(s.files.length, "file", "files")} · ${plural(pages, "page", "pages")}`;
+    bodyEl.appendChild(files.build(s.files, { emptyText: "Drop PDFs or images here", onAdd: chooseFile, summary }));
     const extra = setupNotes();
     if (extra) bodyEl.appendChild(extra);
     if (s.destination) bodyEl.appendChild(s.destination.element);
 
-    // "3 files · 214 pages", at the footer's left.
-    const pages = pageCount();
-    const count = el("span", "tool-footer-count");
-    count.setAttribute("aria-live", "polite");
-    if (s.files.length) count.textContent = `${plural(s.files.length, "file", "files")} · ${plural(pages, "page", "pages")}`;
-    footerEl.appendChild(count);
     footerButton("Cancel", close);
     const label = s.files.length >= 2 ? `Combine · ${plural(pages, "page", "pages")}` : "Combine";
     const primary = footerButton(label, start, { primary: true, disabled: !setupReady() });

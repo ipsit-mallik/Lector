@@ -1426,19 +1426,23 @@ class Api:
             return {"ok": True, "error": None}
         return {"ok": False, "error": tool_destinations.FOLDER_UNUSABLE}
 
-    def suggest_tool_name(self, tool: str, source: str, folder: str) -> dict:
+    def suggest_tool_name(self, tool: str, source: str, folder: str, inputs=None) -> dict:
         """The Name field's suggestion in `folder`: "Report (compressed)",
         or the first free "… (2)" there. `source` is "open", a path, or
-        Convert's first file."""
+        Convert's or Combine's first file; those two also send their whole
+        list (`inputs`), which their name is made from
+        (`destinations.list_stem`: "Report (combined)", "Images 14-11-2026")."""
         origin = self._tool_origin(source)
         if tool not in tool_messages.TOOLS or origin is None:
             return {"stem": "", "extension": ""}
         if not isinstance(folder, str) or not os.path.isdir(folder):
             folder = os.path.dirname(origin)
-        return {
-            "stem": tool_destinations.suggested_stem(tool, origin, folder),
-            "extension": tool_destinations.extension(tool),
-        }
+        paths = self._tool_originals(source, inputs) if isinstance(inputs, list) else []
+        if tool in (tool_messages.COMBINE, tool_messages.CONVERT) and paths:
+            stem = tool_destinations.suggested_list_stem(tool, paths, folder)
+        else:
+            stem = tool_destinations.suggested_stem(tool, origin, folder)
+        return {"stem": stem, "extension": tool_destinations.extension(tool)}
 
     def check_tool_destination(self, tool: str, source: str, folder: str, name: str, inputs=None) -> dict:
         """Checked as the primary button is pressed, before the job starts:
