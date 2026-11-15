@@ -45,7 +45,7 @@ class RowMenuTest(unittest.TestCase):
 
     def test_the_row_still_has_its_star(self):
         source = _read("pages", "recent-list.js")
-        self.assertIn("buildFavoriteBtn(entry, entry.title, handlers.onToggleFavorite)", source)
+        self.assertIn("buildFavoriteBtn(entry, handlers.onToggleFavorite)", source)
 
 
 class CardChipsTest(unittest.TestCase):

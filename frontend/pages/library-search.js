@@ -11,16 +11,14 @@
 // How long typing must pause before the list is filtered.
 const SEARCH_DEBOUNCE_MS = 200;
 
-// Matches the file name (the grid card's label) and the PDF's own title (the
-// list row's label), so whatever the reader is looking at can be found.
+// Matches the file name, which is what both views show, and nothing hidden
+// (a PDF's Title metadata would find rows that don't show the word).
 // Case-insensitive substring; surrounding whitespace is ignored. Returns the
 // entries in their original order — sorting is the view's job.
 function filterEntriesByQuery(entries, query) {
   const needle = query.trim().toLowerCase();
   if (!needle) return entries;
-  return entries.filter((entry) =>
-    [entry.name, entry.title].some((label) => (label || "").toLowerCase().includes(needle))
-  );
+  return entries.filter((entry) => (entry.name || "").toLowerCase().includes(needle));
 }
 
 function searchPlaceholder(sectionTitle) {

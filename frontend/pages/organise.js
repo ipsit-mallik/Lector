@@ -470,7 +470,8 @@ function organiseStepHistory(kind, step, can) {
 
 // Applies the draft (Python's organise_done) under the busy card. Null when
 // it failed, after saying so: the draft and the grid stay as they were, and
-// its thumbnails load again.
+// its thumbnails load again. The reader's state Done answers is adopted
+// (reading.js's adoptState), as is every other one Organise is answered with.
 async function applyOrganiseDraft(options) {
   organiseGrid.freeze();
   let state = null;
@@ -484,7 +485,7 @@ async function applyOrganiseDraft(options) {
     console.error("Applying the page changes failed:", err);
     state = { error: ORGANISE_APPLY_FAILED };
   }
-  if (state && !state.error) return state;
+  if (state && !state.error) return adoptState(state);
   if (state) showToast(state.error);
   organiseGrid.thaw();
   return null;
@@ -498,7 +499,7 @@ async function finishOrganise() {
   if (!organiseOpen || isPageChangeBusy()) return;
   if (!organiseSteps()) {
     await organiseSettled();
-    await callApi("organise_done");
+    adoptState(await callApi("organise_done"));
     closeOrganiseView();
     return;
   }
@@ -524,7 +525,7 @@ async function cancelOrganise() {
   // first.
   organiseEpoch += 1;
   await organiseSettled();
-  await callApi("organise_cancel");
+  adoptState(await callApi("organise_cancel"));
   closeOrganiseView();
 }
 
@@ -540,7 +541,7 @@ async function applyOrganiseBeforeLeaving() {
     if (!state) return null;
   } else {
     await organiseSettled();
-    state = await callApi("organise_done");
+    state = adoptState(await callApi("organise_done"));
   }
   closeOrganiseView();
   return { state, changed: Boolean(state.pages_changed) };

@@ -735,16 +735,11 @@ function closeRemoveConfirm(confirmed) {
 removeConfirmCancelBtn.addEventListener("click", () => closeRemoveConfirm(false));
 removeConfirmRemoveBtn.addEventListener("click", () => closeRemoveConfirm(true));
 
-// Names the file the way the current view does: the filename on a grid card,
-// the PDF's own title in the list view -- whichever way removal was started
-// (button, "⋯" menu or voice), so the dialog always matches what is on screen.
-function removalLabel(entry) {
-  return recentViewMode === "list" ? entry.title : entry.name;
-}
-
+// Names the file by its file name, as both views show it, whichever way
+// removal was started (button, "⋯" menu or voice).
 function openRemoveConfirm(entry) {
   removeConfirmDesc.textContent =
-    `"${removalLabel(entry)}" will no longer appear in Recent.`;
+    `"${entry.name}" will no longer appear in Recent.`;
   removeConfirmScrim.hidden = false;
   callApi("set_voice_context", "remove_confirm");
   return new Promise((resolve) => {

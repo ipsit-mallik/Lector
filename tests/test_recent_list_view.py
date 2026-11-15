@@ -1,7 +1,7 @@
 """Backend for the Recent list view's table (docs/DESIGN_SYSTEM.md, "Recent
-list view"): the metadata title and raw timestamp `list_recent()` hands the
-Name and Last active columns, the removal toast's Undo, and the row menu's
-"Show in folder".
+list view"): the file name and raw timestamp `list_recent()` hands the Name
+and Last active columns (never the PDF's Title metadata), the removal toast's
+Undo, and the row menu's "Show in folder".
 
 Every test writes to a temporary settings file, never the real one.
 """
@@ -115,35 +115,38 @@ class RemoveAndRestoreTests(_TempSettings):
 
 
 class ListRecentFieldsTests(_TempSettings):
-    def test_title_comes_from_the_pdf_metadata(self):
-        store.add_recent_file(self._make_pdf("dbms_cert.pdf", title="Data Base Management System"))
+    def test_a_misleading_metadata_title_is_not_what_the_entry_is_called(self):
+        store.add_recent_file(self._make_pdf("PublicWaterMassMailing.pdf", title="Scanned Document"))
 
         [entry] = recent.list_recent()
 
-        self.assertEqual(entry["title"], "Data Base Management System")
-        self.assertEqual(entry["name"], "dbms_cert")
+        self.assertEqual(entry["name"], "PublicWaterMassMailing")
+        # The metadata title isn't handed to the page at all, so no view can show it.
+        self.assertNotIn("title", entry)
+        self.assertNotIn("Scanned Document", entry.values())
 
-    def test_title_falls_back_to_the_filename_when_metadata_is_missing_or_blank(self):
-        store.add_recent_file(self._make_pdf("untitled.pdf"))
-        store.add_recent_file(self._make_pdf("blank title.pdf", title="   "))
+    def test_two_files_with_the_same_metadata_title_keep_their_own_names(self):
+        store.add_recent_file(self._make_pdf("sample-scanned.pdf", title="Scanned PDF"))
+        store.add_recent_file(self._make_pdf("lease 2026.pdf", title="Scanned PDF"))
 
-        titles = [e["title"] for e in recent.list_recent()]
+        names = [e["name"] for e in recent.list_recent()]
 
-        self.assertEqual(titles, ["blank title", "untitled"])
+        self.assertEqual(names, ["lease 2026", "sample-scanned"])
 
-    def test_title_is_collapsed_to_a_single_line(self):
-        store.add_recent_file(self._make_pdf("multi.pdf", title="Annual\r\n Report\n 2026"))
+    def test_favorites_are_named_by_file_name_too(self):
+        store.add_favorite(self._make_pdf("Signature_form.pdf", title="Signature"))
 
-        [entry] = recent.list_recent()
+        [entry] = recent.list_favorites()
 
-        self.assertEqual(entry["title"], "Annual Report 2026")
+        self.assertEqual(entry["name"], "Signature_form")
+        self.assertNotIn("title", entry)
 
-    def test_title_falls_back_to_the_filename_for_an_unreadable_file(self):
+    def test_an_unreadable_file_is_named_by_its_file_name(self):
         store.add_recent_file("/docs/gone.pdf")
 
         [entry] = recent.list_recent()
 
-        self.assertEqual(entry["title"], "gone")
+        self.assertEqual(entry["name"], "gone")
         self.assertEqual(entry["page_count"], 0)
 
     def test_entries_carry_the_raw_timestamp_for_sorting_and_no_progress(self):

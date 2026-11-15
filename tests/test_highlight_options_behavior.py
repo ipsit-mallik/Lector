@@ -157,6 +157,7 @@ const OPTIONS = {
 };
 let options = JSON.parse(JSON.stringify(OPTIONS));
 const tool = { on: false };
+const adopted = [];
 
 const context = vm.createContext({
   document, console, Promise, JSON,
@@ -167,9 +168,11 @@ const context = vm.createContext({
     if (name === "set_highlight_style") options.style = args[0];
     if (name === "set_highlight_opacity") options.opacity[args[0]] = args[1];
     if (name === "set_ink_width") options.ink_width = args[0];
-    if (name === "set_highlight_color") return { highlight_color: args[0] };
+    if (name === "set_highlight_color") return { is_open: true, page_index: 7, highlight_color: args[0] };
     return JSON.parse(JSON.stringify(options));
   },
+  // reading.js's adoptState: what reaches the reader's one state.
+  adoptState: (state, opts) => { adopted.push([state, opts || null]); return state; },
   initRadioCards: (group, opts = {}) => { radio[group.id] = opts.selectOnArrow !== false; },
   mountIcon: (el, name) => { icons.push(name); },
   mountIcons: async () => {},
@@ -370,6 +373,18 @@ const presetPaint = () => ({ color: els.highlightThicknessGroup.style.getPropert
   run("showActiveHighlightColor")("pink");
   out.pink = preview();
 
+  // Choosing a colour (the card's swatch, or the voice "highlight color
+  // green"): the reply is the reader's whole state, and is adopted into
+  // reading.js's one state, page kept, so the next page boundary (which
+  // redraws the pill from that state) doesn't put the old colour back.
+  const chosen = await run("setActiveHighlightColor")("green");
+  out.chooseColor = {
+    returned: chosen.highlight_color, adopted: adopted.slice(),
+    pill: els.highlightColorBtn.style.getPropertyValue("--swatch"),
+    wash: document.documentElement.style.getPropertyValue("--applied-highlight"),
+    sent: calls.filter((c) => c[0] === "set_highlight_color"),
+  };
+
   // The editor's slider (the same control) on an annotation written at 10%:
   // shown as it is, the knob at the low end, unchanged until it is moved.
   const editorRoot = fakeElement("div", "editorOpacity");
@@ -505,6 +520,15 @@ class HighlightOptionsBehaviorTests(unittest.TestCase):
                          named("Yellow, 100% opacity. Color, opacity and thickness"))
         # ... and the colour.
         self.assertEqual(name_of(self.out["pink"]), named("Pink, 45% opacity. Color, opacity and thickness"))
+
+    def test_a_chosen_colour_is_adopted_into_the_reader_s_state(self):
+        self.assertEqual(self.out["chooseColor"], {
+            "returned": "green",
+            "adopted": [[{"is_open": True, "page_index": 7, "highlight_color": "green"}, {"keepPage": True}]],
+            "pill": "var(--highlight-green)",
+            "wash": "var(--highlight-green)",
+            "sent": [["set_highlight_color", "green"]],
+        })
 
     def test_a_right_click_on_the_tool_opens_it_and_esc_returns_there(self):
         self.assertEqual(self.out["rightClick"], {"prevented": True, "hidden": False})

@@ -4,6 +4,12 @@
 // the table, sorts it, and runs the per-row "⋯" menu. The grid view is
 // still recent-card.js's buildCard().
 //
+// A file is named by its file name (without ".pdf", `entry.name`) here as on
+// a grid card, in the reader and everywhere else: the row, its tooltip, its
+// labels and sorting by Name. Not by the PDF's Title metadata, which is
+// often a generator's leftover ("Scanned Document", "Signature") and the same
+// for different files.
+//
 // The helpers at the top touch no DOM, so tests/test_recent_list_behavior.py
 // can run them under Node without a browser.
 
@@ -40,7 +46,7 @@ function splitForMiddleEllipsis(text) {
 const RECENT_SORTS = {
   name: {
     firstDirection: "asc",
-    compare: (a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }),
+    compare: (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
   },
   lastActive: {
     firstDirection: "desc",
@@ -132,7 +138,7 @@ function buildNameCell(entry) {
   mountThumbnail(thumb, entry);
   cell.appendChild(thumb);
 
-  const { head, tail } = splitForMiddleEllipsis(entry.title);
+  const { head, tail } = splitForMiddleEllipsis(entry.name);
   const name = document.createElement("span");
   name.className = "recent-name";
   const headEl = document.createElement("span");
@@ -157,14 +163,14 @@ function buildTextCell(className, text) {
   return cell;
 }
 
-// The full title as a tooltip, but only while the name is really cut off:
+// The full name as a tooltip, but only while it is really cut off:
 // that depends on the window width, so it is decided as the pointer arrives
 // (this runs before ui.js's own delegated listener reads data-tooltip)
 // rather than once at build time.
 function syncNameTooltip(row, entry) {
   const name = row.querySelector(".recent-name");
   const head = name.querySelector(".recent-name-head");
-  if (head.scrollWidth > head.clientWidth) name.dataset.tooltip = entry.title;
+  if (head.scrollWidth > head.clientWidth) name.dataset.tooltip = entry.name;
   else delete name.dataset.tooltip;
 }
 
@@ -185,9 +191,9 @@ function setActiveRow(table, row) {
 // (CSS positions it per view). A real button whose label says what it will
 // do, not what state it is in. A favorited star stays visible at rest — it is
 // state, not an action, and is how you tell what is pinned at a glance — an
-// unfavorited one appears with the rest of the row's actions. `label` is the
-// name the reader sees: the title in the list, the filename on a grid card.
-function buildFavoriteBtn(entry, label, onToggle) {
+// unfavorited one appears with the rest of the row's actions. It names the
+// file the way the row or card does.
+function buildFavoriteBtn(entry, onToggle) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "icon-btn icon-btn--sm recent-fav-btn";
@@ -196,7 +202,7 @@ function buildFavoriteBtn(entry, label, onToggle) {
   btn.dataset.icon = entry.favorite ? "favorites_filled" : "favorites";
   const action = entry.favorite ? "Remove from Favorites" : "Add to Favorites";
   btn.dataset.tooltip = action;
-  btn.setAttribute("aria-label", entry.favorite ? `Remove ${label} from Favorites` : `Add ${label} to Favorites`);
+  btn.setAttribute("aria-label", entry.favorite ? `Remove ${entry.name} from Favorites` : `Add ${entry.name} to Favorites`);
   btn.addEventListener("click", (ev) => {
     ev.stopPropagation();
     onToggle(entry);
@@ -225,7 +231,7 @@ function buildBodyRow(entry, handlers, section) {
   // favorite that has fallen off Recent has no "last active" to read out.
   const pageLabel = formatPageCount(entry.page_count);
   const spoken = [entry.relative_time, pageLabel].filter(Boolean).join(", ");
-  row.setAttribute("aria-label", `Open ${entry.title}, ${spoken}`);
+  row.setAttribute("aria-label", `Open ${entry.name}, ${spoken}`);
 
   row.appendChild(buildNameCell(entry));
   row.appendChild(buildTextCell("recent-col-when", entry.relative_time || "—"));
@@ -234,14 +240,14 @@ function buildBodyRow(entry, handlers, section) {
   const actions = document.createElement("div");
   actions.className = "recent-col-actions";
   actions.setAttribute("role", "gridcell");
-  const fav = buildFavoriteBtn(entry, entry.title, handlers.onToggleFavorite);
+  const fav = buildFavoriteBtn(entry, handlers.onToggleFavorite);
   fav.tabIndex = -1;
   actions.appendChild(fav);
   const more = document.createElement("button");
   more.type = "button";
   more.className = "icon-btn icon-btn--sm recent-more-btn";
   more.dataset.icon = "more";
-  more.setAttribute("aria-label", `More actions for ${entry.title}`);
+  more.setAttribute("aria-label", `More actions for ${entry.name}`);
   more.setAttribute("aria-haspopup", "menu");
   more.setAttribute("aria-expanded", "false");
   more.tabIndex = -1;
@@ -340,7 +346,7 @@ function openRowMenu(trigger, row, entry, handlers, section) {
     trigger,
     children,
     className: "recent-menu",
-    label: `Actions for ${entry.title}`,
+    label: `Actions for ${entry.name}`,
     // Anchored to a row that moves when the list scrolls: only the page's
     // own scroller counts (the document or Home's .content), so scrolling a
     // dialog's list leaves it open.

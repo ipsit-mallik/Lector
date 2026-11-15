@@ -130,7 +130,7 @@ class FavoritesListingTests(_TempSettings):
 
         [entry] = recent.list_favorites()
 
-        self.assertEqual(entry["title"], "gone")
+        self.assertEqual(entry["name"], "gone")
         self.assertEqual(entry["page_count"], 0)
 
 

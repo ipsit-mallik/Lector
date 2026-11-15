@@ -63,8 +63,8 @@ check("matches a file name case-insensitively", () => {
     === "Annual Report 2025.pdf|REPORT draft.pdf";
 });
 
-check("matches the PDF's own title, which the list view shows", () => {
-  return names(api.filterEntriesByQuery(ENTRIES, "quantum")).join("|") === "thesis_final.pdf";
+check("never matches the PDF's Title metadata, which no view shows", () => {
+  return api.filterEntriesByQuery(ENTRIES, "quantum").length === 0;
 });
 
 check("surrounding whitespace in the query is ignored", () => {
@@ -84,7 +84,7 @@ check("treats regex characters literally", () => {
     && api.filterEntriesByQuery(ENTRIES, "(").length === 0;
 });
 
-check("an entry with no title still matches by name", () => {
+check("an entry with only a name matches by it", () => {
   const list = [{ name: "plain.pdf" }];
   return api.filterEntriesByQuery(list, "plain").length === 1;
 });

@@ -317,9 +317,12 @@ function showActiveHighlightColor(name) {
   showHighlightOptions();
 }
 
-// Also what the voice "highlight color <color>" command calls.
+// Also what the voice "highlight color <color>" command calls. The reply is
+// the reader's whole state, adopted (reading.js's adoptState): the pill and
+// the card are redrawn from that state on every page boundary, so a colour
+// kept only here went back to the old one at the next page.
 async function setActiveHighlightColor(name) {
-  const state = await callApi("set_highlight_color", name);
+  const state = adoptState(await callApi("set_highlight_color", name), { keepPage: true });
   showActiveHighlightColor((state && state.highlight_color) || name);
   return state;
 }

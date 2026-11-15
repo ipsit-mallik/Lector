@@ -54,7 +54,7 @@ function buildCardActions(entry, card) {
   actions.className = "card-actions";
   actions.appendChild(buildCardMoreBtn(entry, card));
   if (homeSection === "recent") actions.appendChild(buildRemoveBtn(entry));
-  const favBtn = buildFavoriteBtn(entry, entry.name, toggleFavorite);
+  const favBtn = buildFavoriteBtn(entry, toggleFavorite);
   favBtn.classList.add("card-action-btn");
   mountIcon(favBtn, favBtn.dataset.icon);
   actions.appendChild(favBtn);

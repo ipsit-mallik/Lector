@@ -18,12 +18,12 @@ THUMBNAIL_HEIGHT = 116
 
 # Keyed by path, each recomputed only when the file's mtime changes, not on
 # every Home screen render. Kept apart because they cost very different
-# amounts: opening a PDF for its page count and title is about a sixth of the
-# time rendering its first page takes, so the list is built from the first
-# alone and each thumbnail follows on its own (`load_thumbnail`).
-#   _info_cache:      path -> (page_count, title, renderable, mtime)
+# amounts: opening a PDF for its page count is about a sixth of the time
+# rendering its first page takes, so the list is built from the first alone
+# and each thumbnail follows on its own (`load_thumbnail`).
+#   _info_cache:      path -> (page_count, renderable, mtime)
 #   _thumbnail_cache: path -> (png_base64, mtime)
-_info_cache: dict[str, tuple[int, str | None, bool, float | None]] = {}
+_info_cache: dict[str, tuple[int, bool, float | None]] = {}
 _thumbnail_cache: dict[str, tuple[str | None, float | None]] = {}
 
 # The page lists and fetches thumbnails over separate bridge calls, which
@@ -33,7 +33,7 @@ _fitz_lock = threading.Lock()
 
 
 def clear_caches() -> None:
-    """Forgets every page count, title and thumbnail (tests start clean)."""
+    """Forgets every page count and thumbnail (tests start clean)."""
     _info_cache.clear()
     _thumbnail_cache.clear()
 
@@ -45,36 +45,27 @@ def _mtime(path: str) -> float | None:
         return None
 
 
-def _metadata_title(doc: pymupdf.Document) -> str | None:
-    """The PDF's own Title metadata, or None when it has none worth showing
-    (missing or blank) — the caller falls back to the filename."""
-    title = (doc.metadata or {}).get("title") or ""
-    # One line only: the list row keeps whitespace as written, so a newline
-    # in a badly generated PDF's title would stretch the row.
-    return " ".join(title.split()) or None
-
-
-def _load_document_info(path: str) -> tuple[int, str | None, bool]:
-    """The PDF's page count and metadata title, and whether it has a first
-    page to make a thumbnail of. Opens and closes its own pymupdf.Document
+def _load_document_info(path: str) -> tuple[int, bool]:
+    """The PDF's page count, and whether it has a first page to make a
+    thumbnail of. Opens and closes its own pymupdf.Document
     rather than sharing the reading view's — recent cards render on the Home
     screen, before any document is otherwise open."""
     mtime = _mtime(path)
     cached = _info_cache.get(path)
-    if cached is not None and cached[3] == mtime:
-        return cached[:3]
+    if cached is not None and cached[2] == mtime:
+        return cached[:2]
 
     with _fitz_lock:
         try:
             doc = pymupdf.open(path)
         except Exception:
-            result = (0, None, False)
+            result = (0, False)
         else:
             try:
                 count = len(doc)
-                result = (count, _metadata_title(doc), count > 0)
+                result = (count, count > 0)
             except Exception:
-                result = (0, None, False)
+                result = (0, False)
             finally:
                 doc.close()
     _info_cache[path] = (*result, mtime)
@@ -98,7 +89,7 @@ def load_thumbnail(path: str, height: int = THUMBNAIL_HEIGHT) -> str | None:
     if found:
         return png
     mtime = _mtime(path)
-    if not _load_document_info(path)[2]:
+    if not _load_document_info(path)[1]:
         _thumbnail_cache[path] = (None, mtime)
         return None
 
@@ -122,7 +113,7 @@ def load_thumbnail(path: str, height: int = THUMBNAIL_HEIGHT) -> str | None:
 
 
 def list_recent() -> list[dict]:
-    """Recent files enriched with page-count/title/relative-time data, ready
+    """Recent files enriched with page-count/relative-time data, ready
     for the frontend's card grid and list view."""
     favorite_paths = {e["path"] for e in settings.get_favorites()}
     return [
@@ -165,14 +156,15 @@ def page_state() -> dict[str, str]:
 
 def _build_entry(path: str, opened_at: str, favorite: bool) -> dict:
     name = os.path.splitext(os.path.basename(path))[0]
-    page_count, title, renderable = _load_document_info(path)
+    page_count, renderable = _load_document_info(path)
     found, thumbnail = _cached_thumbnail(path)
     return {
         "path": path,
+        # What the file is called everywhere it is shown (both views, menus,
+        # search, sorting): its file name without ".pdf". Never the PDF's
+        # Title metadata, which is often a generator's leftover ("Scanned
+        # Document") and the same for different files.
         "name": name,
-        # List view's Name column: the PDF's own title when it carries
-        # one, the filename otherwise. The grid keeps showing `name`.
-        "title": title or name,
         # Only one already rendered; the page asks for the rest
         # (`get_thumbnails`) once the rows are on screen.
         "thumbnail": thumbnail,

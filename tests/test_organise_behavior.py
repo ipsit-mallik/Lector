@@ -426,6 +426,8 @@ function insertDialog() {
 const toasts = [];
 const storage = {};
 const deleted = [];
+// reading.js's adoptState: every reader state Organise is answered with.
+const adopted = [];
 let reloads = 0;
 const context = vm.createContext({
   document, console, setTimeout, clearTimeout, performance,
@@ -441,6 +443,7 @@ const context = vm.createContext({
   getComputedStyle: () => ({ columnGap: "8px" }),
   devicePixelRatio: 1,
   callApi, mountIcon: () => {}, mountIcons: () => {},
+  adoptState: (state) => { adopted.push(state); return state; },
   createVoiceScope: () => ({ enter() {}, leave() { return Promise.resolve(); } }), trapFocus: () => () => {},
   initRadioCards: () => {}, ensureOpenFileDialog: () => openFileDialog, PasswordDialog,
   FileJobs, createSaveDestination, ReplaceDialog: { open: async () => true },
@@ -743,7 +746,7 @@ const scenarios = {
     return {
       done: calls.filter((c) => c[0] === "organise_done").length, busyShown: !byId.pageChangeBusy.hidden,
       open: api.isOrganiseOpen(), viewHidden: view.hidden,
-      organising: readingView.classList.contains("is-organising"), reloads,
+      organising: readingView.classList.contains("is-organising"), reloads, adopted,
     };
   },
   async doneWithChanges() {
@@ -781,7 +784,7 @@ const scenarios = {
       viaKey, viaButtonOpen: api.isOrganiseOpen(), asked: Number(discard.open),
       cancels: calls.filter((c) => c[0] === "organise_cancel").length,
       done: calls.filter((c) => c[0] === "organise_done").length,
-      busy: !byId.pageChangeBusy.hidden, reloads,
+      busy: !byId.pageChangeBusy.hidden, reloads, adopted,
       contexts: calls.filter((c) => c[0] === "set_voice_context").map((c) => c[1]),
     };
   },
@@ -1351,6 +1354,8 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         out = self.run_scenario("doneWithoutChanges")
         self.assertEqual(out, {
             "done": 1, "busyShown": False, "open": False, "viewHidden": True, "organising": False, "reloads": 0,
+            # Done's reply is the reader's state, and reading.js takes it.
+            "adopted": [{"is_open": True, "pages_changed": False, "history_trimmed": False}],
         })
 
     def test_done_with_changes_shows_the_card_first_blocks_keys_and_reloads(self):
@@ -1372,6 +1377,8 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertFalse(out["viaButtonOpen"])
         self.assertEqual(out["asked"], 0)  # nothing to lose, nothing asked
         self.assertEqual((out["cancels"], out["done"]), (2, 0))
+        # Each Cancel's reply is the reader's state, and reading.js takes it.
+        self.assertEqual(out["adopted"], [{"is_open": True, "pages_changed": False}] * 2)
         self.assertFalse(out["busy"])
         self.assertEqual(out["reloads"], 0)
         self.assertEqual(out["contexts"], ["organise", "reading", "organise", "reading"])

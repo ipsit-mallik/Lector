@@ -454,7 +454,10 @@ async function changeEditedAppearance(change) {
         "set_highlight_appearance", next.pageIndex, next.id,
         next.opacity == null ? null : next.opacity, next.width == null ? null : next.width, next.gesture,
       );
+      // Nothing to redraw when it changed nothing, but the state is still the
+      // reader's latest (reading.js's adoptState).
       if (state && state.affected_page != null) await highlightHooks.afterChange(state);
+      else adoptState(state);
     }
   } finally {
     appearanceInFlight = false;

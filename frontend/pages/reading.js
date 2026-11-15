@@ -41,6 +41,24 @@ let renderedZoom = null; // the zoom level the currently-displayed page images w
 
 const THEME_ORDER = ["light", "dark", "sepia"];
 
+// `state` has one owner, this file, and one way in. Every bridge call that
+// answers with the reader's whole state (api._state(): a page turn, a zoom, a
+// highlight, the active colour, a save, Organise's Done…) hands its reply
+// here, from whichever file made the call, so nothing is drawn from an old
+// copy: updateChrome() redraws the colour pill from `state` on every page
+// boundary, and once put a colour chosen in the card back to the one before.
+//
+// `keepPage` is for a call that never moves the page (a zoom, the colour, the
+// layout, the strip's own page report). Scrolling the strip tells the backend
+// its page without waiting (onStripScroll), so such a reply can still carry
+// the page from before the scroll; the page tracked here is never older.
+// Anything that isn't a state (a failed call's error, null) is ignored.
+function adoptState(next, { keepPage = false } = {}) {
+  if (!next || typeof next !== "object" || typeof next.is_open !== "boolean") return state;
+  state = keepPage && state.is_open && next.is_open ? { ...next, page_index: state.page_index } : next;
+  return state;
+}
+
 function b64ToDataUrl(b64) {
   return `data:image/png;base64,${b64}`;
 }
@@ -309,9 +327,13 @@ function onStripScroll() {
     if (!current) return;
     const index = Number(current.el.dataset.pageIndex);
     if (index === state.page_index) return;
-    state.page_index = index;
+    state = { ...state, page_index: index };
     updateChrome();
-    callApi("goto_page", index);
+    // Not waited for, and the page in its reply is kept as tracked here: the
+    // strip may already have moved on by the time it lands.
+    callApi("goto_page", index)
+      .then((reply) => adoptState(reply, { keepPage: true }))
+      .catch((err) => console.error("goto_page failed:", err));
   });
 }
 
@@ -668,7 +690,7 @@ async function endSelection(ev) {
 // Writes the selected range as a real PDF annotation and brings the view
 // back in step with it.
 async function applyHighlight(pageIndex, range) {
-  state = await callApi("highlight_chars", pageIndex, range.lo, range.hi);
+  adoptState(await callApi("highlight_chars", pageIndex, range.lo, range.hi));
   updateChrome();
   forgetPageHighlights(pageIndex);
   forgetPageThumbnails(pageIndex);
@@ -710,7 +732,7 @@ function bindSelection(el, getPageIndex) {
 // nothing (it refuses a malformed stroke, or there is no document open);
 // a failed call rejects. freehand.js reports either through commitFailed.
 async function commitInkStroke(pageIndex, drawn, straight) {
-  state = await callApi("add_ink_stroke", pageIndex, drawn, straight);
+  adoptState(await callApi("add_ink_stroke", pageIndex, drawn, straight));
   if (state.id == null) return false;
   try {
     await afterAnnotationChange(state.affected_page);
@@ -922,21 +944,21 @@ function forgetPageThumbnails(pageIndex) {
 // moment to show where it landed. Scrolling the strip does not.
 async function goNext() {
   const before = state.page_index;
-  state = await callApi("next_page");
+  adoptState(await callApi("next_page"));
   await refresh({ animate: true });
   if (state.page_index !== before) flashProgressBar();
 }
 
 async function goPrev() {
   const before = state.page_index;
-  state = await callApi("prev_page");
+  adoptState(await callApi("prev_page"));
   await refresh({ animate: true });
   if (state.page_index !== before) flashProgressBar();
 }
 
 async function goToPage(n) {
   const before = state.page_index;
-  state = await callApi("goto_page", n - 1);
+  adoptState(await callApi("goto_page", n - 1));
   await refresh({ animate: true });
   if (state.page_index !== before) flashProgressBar();
 }
@@ -944,7 +966,7 @@ async function goToPage(n) {
 // The progress bar's click and drag: lands at once (a drag asks for many pages
 // in a row), and the bar is already open, so there is nothing to flash.
 async function jumpToPageIndex(index) {
-  state = await callApi("goto_page", index);
+  adoptState(await callApi("goto_page", index));
   await refresh();
 }
 
@@ -1070,12 +1092,11 @@ function scheduleZoomRefresh() {
 // zoom_in/zoom_out/set_zoom may still carry the page index from *before* the
 // scroll, and blindly trusting it here snapped the strip back to that stale
 // page once the debounced rebuild ran. The locally-tracked page_index is
-// always at least as fresh, so it's preserved across the zoom call instead.
+// always at least as fresh, so it's preserved across the zoom call instead
+// (adoptState's keepPage).
 async function zoomIn() {
   leaveZoomFit();
-  const pageIndex = state.page_index;
-  state = await callApi("zoom_in");
-  state.page_index = pageIndex;
+  adoptState(await callApi("zoom_in"), { keepPage: true });
   updateChrome();
   applyZoomPreview();
   scheduleZoomRefresh();
@@ -1083,9 +1104,7 @@ async function zoomIn() {
 
 async function zoomOut() {
   leaveZoomFit();
-  const pageIndex = state.page_index;
-  state = await callApi("zoom_out");
-  state.page_index = pageIndex;
+  adoptState(await callApi("zoom_out"), { keepPage: true });
   updateChrome();
   applyZoomPreview();
   scheduleZoomRefresh();
@@ -1107,9 +1126,7 @@ async function setZoomPct(pct) {
   try {
     while (requestedZoomPct !== null) {
       const wanted = requestedZoomPct;
-      const reply = await callApi("set_zoom", wanted / 100);
-      reply.page_index = state.page_index;
-      state = reply;
+      adoptState(await callApi("set_zoom", wanted / 100), { keepPage: true });
       // A newer one is already waiting: drawing this would flick the top-bar
       // value back to an older percentage on its way forward.
       if (requestedZoomPct !== wanted) continue;
@@ -1177,7 +1194,9 @@ function stepHistory(forward) {
     const method = forward ? "redo_highlight" : "undo_highlight";
     const kind = forward ? state.redo_kind : state.undo_kind;
     if (kind === "page_changes") {
-      await runPageChange(() => callApi(method));
+      // The reader reloads onto the changed pages; if nothing changed after
+      // all, it carries on with what the backend answered.
+      adoptState(await runPageChange(() => callApi(method)));
       return;
     }
     const next = await callApi(method);
@@ -1186,7 +1205,7 @@ function stepHistory(forward) {
       await runPageChange(async () => next);
       return;
     }
-    state = next;
+    adoptState(next);
     await afterAnnotationChange(state.affected_page);
   }).catch((err) => console.error("Undo/redo failed:", err));
   return historyQueue;
@@ -1312,11 +1331,13 @@ async function toggleLayout() {
   const fraction = getPageScrollFraction();
   layoutMode = layoutMode === "book" ? "strip" : "book";
   applyLayoutChrome();
-  // Fire-and-forget, and deliberately not assigned to `state`: the reply
-  // carries the backend's page index, which during a strip scroll can still
-  // be the pre-scroll one (see the note on the zoom handlers), and adopting
-  // it here would drag the view back to a stale page.
-  callApi("set_layout_mode", layoutMode);
+  // Fire-and-forget, and its page index is not adopted: during a strip
+  // scroll it can still be the pre-scroll one (see the note on the zoom
+  // handlers), and taking it would drag the view back to a stale page. The
+  // rest of the reply is adopted (keepPage).
+  callApi("set_layout_mode", layoutMode)
+    .then((reply) => adoptState(reply, { keepPage: true }))
+    .catch((err) => console.error("set_layout_mode failed:", err));
   await refresh();
   applyPageScrollFraction(fraction);
   refitZoom();
@@ -1351,8 +1372,8 @@ OrganiseExtractDialog.configure({ saveAs: saveAsDialog });
 async function promptSaveIfDirty(allowDiscard) {
   if (!isOrganiseOpen()) return askToSaveIfDirty(allowDiscard);
   const applied = await applyOrganiseBeforeLeaving();
+  // Organise has already adopted the state Done answered (organise.js).
   if (!applied) return false;
-  if (applied.state) state = applied.state;
   const leaving = await askToSaveIfDirty(allowDiscard);
   if (!leaving && applied.changed) {
     // Its "older changes" toast, if any, was already shown when it applied.
@@ -1400,7 +1421,7 @@ async function askToSaveIfDirty(allowDiscard) {
 // didn't happen.
 function finishSave(outcome) {
   if (outcome.ok) {
-    state = outcome.state;
+    adoptState(outcome.state);
     return true;
   }
   // `error` is already a sentence for the reader (api.perform_save): what
@@ -1869,7 +1890,7 @@ configureHighlightColors({
       });
   },
   afterChange: async (next) => {
-    state = next;
+    adoptState(next);
     await afterAnnotationChange(state.affected_page);
   },
   returnFocus: () => pageArea.focus({ preventScroll: true }),
@@ -2023,7 +2044,7 @@ async function voiceScroll(delta) {
 const VOICE_MARKUP_VERBS = { highlight: "Highlighted", underline: "Underlined", strikethrough: "Struck through" };
 
 async function voiceHighlight(query, sentence, color = null, style = "highlight") {
-  state = await callApi("highlight_by_voice", query, sentence, color, style);
+  adoptState(await callApi("highlight_by_voice", query, sentence, color, style));
   const result = state.voice_highlight || { matched: false, query };
   if (result.matched) {
     await afterAnnotationChange(result.affected_page);
@@ -2384,7 +2405,7 @@ async function init() {
   await mountIcons();
   const theme = await callApi("get_theme");
   document.documentElement.dataset.theme = theme;
-  state = await callApi("get_state");
+  adoptState(await callApi("get_state"));
   if (!state.is_open) {
     window.location.href = "../index.html";
     return;

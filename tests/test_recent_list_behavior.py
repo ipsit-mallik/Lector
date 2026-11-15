@@ -30,7 +30,8 @@ vm.runInContext(
 const api = context.api;
 
 const LONG = "Chronicles-of-the-Enchanted-Vanguard-Seraphina-and-the-Divine-Mandate (highlighted)";
-const entry = (title, opened_at, page_count) => ({ title, opened_at, page_count });
+// A stray `title` (a PDF's metadata) that sorting must not use.
+const entry = (name, opened_at, page_count) => ({ name, title: `zz ${opened_at}`, opened_at, page_count });
 const ENTRIES = [
   entry("b report", "2026-10-03T10:00:00", 4),
   entry("A guide", "2026-10-03T12:30:00", 357),
@@ -38,7 +39,7 @@ const ENTRIES = [
   entry("Report 10", "2026-10-02T08:00:00", 2),
   entry("Report 9", "2026-10-02T07:00:00", 2),
 ];
-const titles = (list) => list.map((e) => e.title);
+const titles = (list) => list.map((e) => e.name);
 
 const results = {};
 const check = (name, fn) => {
