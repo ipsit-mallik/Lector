@@ -345,24 +345,30 @@ function scrollElementBy(el, delta, options) {
 // `selectOnArrow: false` makes the arrows move focus only (Space/Enter then
 // choose): for a group with a choice that shouldn't be one stray keypress away,
 // like Settings' "Overwrite the original".
+//
+// A card with aria-disabled="true" (Compress's "No change" cards and unreachable pills) stays in the
+// group for screen readers and keeps its tooltip, but Tab and the arrows pass
+// over it.
 function initRadioCards(group, { selectOnArrow = true } = {}) {
   group.setAttribute("role", "radiogroup");
   const cards = () => Array.from(group.children).filter((el) => el.matches("button"));
+  const enabled = () => cards().filter((card) => card.getAttribute("aria-disabled") !== "true");
 
   const sync = () => {
     const all = cards();
-    const selected = all.find((card) => card.classList.contains("selected"));
+    const usable = enabled();
+    const selected = usable.find((card) => card.classList.contains("selected"));
     all.forEach((card) => {
       card.setAttribute("role", "radio");
       card.setAttribute("aria-checked", String(card === selected));
-      card.tabIndex = card === (selected || all[0]) ? 0 : -1;
+      card.tabIndex = card === (selected || usable[0]) ? 0 : -1;
     });
   };
 
   const ARROW_STEP = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
   group.addEventListener("keydown", (e) => {
     const step = ARROW_STEP[e.key];
-    const all = cards();
+    const all = enabled();
     const index = all.indexOf(document.activeElement);
     if (!step || index < 0) return;
     e.preventDefault();

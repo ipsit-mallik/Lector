@@ -43,6 +43,8 @@
   --text-sm: 12.5px;
   --text-md: 13.5px;
   --text-lg: 15px;
+  /* A result's headline in a dialog ("Done. The new file is 96 KB."). */
+  --text-headline: 16px;
   --text-xl: clamp(20px, 1vw + 12px, 24px);
   --text-2xl: clamp(24px, 1.4vw + 12px, 30px);
 

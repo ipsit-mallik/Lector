@@ -96,7 +96,7 @@ def base_stem(tool: str, source: str) -> str:
         messages.SPLIT: naming.SPLIT,
     }
     label = labels.get(tool)
-    return f"{stem} ({label})" if label else stem
+    return naming.with_label(stem, label) if label else stem
 
 
 # Combine's and Convert's dated names: "Combined 14-11-2026", "Images 14-11-2026".
@@ -139,7 +139,9 @@ def extract_stem(source: str, numbers: list[int], folder: str) -> str:
     """Extract's Name suggestion: "Report (pages 4–6)", "Report (5 pages)",
     or the first free "… (2)" in `folder`."""
     stem = os.path.splitext(os.path.basename(source or ""))[0] or "untitled"
-    return naming.free_stem(folder, f"{stem} ({naming.pages_label(numbers)})", PDF_EXTENSION)
+    if not naming.has_pages_label(stem):
+        stem = f"{stem} ({naming.pages_label(numbers)})"
+    return naming.free_stem(folder, stem, PDF_EXTENSION)
 
 
 def folder_key(path: str) -> str:

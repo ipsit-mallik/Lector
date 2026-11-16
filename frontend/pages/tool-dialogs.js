@@ -11,6 +11,9 @@
 // Built from DOM calls with `textContent`, never markup: file and folder
 // names come from the reader's disk.
 //
+// Compress's own parts (its two modes, the estimates, its results) are in
+// compress-panel.js; this file calls in for them.
+//
 // Where the output goes is the shared destination block (js/save-destination.js):
 // a Name field and a "Save in" menu, always starting beside the original.
 //
@@ -27,24 +30,6 @@ const TOOL_DIALOG_META = {
   searchable: { title: "Make searchable", icon: "searchable" },
   export: { title: "Export as images", icon: "export_images" },
 };
-
-const COMPRESS_LEVELS = [
-  {
-    value: "light",
-    title: "Light",
-    subtitle: "Lossless: tidies the file and subsets fonts. Images untouched, so the saving is small.",
-  },
-  {
-    value: "balanced",
-    title: "Balanced",
-    subtitle: "Images at 150 ppi. Sharp on screen and in print at normal sizes.",
-  },
-  {
-    value: "strong",
-    title: "Strong",
-    subtitle: "Images at 96 ppi. The smallest file, for email; photos look softer.",
-  },
-];
 
 const EXPORT_FORMATS = [
   { value: "png", label: "PNG", hint: "Sharp text, larger files", extension: "png" },
@@ -144,6 +129,24 @@ const ToolDialog = (() => {
     scope = createVoiceScope("file_tool");
     document.addEventListener("keydown", onKeydown);
     FileJobs.subscribe(onJobEvent);
+    CompressPanel.init({
+      state: () => s,
+      hidden: () => scrim.hidden,
+      body: bodyEl,
+      rerender,
+      segmented,
+      footerButton,
+      destinationBlock,
+      notesBlock,
+      setupReady,
+      updatePrimary,
+      start,
+      close,
+      openOutput: (path) => {
+        close();
+        if (openOutput) openOutput(path);
+      },
+    });
   }
 
   // ---- Opening -------------------------------------------------------------
@@ -196,7 +199,7 @@ const ToolDialog = (() => {
       phase: "setup",
       destination: makeDestination(tool, source, info),
       starting: false,
-      level: info.prefs.compress_level,
+      compress: tool === "compress" ? CompressPanel.freshState(info) : null,
       format: info.prefs.export_format,
       ppi: info.prefs.export_ppi,
       searchPages: "all",
@@ -210,6 +213,7 @@ const ToolDialog = (() => {
       cancelling: false,
     };
     show();
+    if (s.compress) CompressPanel.opened(s);
   }
 
   function show() {
@@ -273,6 +277,8 @@ const ToolDialog = (() => {
   function close() {
     hide();
     clearTimeout(rangeTimer);
+    // Compress's estimates and held result are deleted with the dialog.
+    CompressPanel.closed(s);
     s = null;
     if (opener && opener.isConnected && opener.focus) opener.focus();
     opener = null;
@@ -285,7 +291,9 @@ const ToolDialog = (() => {
   }
 
   function focusFirst() {
-    const chosen = bodyEl.querySelector("[role='radio'][tabindex='0']");
+    const chosen =
+      bodyEl.querySelector(".compress-levels [role='radio'][tabindex='0'], .compress-pills [role='radio'][tabindex='0']") ||
+      bodyEl.querySelector("[role='radio'][tabindex='0']");
     const target = (s.phase === "setup" && chosen) || primaryBtn || footerEl.querySelector("button");
     if (target) target.focus();
     else card.focus();
@@ -294,7 +302,6 @@ const ToolDialog = (() => {
   // ---- Rendering ---------------------------------------------------------
 
   function setupDescription() {
-    if (s.tool === "compress") return `Makes a smaller copy. ${s.info.name} stays as it is.`;
     if (s.tool === "searchable") {
       return "Adds an invisible text layer to scanned pages, so they can be found, selected and highlighted in any PDF viewer.";
     }
@@ -304,7 +311,8 @@ const ToolDialog = (() => {
   function render() {
     badge.replaceChildren(iconEl(TOOL_DIALOG_META[s.tool].icon));
     titleEl.textContent = TOOL_DIALOG_META[s.tool].title;
-    descEl.textContent = setupDescription();
+    // Compress's header is one line of facts, the same in every state.
+    descEl.textContent = s.compress ? CompressPanel.description(s) : setupDescription();
     bodyEl.replaceChildren();
     footerEl.replaceChildren();
     primaryBtn = null;
@@ -384,8 +392,10 @@ const ToolDialog = (() => {
     const groups = Array.from(card.querySelectorAll("[role='radiogroup']"));
     const groupIndex = groups.findIndex((g) => g.contains(focused));
     const itemIndex = groupIndex >= 0 ? Array.from(groups[groupIndex].children).indexOf(focused) : -1;
-    const fieldFocused = Boolean(focused) && focused.id === "toolRangeInput";
-    const caret = fieldFocused ? focused.selectionStart : 0;
+    // A control with an id (Export's range field, Compress's "Other size…"
+    // field, unit button and link) gets focus back by its id.
+    const focusId = Boolean(focused) && card.contains(focused) && focused.id ? focused.id : null;
+    const caret = focusId && focused.type === "text" ? focused.selectionStart : null;
     // The destination block is the same nodes after a render, moved back in:
     // whatever in it had focus gets it again, caret and all.
     const inDestination = Boolean(s.destination) && Boolean(focused) && s.destination.element.contains(focused);
@@ -397,12 +407,16 @@ const ToolDialog = (() => {
     } else if (groupIndex >= 0) {
       const group = card.querySelectorAll("[role='radiogroup']")[groupIndex];
       const item = group && group.children[itemIndex];
-      if (item) item.focus();
-    } else if (fieldFocused) {
-      const input = document.getElementById("toolRangeInput");
-      if (input) {
-        input.focus();
-        input.setSelectionRange(caret, caret);
+      // A Compress card or pill that has just turned unavailable can't keep focus:
+      // the group's own Tab stop takes it, or the dialog's first control.
+      if (item && item.getAttribute("aria-disabled") !== "true") item.focus();
+      else if (group && group.querySelector("[tabindex='0']")) group.querySelector("[tabindex='0']").focus();
+      else focusFirst();
+    } else if (focusId) {
+      const again = document.getElementById(focusId);
+      if (again) {
+        again.focus();
+        if (caret !== null && again.type === "text") again.setSelectionRange(caret, caret);
       }
     }
   }
@@ -423,6 +437,7 @@ const ToolDialog = (() => {
   function setupReady() {
     if (!s || s.phase !== "setup" || s.starting) return false;
     if (!s.destination.isValid()) return false;
+    if (s.compress) return CompressPanel.ready(s);
     if (s.tool === "export") return exportCount() > 0;
     if (s.tool === "searchable") return s.info.textless > 0;
     return true;
@@ -462,30 +477,9 @@ const ToolDialog = (() => {
   }
 
   function renderSetup() {
-    if (s.tool === "compress") renderCompressSetup();
+    if (s.compress) CompressPanel.renderSetup(s);
     else if (s.tool === "searchable") renderSearchableSetup();
     else renderExportSetup();
-  }
-
-  function renderCompressSetup() {
-    const facts = el("p", "tool-facts");
-    facts.append(
-      document.createTextNode("Now "),
-      el("b", "", formatFileSize(s.info.size)),
-      document.createTextNode(
-        ` · ${plural(s.info.pages, "page", "pages")} · ${plural(s.info.images, "image", "images")}`
-      )
-    );
-    bodyEl.append(
-      facts,
-      el("span", "tool-section-label", "Level"),
-      optionCards(COMPRESS_LEVELS, s.level, (value) => { s.level = value; rerender(); }, "Level"),
-      destinationBlock()
-    );
-    const notes = notesBlock();
-    if (notes) bodyEl.append(notes);
-    footerButton("Cancel", close);
-    footerButton("Compress", start, { primary: true, disabled: !setupReady() });
   }
 
   function renderSearchableSetup() {
@@ -677,7 +671,7 @@ const ToolDialog = (() => {
       bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
     }
     wrap.querySelector(".job-progress-phase").textContent = fileJobPhaseText(event);
-    wrap.querySelector(".job-progress-pct").textContent = fraction === null ? "" : `${Math.round(fraction * 100)}%`;
+    wrap.querySelector(".job-progress-pct").textContent = fileJobProgressLabel(event, fraction);
   }
 
   // Only the progress line changes while Working; the rest stays put.
@@ -695,54 +689,22 @@ const ToolDialog = (() => {
 
   function renderResult() {
     const outcome = s.outcome;
-    descEl.textContent = "Done. The original is unchanged.";
+    if (!s.compress) descEl.textContent = "Done. The original is unchanged.";
     if (outcome.state === "failed") {
-      descEl.textContent = "Nothing was written.";
+      if (!s.compress) descEl.textContent = "Nothing was written.";
       bodyEl.append(el("p", "tool-result", outcome.error));
       footerButton("Done", close, { primary: true });
+      return;
+    }
+    if (s.compress) {
+      CompressPanel.renderResult(s);
       return;
     }
     const r = outcome.result || {};
     const result = el("div", "tool-result");
     let path = r.path || null;
     let canOpen = Boolean(path) && s.tool !== "export";
-    if (s.tool === "compress" && r.compact) {
-      descEl.textContent = "Nothing was written. The original is unchanged.";
-      const level = COMPRESS_LEVELS.find((l) => l.value === r.level);
-      result.append(
-        el(
-          "p",
-          "",
-          `This PDF is already compact: compressing at ${level ? level.title : r.level} would save less than 5%, so no file was written.`
-        )
-      );
-      bodyEl.append(result);
-      if (r.level !== "strong") footerButton("Try Strong", tryStrong);
-      footerButton("Done", close, { primary: true });
-      return;
-    }
-    if (s.tool === "compress") {
-      const bars = el("div", "size-bars");
-      const share = Math.max(2, Math.round((100 * r.after) / Math.max(1, r.before)));
-      const barOf = (after, pct) => {
-        const bar = el("div", after ? "size-bar is-after" : "size-bar");
-        const fill = el("div", "size-bar-fill");
-        fill.style.setProperty("--share", `${pct}%`);
-        bar.appendChild(fill);
-        return bar;
-      };
-      bars.append(
-        el("span", "", "Before"),
-        barOf(false, 100),
-        el("span", "", formatFileSize(r.before)),
-        el("span", "", "After"),
-        barOf(true, share),
-        el("b", "", formatFileSize(r.after))
-      );
-      const saved = Math.round(100 - (100 * r.after) / Math.max(1, r.before));
-      result.append(resultLine(`${saved}% smaller.`, ` Saved as ${r.name}${savePlaceClause(r.where)}.`));
-      bodyEl.append(bars, result);
-    } else if (s.tool === "searchable") {
+    if (s.tool === "searchable") {
       if (r.written === false) {
         descEl.textContent = "Nothing was written. The original is unchanged.";
         result.append(
@@ -791,7 +753,7 @@ const ToolDialog = (() => {
 
   function jobOptions() {
     const options = { ...s.destination.value() };
-    if (s.tool === "compress") options.level = s.level;
+    if (s.compress) Object.assign(options, CompressPanel.jobOptions(s));
     if (s.tool === "searchable") {
       options.pages = s.searchPages === "this" ? [s.info.current_page + 1] : s.info.textless_pages;
     }
@@ -848,12 +810,6 @@ const ToolDialog = (() => {
     focusFirst();
   }
 
-  function tryStrong() {
-    s.level = "strong";
-    s.phase = "setup";
-    start();
-  }
-
   async function cancelJob() {
     if (!s || s.phase !== "working" || s.cancelling) return;
     s.cancelling = true;
@@ -880,6 +836,7 @@ const ToolDialog = (() => {
     s.jobId = null;
     if (scrim.hidden) {
       // Ended in the background: FileJobs has said how in a toast.
+      CompressPanel.closed(s);
       s = null;
       return;
     }
@@ -887,6 +844,7 @@ const ToolDialog = (() => {
       s.phase = "setup";
       s.cancelling = false;
       s.event = null;
+      if (s.compress) CompressPanel.afterCancel(s);
       render();
       focusFirst();
       return;
@@ -924,10 +882,11 @@ const ToolDialog = (() => {
     }
   }
 
-  // The option cards a spoken number picks: Compress's levels, Make
-  // searchable's and Export's Pages.
+  // The option cards a spoken number picks: Compress's Quality cards, Make
+  // searchable's and Export's Pages. (Nothing in Compress's Size limit: its
+  // pills are named by size, not numbered.)
   function pickNumbered(number) {
-    const group = bodyEl.querySelector(".tool-options, .tool-radios");
+    const group = bodyEl.querySelector(".compress-levels, .tool-options, .tool-radios");
     const item = group && group.children[number - 1];
     if (item) item.click();
   }

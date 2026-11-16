@@ -24,6 +24,7 @@ WORKER_FAILED = "worker_failed"
 INPUT_UNREADABLE = "input_unreadable"
 OCR_UNAVAILABLE = "ocr_unavailable"
 NAME_INVALID = "name_invalid"
+NOT_SMALLER = "not_smaller"
 
 _WHAT = {
     COMPRESS: "compress the PDF",
@@ -50,6 +51,7 @@ _DETAIL = {
     INPUT_UNREADABLE: "one of the files couldn't be read. It may have been moved, deleted or damaged.",
     OCR_UNAVAILABLE: "the text reader's English language data isn't installed.",
     NAME_INVALID: "that name can't be used. Choose another.",
+    NOT_SMALLER: "this file is already compressed to this level.",
 }
 
 _UNCHANGED = {CONVERT: "The original files are unchanged.", COMBINE: "The original files are unchanged."}

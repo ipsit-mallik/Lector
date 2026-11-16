@@ -112,6 +112,14 @@ class DialogGrammarTests(unittest.TestCase):
             HOME_JS, r"\[StopJobDialog, ToolDialog, ConvertDialog, CombineDialog, SplitDialog, PdfPicker\]"
         )
 
+    def test_numbers_pick_compress_quality_rows_first(self):
+        # "one", "two", "three" pick Compress's Quality cards (a "No change"
+        # card ignores the click); its size-limit pills have no numbers.
+        source = (FRONTEND / "pages/tool-dialogs.js").read_text(encoding="utf-8")
+        self.assertIn('bodyEl.querySelector(".compress-levels, .tool-options, .tool-radios")', source)
+        panel = (FRONTEND / "pages/compress-panel.js").read_text(encoding="utf-8")
+        self.assertIn('if (card.getAttribute("aria-disabled") === "true") return;', panel)
+
     def test_every_tool_dialog_uses_the_file_tool_scope(self):
         for name in ("pages/tool-dialogs.js", "pages/convert-dialog.js", "pages/combine-dialog.js",
                      "pages/split-dialog.js", "pages/tools-page.js", "js/file-jobs.js"):

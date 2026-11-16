@@ -240,7 +240,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(fx.annotations(final["result"]["path"])[0]), len(before[0]) + 1)
         self.assertTrue(self.api._doc.is_dirty)
         self.assertEqual(fx.annotations(source), before)
-        self.assertEqual(store.get_file_tool_prefs()["compress_level"], "balanced")
+        # The Quality level isn't remembered: the dialog picks it from the estimates.
+        self.assertNotIn("compress_level", store.get_file_tool_prefs())
         with mock.patch.object(api_module.home_recent, "reveal_in_file_manager") as reveal:
             self.assertEqual(self.api.show_in_folder(final["result"]["path"]), {"error": None})
         reveal.assert_called_once()

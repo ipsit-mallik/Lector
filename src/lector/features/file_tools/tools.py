@@ -5,16 +5,18 @@ order, with progress between them. Run by `jobs.FileJobRunner`; built by
 `engine`'s functions are only named here, to be sent to the worker; none of
 them is called in this process.
 """
+import logging
 import os
+import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from lector.features.file_tools import choices, engine, messages, naming
+from lector.features.file_tools import compress_plan, engine, messages, naming
 from lector.features.file_tools.jobs import JobContext, JobFailed, write_file, write_folder
+from lector.features.file_tools.scratch import ScratchFiles
 from lector.features.reading import ocr, ocr_cache, safe_write
 
-# Compress writes nothing unless the new file is at least this much smaller.
-MIN_SAVING = 0.05
+log = logging.getLogger(__name__)
 
 # Make searchable: a page's OCR words in `recognize`'s form, from the open
 # document's own reading or the cache, or None to read the page in the job.
@@ -41,9 +43,21 @@ class Source:
             return len(self.data or b"")
 
 
-class _NotSmaller(BaseException):
-    """Compress's verdict on a file that saves under `MIN_SAVING`: raised
-    from the check so the temporary file is discarded, not kept."""
+@dataclass(frozen=True)
+class Attempt:
+    """One compression, written to a temporary file (`scratch.py`): its
+    size, what the check after moving it into place compares against, what
+    the Done state's note needs, what the step did in the Size limit tab's
+    words (`kind`, `compress_plan.KINDS`), and what the PDF holds (`facts`:
+    `images`, `scans`; see `compress_plan.same_result`)."""
+
+    path: str
+    size: int
+    expect: dict
+    lowered: bool
+    black_and_white: bool
+    kind: str = compress_plan.SHARP
+    facts: dict = field(default_factory=dict)
 
 
 def _open(ctx: JobContext, source: Source) -> dict:
@@ -61,39 +75,183 @@ def _check_pdf(ctx: JobContext, path: str, password: str | None, expect: dict) -
         raise JobFailed(safe_write.VERIFY_FAILED) from None
 
 
-def compress(ctx: JobContext, source: Source, dest: str, level: str) -> dict:
-    """The Compress job. Returns `{path, before, after}`, or `{compact:
-    True, before, level}` when the saving is under `MIN_SAVING` and nothing
-    was written. Progress is by phase: MuPDF rewrites every image in one
-    call, with no page to report or stop at."""
-    steps = 5
-    ctx.progress("Copying the document", 0, steps, "step")
+# Compress's phases (progress is by phase: MuPDF rewrites every image in
+# one call, with no page to report or stop at).
+_COMPRESS_STEPS = 5
+_WRITING, _CHECKING = 3, 4
+
+# Gets an estimate's finished attempt for the job (waiting for one still
+# running), or None when there is none to use.
+EstimateGetter = Callable[[JobContext], Attempt | None]
+
+
+def compress_attempt(
+    ctx: JobContext, source: Source, tmp: str, recipe: compress_plan.Recipe, phases: bool = False
+) -> Attempt:
+    """Compress `source` with `recipe` into `tmp` (a scratch file): the
+    images, then fonts subset, then the lossless tidy as it is written.
+    `phases` reports each as the job's progress (a job run without a
+    finished estimate); the estimates report none."""
+
+    def phase(text: str, n: int) -> None:
+        if phases:
+            ctx.progress(text, n, _COMPRESS_STEPS, "step")
+
+    phase("Copying the document", 0)
     expect = _open(ctx, source)
     try:
-        before = source.size
-        if level != choices.LIGHT:
-            ctx.progress("Compressing images", 1, steps, "step")
-            ctx.step(engine.compress_images, ctx.job_id, level, long=True)
-        ctx.progress("Subsetting fonts", 2, steps, "step")
+        phase("Compressing images", 1)
+        info = ctx.step(engine.compress_images, ctx.job_id, recipe, long=True)
+        phase("Subsetting fonts", 2)
         ctx.step(engine.subset_fonts, ctx.job_id, long=True)
-
-        def write(tmp: str) -> None:
-            ctx.progress("Writing the file", 3, steps, "step")
-            ctx.step(engine.save_compressed, ctx.job_id, tmp, long=True)
-
-        def verify(tmp: str) -> None:
-            ctx.progress("Checking the file", 4, steps, "step")
-            _check_pdf(ctx, tmp, source.password, expect)
-            if os.path.getsize(tmp) > before * (1 - MIN_SAVING):
-                raise _NotSmaller()
-
-        try:
-            write_file(dest, write, verify)
-        except _NotSmaller:
-            return {"compact": True, "before": before, "level": level}
-        return {"path": dest, "before": before, "after": os.path.getsize(dest)}
+        phase("Writing the file", _WRITING)
+        ctx.step(engine.save_compressed, ctx.job_id, tmp, long=True)
     finally:
         ctx.release(engine.close_job)
+    return Attempt(
+        tmp,
+        os.path.getsize(tmp),
+        expect,
+        info["lowered"],
+        info["black_and_white"],
+        compress_plan.kind(recipe, info),
+        {"images": info["images"], "scans": info["scans"]},
+    )
+
+
+def _attempt_into_scratch(ctx: JobContext, source: Source, recipe, scratch: ScratchFiles, folder: str, phases: bool):
+    try:
+        tmp = scratch.new([folder])
+    except OSError as exc:
+        raise JobFailed(safe_write.classify(exc, os.path.join(folder, "x.pdf"))) from None
+    try:
+        return compress_attempt(ctx, source, tmp, recipe, phases)
+    except BaseException:
+        scratch.discard(tmp)
+        raise
+
+
+def _move(src: str, dest: str) -> None:
+    """Move a scratch file onto the all-or-nothing write's temporary file:
+    a rename on the same drive, a copy when the folder chosen is elsewhere."""
+    try:
+        os.replace(src, dest)
+    except OSError:
+        shutil.copyfile(src, dest)
+        os.remove(src)
+
+
+def place(ctx: JobContext, attempt: Attempt, dest: str, password: str | None, scratch: ScratchFiles) -> None:
+    """Move a finished attempt to `dest` through the write every tool uses
+    (`write_file`: a temporary file beside it, checked, then moved over it in
+    one step). No compression here. The scratch file is gone afterwards,
+    whatever happened."""
+    try:
+
+        def write(tmp: str) -> None:
+            _move(attempt.path, tmp)
+
+        def verify(tmp: str) -> None:
+            ctx.progress("Checking the file", _CHECKING, _COMPRESS_STEPS, "step")
+            _check_pdf(ctx, tmp, password, attempt.expect)
+
+        write_file(dest, write, verify)
+    finally:
+        scratch.discard(attempt.path)
+
+
+def _still_there(attempt: Attempt | None, scratch: ScratchFiles) -> Attempt | None:
+    """`attempt`, or None when its temporary file has gone (deleted from
+    outside), so the job makes it again rather than failing to move it."""
+    if attempt is not None and not os.path.isfile(attempt.path):
+        scratch.discard(attempt.path)
+        return None
+    return attempt
+
+
+def _done(dest: str, before: int, attempt: Attempt, mode: str, **extra) -> dict:
+    return {
+        "path": dest,
+        "before": before,
+        "after": os.path.getsize(dest),
+        "mode": mode,
+        "lowered": attempt.lowered,
+        "black_and_white": attempt.black_and_white,
+        **extra,
+    }
+
+
+def compress(
+    ctx: JobContext,
+    source: Source,
+    dest: str,
+    level: str,
+    scratch: ScratchFiles,
+    estimate: EstimateGetter | None = None,
+) -> dict:
+    """The Compress job in Quality mode. The level's estimate, when the
+    dialog has one finished (or still running: the job waits for it), is
+    moved into place as it is; otherwise the level is compressed now. A level
+    that doesn't save `compress_plan.MIN_SAVING` writes nothing (the dialog
+    doesn't offer one). Returns `{path, before, after, mode, lowered,
+    black_and_white}`."""
+    before = source.size
+    attempt = None
+    if estimate is not None:
+        ctx.progress("Compressing images", 1, _COMPRESS_STEPS, "step")
+        attempt = _still_there(estimate(ctx), scratch)
+    if attempt is None:
+        recipe = compress_plan.LEVEL_RECIPES[level]
+        attempt = _attempt_into_scratch(ctx, source, recipe, scratch, os.path.dirname(dest), phases=True)
+    if not compress_plan.helps(before, attempt.size):
+        scratch.discard(attempt.path)
+        raise JobFailed(messages.NOT_SMALLER)
+    place(ctx, attempt, dest, source.password, scratch)
+    return _done(dest, before, attempt, compress_plan.QUALITY)
+
+
+def compress_to_limit(
+    ctx: JobContext,
+    source: Source,
+    dest: str,
+    step: int,
+    limit: int,
+    label: str,
+    scratch: ScratchFiles,
+    estimate: EstimateGetter,
+    hold: Callable[[Attempt], None],
+) -> dict:
+    """The Compress job in Size limit mode: ladder step `step`, the best one
+    under `limit` bytes (`compress_plan.choose`, from the dialog's checking),
+    moved into place as it is. No compression, unless its temporary file has
+    gone (deleted from outside); then the step is made again.
+
+    Returns `{path, before, after, mode, limit, label, kind, lowered,
+    black_and_white}`. The safety net, never reached in normal use: a step
+    that turns out not to fit writes nothing, is logged, is handed to `hold`
+    (the dialog's "Save … file" moves it into place with `save_held`), and
+    the result is `{unreachable, before, smallest, limit, label}`."""
+    before = source.size
+    ctx.progress("Compressing images", 1, _COMPRESS_STEPS, "step")
+    attempt = _still_there(estimate(ctx), scratch)
+    if attempt is None:
+        log.warning("Compress: size-limit step %d had no finished file; making it again", step)
+        attempt = _attempt_into_scratch(ctx, source, compress_plan.LADDER[step], scratch, os.path.dirname(dest), True)
+    common = {"limit": limit, "label": label}
+    if not compress_plan.fits(attempt.size, limit):
+        log.warning("Compress: size-limit step %d is %d bytes, over %d after all", step, attempt.size, limit)
+        hold(attempt)
+        return {"unreachable": True, "before": before, "smallest": attempt.size, **common}
+    place(ctx, attempt, dest, source.password, scratch)
+    return _done(dest, before, attempt, compress_plan.SIZE_LIMIT, kind=attempt.kind, **common)
+
+
+def save_held(ctx: JobContext, source: Source, dest: str, held: Attempt, label: str, scratch: ScratchFiles) -> dict:
+    """"Save 164 KB file": the safety net's result, which didn't get under
+    the limit, moved into place as it is."""
+    before = source.size
+    place(ctx, held, dest, source.password, scratch)
+    return _done(dest, before, held, compress_plan.SIZE_LIMIT, label=label, over_limit=True)
 
 
 def export_images(ctx: JobContext, source: Source, dest: str, fmt: str, ppi: int, pages: list[int]) -> dict:

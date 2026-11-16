@@ -1041,3 +1041,318 @@
 
 .file-list-row:is(:hover, :focus-within) .file-list-actions { opacity: 1; }
 .file-list-actions .icon-btn:disabled { color: var(--text-tertiary); cursor: default; background: transparent; }
+
+/* ------------------------------------------------------------------ */
+/* Compress (compress-panel.js; mockups file-tools/compress-v3-quality.png,
+   panels 1-2, and compress-v4-size-limit.png)                          */
+/* ------------------------------------------------------------------ */
+
+/* The shared segmented control, full width: Quality | Size limit. */
+.segmented--full { display: flex; width: 100%; box-sizing: border-box; }
+.segmented--full .segmented-btn { flex: 1; height: 32px; font-size: var(--text-md); }
+
+/* Quality: three separate option cards, the shared .option-row radio card
+   (its hover, selected ring and focus ring; 8px apart in .tool-options), each
+   with the size it will make on the right: "About 6.2 MB" (600) over "75%
+   smaller" (muted, 12px). */
+.compress-levels { margin-top: var(--space-4); }
+.tool-options.compress-levels .option-row:first-of-type { margin-top: 0; }
+
+.compress-size {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-hair);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.compress-size-main { font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
+.compress-size-note { font-size: 12px; color: var(--text-muted); }
+/* Muted text falls below 4.5:1 on the selected fill in dark. */
+.compress-level.selected .compress-size-note { color: var(--text-secondary); }
+
+/* "No change": dashed, flat, not choosable; its tooltip says why. Two classes
+   and the attribute, so it outranks .card-lift's hover (components.css comes
+   after this sheet). */
+.tool-options .compress-level[aria-disabled="true"],
+.tool-options .compress-level[aria-disabled="true"]:is(:hover, :focus-visible, :active) {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background-color: transparent;
+  box-shadow: none;
+  transform: none;
+  cursor: default;
+}
+.compress-level[aria-disabled="true"] :is(.option-title, .option-subtitle, .compress-size-main) {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.compress-level[aria-disabled="true"] .option-title { font-weight: 500; }
+/* :is() keeps the shared hover's darker radio (components.css) off it. */
+.tool-options .compress-level[aria-disabled="true"]:is(:hover, :not(:hover)) .option-radio { border-color: var(--border-strong); }
+
+/* "Estimating": muted words with a light sweep across them while the level
+   is compressed in the background. */
+.compress-estimating {
+  flex: none;
+  font-size: var(--text-sm);
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--text-muted) 0%, var(--text-muted) 35%, var(--text-tertiary) 50%,
+    var(--text-muted) 65%, var(--text-muted) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: compress-estimating-sweep 1.4s var(--ease-out) infinite;
+}
+
+@keyframes compress-estimating-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+/* One muted line under a block: "Try a size limit.", "already under 50 KB",
+   the Done state's readability note. */
+.compress-hint {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* Size limit: "Upload limit", then one row of seven equal pills. */
+.compress-label {
+  margin: var(--space-5) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.compress-pills {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.compress-pill {
+  height: 32px;
+  min-width: 0;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-input);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.compress-pill:hover:not(.selected):not([aria-disabled="true"]) {
+  border-color: var(--card-hover-border);
+  background-color: var(--card-hover-fill);
+}
+
+.compress-pill:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: 2px; }
+
+/* Selected: the option card's accent edge, ring and soft fill. */
+.compress-pill.selected {
+  border-color: var(--accent);
+  background-color: color-mix(in srgb, var(--accent) var(--selected-tint), var(--surface-input));
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Still being checked: muted and inert. */
+.compress-pill.is-checking { border-color: var(--border); color: var(--text-muted); cursor: default; }
+
+/* Too small for this file: dashed and muted, the floor in its tooltip. */
+.compress-pill.is-too-small {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background-color: transparent;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* The result card under the pills: a 30px tile, what the step does, and the
+   size it will make. While the file is checked: an empty tile and a shimmer
+   bar under the words. */
+.compress-outcome {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-input);
+  box-shadow: var(--card-highlight);
+}
+
+.compress-outcome-tile {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background-color: var(--state-hover);
+  color: var(--text-primary);
+}
+.compress-outcome-tile svg { width: 18px; height: 18px; }
+
+.compress-outcome-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-hair); }
+.compress-outcome-title { font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
+.compress-outcome-line { font-size: var(--text-sm); line-height: 1.4; color: var(--text-secondary); }
+
+.compress-outcome-size {
+  flex: none;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.compress-outcome.is-checking .compress-outcome-line { color: var(--text-muted); }
+
+.compress-shimmer {
+  display: block;
+  width: 70%;
+  height: 8px;
+  margin-top: var(--space-2);
+  border-radius: var(--radius-pill);
+  background-image: linear-gradient(90deg, var(--state-hover) 0%, var(--state-hover) 35%, var(--border-strong) 50%,
+    var(--state-hover) 65%, var(--state-hover) 100%);
+  background-size: 250% 100%;
+  animation: compress-estimating-sweep 1.4s var(--ease-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compress-estimating,
+  .compress-shimmer { animation: none; }
+}
+
+/* "Other size…" / "Use a preset": a text link under the result card. */
+.compress-other-link {
+  display: inline-block;
+  margin-top: var(--space-3);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+.compress-other-link:hover { text-decoration: underline; }
+.compress-other-link:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: 2px; }
+
+/* Its row: [number] [KB v], checked as you type. */
+.compress-other { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
+
+.compress-limit-input {
+  width: 84px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-input);
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.compress-limit-input:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: 1px; }
+.compress-limit-input.is-error { border-color: var(--danger); }
+.compress-limit-input.is-error:focus-visible { outline-color: var(--danger); }
+
+.compress-field-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+.compress-field-error > span[data-icon] { display: flex; flex: none; width: 15px; height: 15px; }
+.compress-field-error svg { width: 100%; height: 100%; }
+
+.compress-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-input);
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.compress-unit:hover { border-color: var(--border-strong); }
+.compress-unit-chevron { display: flex; width: 14px; height: 14px; color: var(--text-muted); }
+.compress-unit-chevron svg { width: 100%; height: 100%; }
+
+/* The unit's menu: the shared popup menu, over the dialog. */
+.compress-unit-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 72px;
+  padding: var(--space-1);
+  box-sizing: border-box;
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-input);
+  box-shadow: var(--shadow-3);
+}
+
+.compress-unit-item {
+  display: block;
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.compress-unit-item:hover,
+.compress-unit-item:focus-visible { background-color: var(--state-hover); outline: none; }
+
+/* Results: the headline carries the state; the header stays the file's facts. */
+.compress-result { margin-top: var(--space-5); }
+
+.compress-headline {
+  margin: 0;
+  font-size: var(--text-headline);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.compress-line {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.compress-result .size-bars { margin-top: var(--space-4); }
+.compress-advice { margin-top: var(--space-4); }

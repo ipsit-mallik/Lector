@@ -19,7 +19,8 @@ import pymupdf  # noqa: E402
 
 import file_tools_support as fx  # noqa: E402
 import pdf_support  # noqa: E402
-from lector.features.file_tools import engine, tools  # noqa: E402
+from lector.features.file_tools import engine, messages, tools  # noqa: E402
+from lector.features.file_tools.scratch import ScratchFiles  # noqa: E402
 from lector.features.file_tools.jobs import JobCancelled, JobFailed  # noqa: E402
 from lector.features.reading import ocr, ocr_cache  # noqa: E402
 
@@ -44,9 +45,27 @@ def _ppi(width_px: int, box_width_pt: float) -> float:
 
 
 class CompressTests(_Folder):
+    def setUp(self):
+        super().setUp()
+        self._state = tempfile.TemporaryDirectory()
+        self.scratch = ScratchFiles(Path(self._state.name) / "compress-scratch.json")
+
+    def tearDown(self):
+        super().tearDown()
+        self._state.cleanup()
+
     def compress(self, source: Path, level: str, data: bytes | None = None, password: str | None = None) -> tuple[dict, Path]:
+        """The Quality job with no estimate; `{"not_smaller": True}` when the
+        level doesn't save 5% (nothing is written then)."""
         dest = self.folder / f"{source.stem} (compressed).pdf"
-        result = tools.compress(fx.InlineContext(), tools.Source(str(source), data, password), str(dest), level)
+        try:
+            result = tools.compress(
+                fx.InlineContext(), tools.Source(str(source), data, password), str(dest), level, self.scratch
+            )
+        except JobFailed as exc:
+            if exc.reason != messages.NOT_SMALLER:
+                raise
+            result = {"not_smaller": True}
         return result, dest
 
     def test_balanced_brings_a_photo_down_to_150_ppi(self):
@@ -67,7 +86,7 @@ class CompressTests(_Folder):
                     source = build(self.folder, name=f"{build.__name__}-{level}.pdf")
                     before = {(w, h) for _, w, h, _ in fx.image_sizes(source)}
                     result, dest = self.compress(source, level)
-                    if result.get("compact"):
+                    if result.get("not_smaller"):
                         continue
                     for _, width, height, _ in fx.image_sizes(dest):
                         self.assertTrue(any(width <= w and height <= h for w, h in before))
@@ -76,7 +95,7 @@ class CompressTests(_Folder):
         source = fx.photo_pdf(self.folder)
         before = [(w, h, bpc) for _, w, h, bpc in fx.image_sizes(source)]
         result, dest = self.compress(source, "light")
-        if not result.get("compact"):
+        if not result.get("not_smaller"):
             self.assertEqual([(w, h, bpc) for _, w, h, bpc in fx.image_sizes(dest)], before)
 
     def test_every_annotation_is_kept_exactly(self):
@@ -102,7 +121,7 @@ class CompressTests(_Folder):
 
     def test_a_one_bit_scan_stays_one_bit(self):
         result, dest = self.compress(fx.bilevel_scan_pdf(self.folder), "strong")
-        if not result.get("compact"):
+        if not result.get("not_smaller"):
             self.assertEqual([bpc for *_, bpc in fx.image_sizes(dest)], [1])
             self.assertEqual(fx.image_sizes(dest)[0][1:3], (1200, 1200))
 
@@ -115,7 +134,7 @@ class CompressTests(_Folder):
         doc.save(source, garbage=4, deflate=True, clean=True)
         doc.close()
         result, dest = self.compress(source, "balanced")
-        self.assertEqual(result, {"compact": True, "before": os.path.getsize(source), "level": "balanced"})
+        self.assertEqual(result, {"not_smaller": True})
         self.assertFalse(dest.exists())
         self.assertEqual(self.leftovers(), [])
 
@@ -153,14 +172,17 @@ class CompressTests(_Folder):
         for cancel_at in range(1, 5):
             with self.subTest(cancel_at=cancel_at):
                 with self.assertRaises(JobCancelled):
-                    tools.compress(fx.InlineContext(cancel_at=cancel_at), tools.Source(str(source)), str(dest), "balanced")
+                    tools.compress(
+                        fx.InlineContext(cancel_at=cancel_at), tools.Source(str(source)), str(dest), "balanced", self.scratch
+                    )
                 self.assertFalse(dest.exists())
                 self.assertEqual(self.leftovers(), [])
                 self.assertEqual(engine._OPEN, {})
+                self.assertEqual(self.scratch.tracked(), [])
 
     def test_progress_is_reported_by_phase(self):
         ctx = fx.InlineContext()
-        tools.compress(ctx, tools.Source(str(fx.photo_pdf(self.folder))), str(self.folder / "o.pdf"), "balanced")
+        tools.compress(ctx, tools.Source(str(fx.photo_pdf(self.folder))), str(self.folder / "o.pdf"), "balanced", self.scratch)
         self.assertEqual(
             [phase for phase, *_ in ctx.reports],
             ["Copying the document", "Compressing images", "Subsetting fonts", "Writing the file", "Checking the file"],

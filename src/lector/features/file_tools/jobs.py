@@ -70,6 +70,8 @@ class JobContext:
 
     def __init__(self, runner: "FileJobRunner", job_id: str, tool: str):
         self._runner = runner
+        self._worker = runner._worker
+        self._abort = runner._cancel
         self.job_id = job_id
         self.tool = tool
         # Set when a step's worker was ended or lost: what the job had open
@@ -78,7 +80,7 @@ class JobContext:
 
     @property
     def cancelled(self) -> bool:
-        return self._runner._cancel.is_set()
+        return self._abort.is_set()
 
     def check(self) -> None:
         if self.cancelled:
@@ -103,11 +105,11 @@ class JobContext:
         runs to its end first. Raises JobCancelled, JobFailed, or `fn`'s own
         exception."""
         self.check()
-        future = self._runner._worker.call(
+        future = self._worker.call(
             fn,
             args,
             timeout=LONG_STEP_TIMEOUT_S if long else STEP_TIMEOUT_S,
-            abort=self._runner._cancel if long else None,
+            abort=self._abort if long else None,
         )
         try:
             return future.result()
@@ -124,9 +126,26 @@ class JobContext:
         if self.worker_gone:
             return
         try:
-            self._runner._worker.call(close, (self.job_id,), timeout=STEP_TIMEOUT_S).result()
+            self._worker.call(close, (self.job_id,), timeout=STEP_TIMEOUT_S).result()
         except Exception:
             log.warning("Could not release a file job in the worker")
+
+
+class WorkerSteps(JobContext):
+    """A JobContext without a runner, for background work that isn't a file
+    job (Compress's estimates, owned by its dialog): the same steps in the
+    worker, stopped by its own `abort` event, reporting no progress."""
+
+    def __init__(self, worker: ocr.OcrRunner, abort: threading.Event, job_id: str, tool: str):
+        self._runner = None
+        self._worker = worker
+        self._abort = abort
+        self.job_id = job_id
+        self.tool = tool
+        self.worker_gone = False
+
+    def progress(self, phase: str, current: int = 0, total: int = 0, unit: str = "") -> None:
+        return None
 
 
 class FileJobRunner:

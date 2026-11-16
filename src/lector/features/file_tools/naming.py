@@ -35,6 +35,24 @@ def pages_label(numbers: list[int]) -> str:
     return f"{len(ordered)} pages"
 
 
+def with_label(stem: str, label: str) -> str:
+    """`stem (label)`, unless `stem` already ends with " (label)": a tool run
+    on its own output doesn't stack suffixes ("Report (compressed)" stays
+    so; `free_stem` then makes a clash "Report (compressed) (2)")."""
+    suffix = f" ({label})"
+    return stem if stem.endswith(suffix) else stem + suffix
+
+
+# What `pages_label` makes, at the end of a name: " (page 4)", " (pages 4–6)",
+# " (5 pages)".
+_PAGES_SUFFIX = re.compile(r" \((?:page \d+|pages \d+[–-]\d+|\d+ pages)\)$")
+
+
+def has_pages_label(stem: str) -> bool:
+    """Whether `stem` already ends with an Extract suffix."""
+    return bool(_PAGES_SUFFIX.search(stem))
+
+
 def free_file_name(source: str, label: str) -> str:
     """`<name> (label).pdf` beside `source`, or the first free
     `<name> (label) (2).pdf`, (3), …, so the suggestion never names a file

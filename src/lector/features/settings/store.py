@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import ParamSpec, TypeVar
 
 from lector.features.file_tools import choices as file_tool_choices
+from lector.features.file_tools import compress_plan
 from lector.features.reading import safe_write
 from lector.shared import highlight_options
 from lector.shared.theme import DEFAULT_HIGHLIGHT_COLOR, HIGHLIGHT_COLOR_NAMES, THEME_ORDER
@@ -96,6 +97,12 @@ def settings_dir() -> Path:
 
 def _settings_path() -> Path:
     return settings_dir() / "settings.json"
+
+
+def data_path(name: str) -> Path:
+    """A file of the app's own beside settings.json (Compress's list of
+    temporary files, `file_tools/scratch.py`)."""
+    return _settings_path().parent / name
 
 
 # The shape of settings.json, written into it on every save. A file without
@@ -456,23 +463,32 @@ def set_highlight_opacity(style: str, pct: int) -> None:
     _save(data)
 
 
-# The file tools' remembered choices: the last Compress level and the last
-# Export format and resolution, one dict, each value checked on read.
+# The file tools' remembered choices: Compress's last mode (Quality or Size
+# limit) and size limit, and the last Export format and resolution, one
+# dict, each value checked on read. (The Quality level isn't remembered: the
+# dialog picks it from the estimates.)
 _FILE_TOOLS_KEY = "file_tools"
+
+_LIMITS = range(compress_plan.LIMIT_MIN, compress_plan.LIMIT_MAX + 1)
+_FILE_TOOL_CHOICES = {
+    "compress_mode": (compress_plan.MODES, compress_plan.DEFAULT_MODE),
+    "compress_limit": (_LIMITS, compress_plan.DEFAULT_LIMIT),
+    "compress_unit": (tuple(compress_plan.UNITS), compress_plan.DEFAULT_UNIT),
+    "export_format": (file_tool_choices.EXPORT_FORMATS, file_tool_choices.DEFAULT_FORMAT),
+    "export_ppi": (file_tool_choices.EXPORT_PPI, file_tool_choices.DEFAULT_PPI),
+}
+
+
+def _offered(value, allowed) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, str)) and value in allowed
 
 
 def get_file_tool_prefs() -> dict:
     stored = _load().get(_FILE_TOOLS_KEY)
     stored = stored if isinstance(stored, dict) else {}
-    level = stored.get("compress_level")
-    fmt = stored.get("export_format")
-    ppi = stored.get("export_ppi")
     return {
-        "compress_level": level if level in file_tool_choices.LEVELS else file_tool_choices.DEFAULT_LEVEL,
-        "export_format": fmt if fmt in file_tool_choices.EXPORT_FORMATS else file_tool_choices.DEFAULT_FORMAT,
-        "export_ppi": ppi
-        if isinstance(ppi, int) and not isinstance(ppi, bool) and ppi in file_tool_choices.EXPORT_PPI
-        else file_tool_choices.DEFAULT_PPI,
+        name: stored.get(name) if _offered(stored.get(name), allowed) else default
+        for name, (allowed, default) in _FILE_TOOL_CHOICES.items()
     }
 
 
@@ -480,13 +496,8 @@ def get_file_tool_prefs() -> dict:
 def set_file_tool_prefs(**changes) -> None:
     """Remember some of `get_file_tool_prefs`' values; raises ValueError for
     an unknown name or a value not on offer."""
-    allowed = {
-        "compress_level": file_tool_choices.LEVELS,
-        "export_format": file_tool_choices.EXPORT_FORMATS,
-        "export_ppi": file_tool_choices.EXPORT_PPI,
-    }
     for name, value in changes.items():
-        if name not in allowed or isinstance(value, bool) or value not in allowed[name]:
+        if name not in _FILE_TOOL_CHOICES or not _offered(value, _FILE_TOOL_CHOICES[name][0]):
             raise ValueError(f"invalid file tool preference: {name}")
     data = _load()
     data[_FILE_TOOLS_KEY] = {**get_file_tool_prefs(), **changes}

@@ -7,10 +7,12 @@ never touch `frontend/` files. Every method here is called from
 data — no PySide6/Qt types, no live PyMuPDF objects.
 """
 import base64
+import dataclasses
 import json
 import logging
 import math
 import os
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -22,7 +24,10 @@ from lector.features.annotations import highlight_matcher, highlighter
 from lector.features.annotations.highlighter import words_between
 from lector.features.dialogs import browser as dialog_browser
 from lector.features.file_tools import choices as tool_choices
+from lector.features.file_tools import compress_plan
 from lector.features.file_tools import destinations as tool_destinations
+from lector.features.file_tools import estimates as compress_estimates
+from lector.features.file_tools import scratch as compress_scratch
 from lector.features.file_tools import engine as tool_engine
 from lector.features.file_tools import formats as tool_formats
 from lector.features.file_tools import jobs as file_jobs
@@ -92,6 +97,8 @@ INSERT_CONVERT_TIMEOUT_S = 180
 
 # How long closing waits for a cancelled job to clean up before going on.
 JOB_STOP_WAIT_S = 10
+# How long quitting waits for a stopped Compress estimate to let go of its file.
+ESTIMATES_STOP_WAIT_S = 5
 
 # What Done says when its page changes couldn't be applied.
 PAGE_CHANGES_FAILED = "Couldn't apply the page changes. The PDF is as it was; your changes are still here."
@@ -127,6 +134,11 @@ def _checked_pages(value, page_count: int) -> list[int]:
     if len(set(indices)) != len(indices):
         raise _BadToolRequest(tool_messages.WORKER_FAILED)
     return sorted(indices)
+
+
+def _session_id(value) -> int:
+    """Compress's dialog session as the page sent it, or 0 for none."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _with_place(run, where: str):
@@ -219,6 +231,13 @@ class Api:
         # shown in their folder; a Home PDF's password is held only for the
         # job on that file.
         self._jobs = file_jobs.FileJobRunner(self._ocr, self._on_file_job_event)
+        # Compress's temporary results (listed in a manifest beside the
+        # settings, so a crash's leftovers go at the next start) and its
+        # estimates, which the dialog owns: not file jobs.
+        self._scratch = compress_scratch.ScratchFiles(settings.data_path(compress_scratch.MANIFEST_NAME))
+        self._estimates = compress_estimates.CompressEstimates(
+            self._ocr, self._scratch, lambda event: self._dispatch_page_event("lector:compressestimate", event)
+        )
         self._tool_outputs: set[str] = set()
         self._tool_outputs_lock = threading.Lock()
         self._tool_source: tuple[str, str | None] | None = None
@@ -680,8 +699,15 @@ class Api:
         return None
 
     def shutdown_ocr(self) -> None:
-        """Stop the OCR worker process. Called once the window has closed."""
+        """Stop the OCR worker process, and delete Compress's temporary
+        files. Called once the window has closed."""
+        # In this order: an estimate still being written by the worker would
+        # otherwise be held open (Windows refuses the delete) or written again
+        # after it. The worker is ended first, then whatever is left goes.
+        self._estimates.stop(discard=True)
         self._ocr.shutdown()
+        self._estimates.wait(ESTIMATES_STOP_WAIT_S)
+        self._scratch.discard_all()
 
     # ------------------------------------------------------------------ #
     # Find in document                                                     #
@@ -1582,6 +1608,11 @@ class Api:
         job_id = self._jobs.start(tool, run)
         if job_id is None:
             return {"ok": False, "busy": True, "error": "Another file job is running."}
+        # Compress's background work gives way to any real job once it has
+        # started; a Compress job keeps the step it uses (a job already
+        # waiting for it keeps waiting: the step is still planned or running).
+        keep = getattr(run, "compress_keep", None) or ()
+        self._estimates.give_way(*keep)
         return {"ok": True, "id": job_id}
 
     def _build_job(self, tool: str, source: str, options: dict):
@@ -1596,6 +1627,8 @@ class Api:
         if tool not in _ONE_PDF_TOOLS:
             raise _BadToolRequest(tool_messages.WORKER_FAILED)
         src = self._tool_job_source(source)
+        if tool == tool_messages.COMPRESS:
+            src = self._with_session_password(src, options.get("session"))
         dest, where = self._checked_dest(tool, options, [src.path], tool_destinations.BESIDE_ORIGINAL)
         page_count = self._source_page_count(source, src)
         if tool == tool_messages.SPLIT:
@@ -1609,11 +1642,10 @@ class Api:
                 raise _BadToolRequest(tool_messages.WORKER_FAILED)
             return _with_place(lambda ctx: file_tools.split(ctx, src, parts, dest), where)
         if tool == tool_messages.COMPRESS:
-            level = options.get("level")
-            if level not in tool_choices.LEVELS:
-                raise _BadToolRequest(tool_messages.WORKER_FAILED)
-            settings.set_file_tool_prefs(compress_level=level)
-            return _with_place(lambda ctx: file_tools.compress(ctx, src, dest, level), where)
+            run = self._build_compress(src, dest, options)
+            placed = _with_place(run, where)
+            placed.compress_keep = getattr(run, "compress_keep", None)
+            return placed
         if tool == tool_messages.EXPORT:
             fmt, ppi = options.get("format"), options.get("ppi")
             if fmt not in tool_choices.EXPORT_FORMATS or isinstance(ppi, bool) or ppi not in tool_choices.EXPORT_PPI:
@@ -1624,6 +1656,120 @@ class Api:
         pages = _checked_pages(options.get("pages"), page_count)
         known = self._known_words if source == TOOL_SOURCE_OPEN else file_tools.cached_words
         return _with_place(lambda ctx: file_tools.make_searchable(ctx, src, dest, pages, known), where)
+
+    def _build_compress(self, src: "file_tools.Source", dest: str, options: dict):
+        """Compress's runs: a Quality level or a size limit (the dialog's
+        finished step moved into place, or, for a level, waited for), or the
+        size-limit safety net's held result."""
+        mode = options.get("mode", compress_plan.QUALITY)
+        session = _session_id(options.get("session"))
+        opened = self._estimates.session_source(session)
+        same_source = opened is not None and safe_write.same_file(opened.path, src.path)
+        if mode == compress_plan.QUALITY:
+            level = options.get("level")
+            if level not in tool_choices.LEVELS:
+                raise _BadToolRequest(tool_messages.WORKER_FAILED)
+            step = compress_plan.LEVEL_STEPS[level]
+            estimate = None
+            if same_source:
+                estimate = lambda ctx: self._estimates.wait_for(session, step, ctx)  # noqa: E731
+
+            def run_level(ctx):
+                return file_tools.compress(ctx, src, dest, level, self._scratch, estimate)
+
+            run_level.compress_keep = (session, step) if same_source else None
+            return run_level
+        value, unit = options.get("limit"), options.get("unit")
+        limit = compress_plan.limit_bytes(value, unit)
+        if limit is None or not same_source:
+            raise _BadToolRequest(tool_messages.WORKER_FAILED)
+        label = f"{value} {unit}"
+        if mode == compress_plan.SAVE_HELD:
+            if not self._estimates.has_held(session):
+                raise _BadToolRequest(tool_messages.WORKER_FAILED)
+
+            def save(ctx):
+                # Taken only once the job runs: a request that never starts
+                # leaves it held for "Save … file" again.
+                held = self._estimates.take_held(session)
+                if held is None:
+                    raise file_jobs.JobFailed(tool_messages.WORKER_FAILED)
+                return file_tools.save_held(ctx, src, dest, held, label, self._scratch)
+
+            return save
+        # A limit at or above the file's size has no pill, and one the
+        # dialog's checking hasn't settled on a step for can't be chosen.
+        if mode != compress_plan.SIZE_LIMIT or limit >= src.size:
+            raise _BadToolRequest(tool_messages.WORKER_FAILED)
+        step, settled = self._estimates.choose(session, limit)
+        if step is None or not settled:
+            raise _BadToolRequest(tool_messages.WORKER_FAILED)
+        settings.set_file_tool_prefs(compress_limit=value, compress_unit=unit)
+
+        def estimate(ctx):
+            return self._estimates.wait_for(session, step, ctx)
+
+        def hold(attempt) -> None:
+            self._estimates.hold(session, attempt)
+
+        def run_limit(ctx):
+            return file_tools.compress_to_limit(ctx, src, dest, step, limit, label, self._scratch, estimate, hold)
+
+        run_limit.compress_keep = (session, step)
+        return run_limit
+
+    def _with_session_password(self, src: "file_tools.Source", session) -> "file_tools.Source":
+        """A protected PDF from Home: the password held for it goes when a
+        job ends, but Compress's dialog may run another on the same file
+        (Change limit, Save … file); its session kept the password."""
+        opened = self._estimates.session_source(_session_id(session))
+        if opened is None or src.password is not None or opened.password is None:
+            return src
+        if not safe_write.same_file(opened.path, src.path):
+            return src
+        return dataclasses.replace(src, password=opened.password)
+
+    # ---- Compress's estimates (owned by its dialog; not file jobs) ----------
+
+    def start_compress_estimates(self, source: str, folder: str, session=None, mode=compress_plan.QUALITY) -> dict:
+        """Compress the steps `mode`'s tab needs in the background (Quality:
+        its three levels; Size limit: the whole ladder), into temporary files
+        in `folder` (the destination's; else the original's, else the
+        system's temporary folder). Each finished one arrives as a
+        `lector:compressestimate` event. `session` keeps what an earlier
+        call in the same dialog finished. `{"ok": True, "session"}`."""
+        if mode not in compress_plan.MODES:
+            return {"ok": False}
+        try:
+            src = self._tool_job_source(source)
+        except _BadToolRequest:
+            return {"ok": False}
+        folders = self._scratch_folders(folder, src.path)
+        return {"ok": True, "session": self._estimates.start(src, folders, _session_id(session) or None, mode)}
+
+    def stop_compress_estimates(self, discard: bool = True) -> dict:
+        """The dialog closed (`discard`: every temporary file goes), or
+        stopped its background work (finished steps are kept)."""
+        self._estimates.stop(discard=discard is not False)
+        return {"ok": True}
+
+    def get_compress_estimates(self, session) -> dict:
+        """Each ladder step's result so far, for a dialog drawn again."""
+        if not isinstance(session, int) or isinstance(session, bool):
+            return {}
+        return self._estimates.snapshot(session)
+
+    def set_compress_mode(self, mode: str) -> dict:
+        """Remember Quality or Size limit for next time."""
+        if mode not in compress_plan.MODES:
+            return {"ok": False}
+        settings.set_file_tool_prefs(compress_mode=mode)
+        return {"ok": True}
+
+    @staticmethod
+    def _scratch_folders(folder, origin: str) -> list[str]:
+        folders = [folder] if isinstance(folder, str) and os.path.isabs(folder) and os.path.isdir(folder) else []
+        return folders + [os.path.dirname(origin), tempfile.gettempdir()]
 
     def _build_combine(self, options: dict):
         """Combine files: at least two inputs, each a PDF, image or e-book on
@@ -1744,7 +1890,13 @@ class Api:
         if event.get("state") == file_jobs.DONE and isinstance(result, dict) and result.get("path"):
             with self._tool_outputs_lock:
                 self._tool_outputs.add(os.path.normcase(os.path.abspath(result["path"])))
-            result.update(name=os.path.basename(result["path"]), folder=os.path.dirname(result["path"]))
+            folder = os.path.dirname(result["path"])
+            result.update(
+                name=os.path.basename(result["path"]),
+                folder=folder,
+                # "Saved to Downloads as …" (Compress's Done state).
+                folder_label=tool_destinations.folder_label(folder),
+            )
         if event.get("state") != file_jobs.WORKING:
             self._tool_source = None
         self._dispatch_page_event("lector:filejob", event)

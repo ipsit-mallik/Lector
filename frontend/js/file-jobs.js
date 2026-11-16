@@ -65,6 +65,12 @@ function fileJobFraction(event) {
   return Math.min(1, Math.max(0, event.current / event.total));
 }
 
+// The right-hand label in a dialog's Working state: "34%", or nothing for a
+// bar with no count.
+function fileJobProgressLabel(event, fraction) {
+  return fraction === null ? "" : `${Math.round(fraction * 100)}%`;
+}
+
 // The footer pill's words: "Compressing 34 / 120", or "Compressing…".
 function fileJobPillText(event) {
   const verb = FILE_JOB_VERBS[event.tool] || "Working";
@@ -81,7 +87,7 @@ function fileJobOutcomeToast(event) {
   const where = r.where ? ` ${r.where}` : "";
   switch (event.tool) {
     case "compress":
-      if (r.compact) return { message: "This PDF is already compact, so no file was written." };
+      if (r.unreachable) return { message: `This file can't get under ${r.label}. Nothing was saved.` };
       return { message: `Compressed copy saved${where} · ${formatFileSize(r.after)}`, path: r.path, open: true };
     case "searchable":
       if (r.written === false) return { message: "No readable text was found, so no file was written." };

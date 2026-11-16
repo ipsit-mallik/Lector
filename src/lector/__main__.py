@@ -7,6 +7,7 @@ from pathlib import Path
 import webview
 
 from lector.api import Api
+from lector.features.file_tools import scratch as compress_scratch
 from lector.features.home import recent as home_recent
 from lector.features.settings import store as settings
 from lector.shared import app_log, single_instance, theme, window_chrome
@@ -86,6 +87,8 @@ def main(args: list[str] | None = None) -> None:
     webview_dir = settings.settings_dir() / "webview"
     # Before the web view exists: it opens these files when it starts.
     clear_http_cache(webview_dir)
+    # Compress's temporary files a crash or forced quit left behind.
+    compress_scratch.clean_leftovers(settings.data_path(compress_scratch.MANIFEST_NAME))
     api = Api(log_dir)
     # Lector's own server, on a port picked fresh for this launch, sends every
     # page with the saved theme already in <html data-theme>, so the first

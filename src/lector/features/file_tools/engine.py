@@ -12,23 +12,25 @@ Passwords are only ever held in memory here, for as long as a call needs
 them. Nothing here writes outside the paths the main process hands in.
 """
 import base64
+import math
 import os
 import re
 
 import pymupdf
 
 from lector.features.annotations import highlighter
-from lector.features.file_tools import formats
-from lector.features.file_tools.choices import BALANCED, EXPORT_FORMATS, EXPORT_PPI, JPEG, LIGHT, PNG, STRONG
+from lector.features.file_tools import compress_plan, formats
+from lector.features.file_tools.choices import EXPORT_FORMATS, EXPORT_PPI, JPEG, PNG
 from lector.features.reading import ocr
 
-# (above this ppi, down to this ppi, JPEG quality). An image is resampled
-# only when its effective resolution on the page is above the first number,
-# set 10% over the target so an image already about right is left alone.
-IMAGE_SETTINGS = {
-    BALANCED: (165, 150, 80),
-    STRONG: (106, 96, 65),
-}
+# An image "covers most of a page" (a scanned page, which black-and-white
+# may turn grey or 1-bit) when every place it is drawn covers at least this
+# share of its page. Photos and small images keep their colour.
+FULL_PAGE_SHARE = 0.75
+
+# A grey value below this is ink when a scanned page is made 1-bit.
+BITONAL_CUT = 128
+_BITONAL_TABLE = bytes(0 if v < BITONAL_CUT else 255 for v in range(256))
 
 EXTENSIONS = {PNG: "png", JPEG: "jpg"}
 JPEG_QUALITY = 85
@@ -321,13 +323,174 @@ def _rewrite_options(threshold: int, target: int, quality: int):
     return options
 
 
-def compress_images(job_id: str, level: str) -> None:
-    """Resample and recompress the job's images for `level` (Light leaves
-    them alone). Never enlarges an image; an image with transparency keeps
-    its soft mask; annotations are not images and are untouched."""
-    if level not in IMAGE_SETTINGS:
-        return
-    _doc(job_id).rewrite_images(options=_rewrite_options(*IMAGE_SETTINGS[level]))
+def compress_images(job_id: str, recipe: compress_plan.Recipe) -> dict:
+    """Apply `recipe` to the job's images: scanned pages first (grey or
+    1-bit, when it asks for that), then MuPDF's pass over every image. Never
+    enlarges an image; an image with transparency keeps its soft mask;
+    annotations are not images and are untouched. Returns what the Done
+    state's note needs: `lowered` (an image was brought below
+    `compress_plan.LOW_PPI`) and `black_and_white` (a page was made grey or
+    1-bit); what the Size limit tab's words need: `grey` and `bitonal` (how
+    many scanned pages were made each) and `rewritten` (MuPDF changed an
+    image); and what the PDF holds, the same for every recipe: `images`
+    (any image drawn) and `scans` (how many scanned pages)."""
+    doc = _doc(job_id)
+    placements = _image_placements(doc)
+    scans = _scanned_pages(doc, placements) if placements else []
+    outcome = {
+        "lowered": False,
+        "black_and_white": False,
+        "grey": 0,
+        "bitonal": 0,
+        "rewritten": False,
+        "images": bool(placements),
+        "scans": len(scans),
+    }
+    if not placements or (recipe.ppi is None and not recipe.black_and_white):
+        # Nothing to do, or no image to do it to. MuPDF's pass still rewrites
+        # resources, which made a 1,000-page text PDF 9 KB bigger than the
+        # lossless level.
+        return outcome
+    low_before = _low_ppi_counts(placements)
+    if recipe.black_and_white:
+        for xref, ppi in scans:
+            made = _convert_scan(doc, xref, ppi, recipe)
+            if made:
+                outcome[made] += 1
+        outcome["black_and_white"] = bool(outcome["grey"] or outcome["bitonal"])
+    if recipe.ppi is not None:
+        # MuPDF writes each image it changes as a new object, so what changed,
+        # and what is lower now, is found by looking at the pages again.
+        doc.rewrite_images(options=_rewrite_options(recipe.threshold, recipe.ppi, recipe.quality))
+        after = _image_placements(doc)
+        outcome["rewritten"] = set(after) != set(placements)
+        low_after = _low_ppi_counts(after)
+        outcome["lowered"] = any(low_after[page] > low_before.get(page, 0) for page in low_after)
+    return outcome
+
+
+def _low_ppi_counts(placements: dict) -> dict[int, int]:
+    """Per page, how many images are drawn below `compress_plan.LOW_PPI`."""
+    counts: dict[int, int] = {}
+    for places in placements.values():
+        for page, ppi, _share in places:
+            if ppi < compress_plan.LOW_PPI - 0.5:
+                counts[page] = counts.get(page, 0) + 1
+    return counts
+
+
+def _int_key(doc: pymupdf.Document, xref: int, key: str) -> int:
+    kind, value = doc.xref_get_key(xref, key)
+    return int(value) if kind == "int" else 0
+
+
+def _image_placements(doc: pymupdf.Document) -> dict[int, list[tuple[int, float, float]]]:
+    """Every image object drawn on a page, by xref: for each place it is
+    drawn, the page, its resolution there (ppi) and the share of the page
+    it covers. Only pages that have images are looked at."""
+    placements: dict[int, list[tuple[int, float, float]]] = {}
+    for page in doc:
+        if not page.get_images():
+            continue
+        page_area = abs(page.rect)
+        if page_area <= 0:
+            continue
+        for info in page.get_image_info(xrefs=True):
+            xref, width = info.get("xref") or 0, info.get("width") or 0
+            a, b = info["transform"][0], info["transform"][1]
+            drawn = math.hypot(a, b)  # points the image's width spans
+            if xref <= 0 or width <= 0 or drawn <= 0:
+                continue
+            covered = pymupdf.Rect(info["bbox"]) & page.rect
+            share = 0.0 if covered.is_empty else abs(covered) / page_area
+            placements.setdefault(xref, []).append((page.number, width / (drawn / 72), share))
+    return placements
+
+
+def _scanned_pages(doc: pymupdf.Document, placements: dict) -> list[tuple[int, float]]:
+    """The images black-and-white may change, with their resolution as
+    drawn (the lowest, if drawn more than once): each covers most of every
+    page it is on (`FULL_PAGE_SHARE`), and isn't already 1-bit, a mask, or
+    see-through."""
+    scans = []
+    for xref, places in placements.items():
+        if min(share for _page, _ppi, share in places) < FULL_PAGE_SHARE:
+            continue
+        if _int_key(doc, xref, "BitsPerComponent") == 1 or doc.xref_get_key(xref, "ImageMask")[1] == "true":
+            continue
+        if doc.xref_get_key(xref, "SMask")[0] != "null" or doc.xref_get_key(xref, "Mask")[0] != "null":
+            continue
+        scans.append((xref, min(ppi for _page, ppi, _share in places)))
+    return scans
+
+
+def _grey_at(source: pymupdf.Pixmap, ppi: float, target: int) -> pymupdf.Pixmap:
+    """`source` (grey) at `target` ppi, when it is more than the margin over;
+    never enlarged."""
+    scale = target / ppi
+    if scale * compress_plan.THRESHOLD_MARGIN >= 1:
+        return source
+    width = max(1, round(source.width * scale))
+    height = max(1, round(source.height * scale))
+    return pymupdf.Pixmap(source, width, height, None)
+
+
+def _g4(grey: pymupdf.Pixmap) -> bytes:
+    """`grey` as 1-bit, ink below `BITONAL_CUT`, CCITT Group 4 encoded (by
+    MuPDF, through its low-level bindings: the pinned PyMuPDF has no 1-bit
+    output of its own)."""
+    mupdf = pymupdf.mupdf
+    ink = pymupdf.Pixmap(
+        pymupdf.csGRAY, grey.width, grey.height, grey.samples_mv.tobytes().translate(_BITONAL_TABLE), 0
+    )
+    bitmap = mupdf.fz_new_bitmap_from_pixmap(ink.this, mupdf.FzHalftone())
+    encoded = mupdf.fz_compress_ccitt_fax_g4(bitmap.samples(), bitmap.w(), bitmap.h(), bitmap.stride())
+    return bytes(mupdf.fz_buffer_extract(encoded))
+
+
+def _convert_scan(doc: pymupdf.Document, xref: int, ppi: float, recipe: compress_plan.Recipe) -> bool:
+    """Make one scanned page's image grey JPEG or 1-bit, as `recipe` says,
+    if that is smaller than it is now. A 1-bit result bigger than grey at
+    the step's own settings (a photo, a noisy scan) is stored grey instead.
+    An image MuPDF can't decode is left as it is. Returns what it was made,
+    `compress_plan.GREY` or `compress_plan.BITONAL`, or None if unchanged."""
+    try:
+        full = pymupdf.Pixmap(doc, xref)
+        if full.alpha:
+            full = pymupdf.Pixmap(full, 0)
+        if full.n != 1:
+            full = pymupdf.Pixmap(pymupdf.csGRAY, full)
+        if recipe.scans == compress_plan.GREY:
+            grey = _grey_at(full, ppi, recipe.scan_ppi)
+            choice = (grey.tobytes("jpeg", jpg_quality=recipe.scan_quality), grey, 8, "/DCTDecode", None)
+        else:
+            grey = _grey_at(full, ppi, recipe.ppi)
+            choice = (grey.tobytes("jpeg", jpg_quality=recipe.quality), grey, 8, "/DCTDecode", None)
+            sharp = _grey_at(full, ppi, recipe.scan_ppi)
+            bits = _g4(sharp)
+            if len(bits) < len(choice[0]):
+                parms = f"<</K -1/Columns {sharp.width}/Rows {sharp.height}/BlackIs1 true>>"
+                choice = (bits, sharp, 1, "/CCITTFaxDecode", parms)
+    except Exception:
+        return None
+    data, shape, bpc, filter_name, parms = choice
+    if len(data) >= len(doc.xref_stream_raw(xref) or b""):
+        return None
+    doc.update_stream(xref, data, compress=0)
+    keys = {
+        "Width": str(shape.width),
+        "Height": str(shape.height),
+        "BitsPerComponent": str(bpc),
+        "ColorSpace": "/DeviceGray",
+        "Filter": filter_name,
+        "DecodeParms": parms or "null",
+        "Decode": "null",
+        "Intent": "null",
+        "ColorTransform": "null",
+    }
+    for key, value in keys.items():
+        doc.xref_set_key(xref, key, value)
+    return compress_plan.BITONAL if bpc == 1 else compress_plan.GREY
 
 
 def subset_fonts(job_id: str) -> bool:
