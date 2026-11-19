@@ -48,6 +48,7 @@ from lector.features.settings import store  # noqa: E402
 from lector.shared import theme  # noqa: E402
 
 API_PY = ROOT / "src" / "lector" / "api.py"
+BRIDGE = ROOT / "src" / "lector" / "bridge"
 FRONTEND = ROOT / "frontend"
 READING_JS = FRONTEND / "pages" / "reading.js"
 NODE = shutil.which("node")
@@ -78,17 +79,25 @@ ADOPTING_HANDOFFS = ("adoptState(", "finishSave(", "highlightHooks.afterChange("
 
 
 def _methods_returning_state() -> set[str]:
-    """Api methods whose body returns `self._state()`, a dict built on it, or
-    `_after_history_step` (which returns it)."""
-    tree = ast.parse(API_PY.read_text(encoding="utf-8"))
-    api_class = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Api")
+    """Bridge methods whose body returns `self._state()`, a dict built on it,
+    or `_after_history_step` (which returns it). `Api` only delegates, so the
+    bodies are read where they live: api.py and the controllers it delegates
+    to (docs/ARCHITECTURE.md § "Bridge layout"), counting only the names
+    `Api` exposes."""
+    api_tree = ast.parse(API_PY.read_text(encoding="utf-8"))
+    api_class = next(n for n in api_tree.body if isinstance(n, ast.ClassDef) and n.name == "Api")
+    exposed = {fn.name for fn in api_class.body if isinstance(fn, ast.FunctionDef) and not fn.name.startswith("_")}
     found = set()
-    for fn in api_class.body:
-        if not isinstance(fn, ast.FunctionDef) or fn.name.startswith("_"):
-            continue
-        source = ast.unparse(fn)
-        if "self._state()" in source or "self._after_history_step(" in source:
-            found.add(fn.name)
+    for path in [API_PY, *sorted(BRIDGE.glob("*.py"))]:
+        for cls in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(cls, ast.ClassDef):
+                continue
+            for fn in cls.body:
+                if not isinstance(fn, ast.FunctionDef) or fn.name not in exposed:
+                    continue
+                source = ast.unparse(fn)
+                if "self._state()" in source or "self._after_history_step(" in source:
+                    found.add(fn.name)
     return found
 
 

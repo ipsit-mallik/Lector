@@ -281,6 +281,13 @@ class PlanTests(unittest.TestCase):
 # ---------------------------------------------------------------------- #
 
 
+def _without_trailer(pdf: bytes) -> bytes:
+    """A saved PDF up to its last trailer: everything but the file /ID."""
+    end = pdf.rfind(b"trailer")
+    assert end > 0, "no trailer in the saved PDF"
+    return pdf[:end]
+
+
 class TextOnlyTests(_Folder):
     def test_a_pdf_with_no_images_is_never_made_bigger_by_an_image_step(self):
         source = self.folder / "text.pdf"
@@ -289,14 +296,18 @@ class TextOnlyTests(_Folder):
             doc.new_page().insert_text((72, 100), f"Page {n} of a report with only text", fontsize=12)
         doc.save(source)
         doc.close()
-        sizes = []
+        bodies = []
         for n, recipe in enumerate(compress_plan.LADDER):
             tmp = self.folder / f"{n}.bin"
             attempt = tools.compress_attempt(fx.InlineContext(), tools.Source(str(source)), str(tmp), recipe)
-            sizes.append(attempt.size)
+            bodies.append(_without_trailer(tmp.read_bytes()))
             self.assertEqual(attempt.facts, {"images": False, "scans": 0})
             self.assertEqual(attempt.kind, compress_plan.SHARP)
-        self.assertEqual(len(set(sizes)), 1, sizes)
+        # Every step writes the same document. Compared without the trailer,
+        # not by size: each save gets a fresh random file /ID, which MuPDF
+        # writes as hex or as a literal string, whichever is shorter for those
+        # bytes, so the file size alone wobbles by a byte now and then.
+        self.assertEqual(len(set(bodies)), 1, [len(body) for body in bodies])
 
 
 class BlackAndWhiteTests(_Folder):
