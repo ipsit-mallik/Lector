@@ -83,6 +83,8 @@ _WRITING, _CHECKING = 3, 4
 # Gets an estimate's finished attempt for the job (waiting for one still
 # running), or None when there is none to use.
 EstimateGetter = Callable[[JobContext], Attempt | None]
+# The same for any ladder step (Size limit may go down the ladder).
+StepGetter = Callable[[JobContext, int], Attempt | None]
 
 
 def compress_attempt(
@@ -164,6 +166,7 @@ def _still_there(attempt: Attempt | None, scratch: ScratchFiles) -> Attempt | No
     """`attempt`, or None when its temporary file has gone (deleted from
     outside), so the job makes it again rather than failing to move it."""
     if attempt is not None and not os.path.isfile(attempt.path):
+        log.warning("Compress: a step's temporary file had gone; making it again")
         scratch.discard(attempt.path)
         return None
     return attempt
@@ -218,32 +221,97 @@ def compress_to_limit(
     limit: int,
     label: str,
     scratch: ScratchFiles,
-    estimate: EstimateGetter,
+    estimate: StepGetter,
     hold: Callable[[Attempt], None],
+    known: dict[int, int | None] | None = None,
+    planned: dict | None = None,
 ) -> dict:
     """The Compress job in Size limit mode: ladder step `step`, the best one
-    under `limit` bytes (`compress_plan.choose`, from the dialog's checking),
-    moved into place as it is. No compression, unless its temporary file has
-    gone (deleted from outside); then the step is made again.
+    under `limit` bytes as the dialog decided it (`limit_plan.decide`: from
+    real results, or a big file's estimate with room to spare). Its finished
+    file is moved into place as it is; one not made yet, or whose file has
+    gone, is made now.
+
+    A step decided on an estimate (`planned`: its `{size, kind}`) that turns
+    out over the limit after all is logged with its estimate and real size,
+    and the next step down that really fits is used instead (`known`: the
+    real sizes so far, so a step known not to fit isn't made); the result
+    then says so (`dropped`: "bw" when that step made pages black and white,
+    else "quality").
 
     Returns `{path, before, after, mode, limit, label, kind, lowered,
-    black_and_white}`. The safety net, never reached in normal use: a step
-    that turns out not to fit writes nothing, is logged, is handed to `hold`
-    (the dialog's "Save … file" moves it into place with `save_held`), and
-    the result is `{unreachable, before, smallest, limit, label}`."""
+    black_and_white, dropped}`. The safety net, when no step fits: nothing is
+    written, it is logged, the smallest result is handed to `hold` (the
+    dialog's "Save … file" moves it into place with `save_held`), and the
+    result is `{unreachable, before, smallest, limit, label}`."""
     before = source.size
-    ctx.progress("Compressing images", 1, _COMPRESS_STEPS, "step")
-    attempt = _still_there(estimate(ctx), scratch)
-    if attempt is None:
-        log.warning("Compress: size-limit step %d had no finished file; making it again", step)
-        attempt = _attempt_into_scratch(ctx, source, compress_plan.LADDER[step], scratch, os.path.dirname(dest), True)
+    known = dict(known or {})
     common = {"limit": limit, "label": label}
-    if not compress_plan.fits(attempt.size, limit):
-        log.warning("Compress: size-limit step %d is %d bytes, over %d after all", step, attempt.size, limit)
-        hold(attempt)
-        return {"unreachable": True, "before": before, "smallest": attempt.size, **common}
-    place(ctx, attempt, dest, source.password, scratch)
-    return _done(dest, before, attempt, compress_plan.SIZE_LIMIT, kind=attempt.kind, **common)
+    ctx.progress("Compressing images", 1, _COMPRESS_STEPS, "step")
+    smallest: Attempt | None = None
+    try:
+        for each in range(step, len(compress_plan.LADDER)):
+            if each != step and known.get(each) is not None and not compress_plan.fits(known[each], limit):
+                continue
+            try:
+                attempt = _limit_attempt(ctx, source, dest, each, scratch, estimate)
+            except Exception:
+                # The step chosen failing is the job failing; one further down
+                # (tried because the chosen one was over after all) is passed
+                # over, so the next one, or the smallest so far, still serves.
+                if each == step:
+                    raise
+                log.warning("Compress: size-limit step %d failed; trying the next one down", each, exc_info=True)
+                continue
+            if compress_plan.fits(attempt.size, limit):
+                if smallest is not None:
+                    scratch.discard(smallest.path)
+                    smallest = None
+                dropped = _dropped(step, each, attempt, planned, limit)
+                place(ctx, attempt, dest, source.password, scratch)
+                return _done(dest, before, attempt, compress_plan.SIZE_LIMIT, kind=attempt.kind, dropped=dropped, **common)
+            estimated = (planned or {}).get("size") if each == step else known.get(each)
+            log.warning(
+                "Compress: size-limit step %d is %d bytes (estimated %s), over %d after all",
+                each, attempt.size, estimated, limit,
+            )
+            # Steps that make the same file are over too.
+            known.update({twin: attempt.size for twin in compress_plan.same_result(each, attempt.facts)})
+            if smallest is None or attempt.size < smallest.size:
+                if smallest is not None:
+                    scratch.discard(smallest.path)
+                smallest = attempt
+            else:
+                scratch.discard(attempt.path)
+    except BaseException:
+        if smallest is not None:
+            scratch.discard(smallest.path)
+        raise
+    hold(smallest)
+    return {"unreachable": True, "before": before, "smallest": smallest.size, **common}
+
+
+def _limit_attempt(ctx: JobContext, source: Source, dest: str, step: int, scratch: ScratchFiles, estimate: StepGetter):
+    """Ladder step `step` for a size-limit job: the dialog's finished file,
+    or, with none (or one gone), made now."""
+    attempt = _still_there(estimate(ctx, step), scratch)
+    if attempt is None:
+        log.info("Compress: size-limit step %d had no finished file; making it now", step)
+        attempt = _attempt_into_scratch(ctx, source, compress_plan.LADDER[step], scratch, os.path.dirname(dest), True)
+    return attempt
+
+
+def _dropped(step: int, used: int, attempt: Attempt, planned: dict | None, limit: int) -> str | None:
+    """How the Done state words a drop to a lower step, or None for none."""
+    if used == step:
+        return None
+    was_bw = (planned or {}).get("kind") == compress_plan.BLACK_AND_WHITE
+    dropped = "bw" if attempt.kind == compress_plan.BLACK_AND_WHITE and not was_bw else "quality"
+    log.warning(
+        "Compress: size limit %d: step %d (estimated %s bytes) didn't fit; used step %d (%d bytes)",
+        limit, step, (planned or {}).get("size"), used, attempt.size,
+    )
+    return dropped
 
 
 def save_held(ctx: JobContext, source: Source, dest: str, held: Attempt, label: str, scratch: ScratchFiles) -> dict:

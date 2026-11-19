@@ -1701,19 +1701,22 @@ class Api:
         # dialog's checking hasn't settled on a step for can't be chosen.
         if mode != compress_plan.SIZE_LIMIT or limit >= src.size:
             raise _BadToolRequest(tool_messages.WORKER_FAILED)
-        step, settled = self._estimates.choose(session, limit)
+        step, settled, planned = self._estimates.decide(session, limit)
         if step is None or not settled:
             raise _BadToolRequest(tool_messages.WORKER_FAILED)
         settings.set_file_tool_prefs(compress_limit=value, compress_unit=unit)
+        known = self._estimates.real_sizes(session)
 
-        def estimate(ctx):
-            return self._estimates.wait_for(session, step, ctx)
+        def estimate(ctx, each):
+            return self._estimates.wait_for(session, each, ctx)
 
         def hold(attempt) -> None:
             self._estimates.hold(session, attempt)
 
         def run_limit(ctx):
-            return file_tools.compress_to_limit(ctx, src, dest, step, limit, label, self._scratch, estimate, hold)
+            return file_tools.compress_to_limit(
+                ctx, src, dest, step, limit, label, self._scratch, estimate, hold, known, planned
+            )
 
         run_limit.compress_keep = (session, step)
         return run_limit
@@ -1754,10 +1757,23 @@ class Api:
         return {"ok": True}
 
     def get_compress_estimates(self, session) -> dict:
-        """Each ladder step's result so far, for a dialog drawn again."""
+        """What the session knows so far, for a dialog drawn again: each
+        ladder step's result, a big file's estimates, and whether there was
+        room for the temporary files (`CompressEstimates.snapshot`)."""
         if not isinstance(session, int) or isinstance(session, bool):
             return {}
         return self._estimates.snapshot(session)
+
+    def select_compress_limit(self, session, value=None, unit=None) -> dict:
+        """The limit picked in Size limit (a pill or "Other size…"), or none:
+        its step is made first and its file kept."""
+        if not isinstance(session, int) or isinstance(session, bool):
+            return {"ok": False}
+        limit = None if value is None else compress_plan.limit_bytes(value, unit)
+        if value is not None and limit is None:
+            return {"ok": False}
+        self._estimates.select(session, limit)
+        return {"ok": True}
 
     def set_compress_mode(self, mode: str) -> dict:
         """Remember Quality or Size limit for next time."""

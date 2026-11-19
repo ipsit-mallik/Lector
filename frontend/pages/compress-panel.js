@@ -10,147 +10,18 @@
 // compresses steps of one quality ladder in the background
 // (features/file_tools/estimates.py; the ladder is compress_plan.LADDER),
 // each result arriving as a `lector:compressestimate` event: Quality needs
-// three steps, Size limit all of them. The results are shared by the tabs and
-// kept for the dialog's life; pressing Compress moves a finished step's file
-// into place. They are deleted when the dialog closes.
+// three steps, Size limit only those that can still change a visible pill
+// (a big file is first estimated from a sample of its pages, which settles
+// the pills it can with room to spare; limit_plan.py). The results are
+// shared by the tabs and kept for the dialog's life; pressing Compress moves
+// a finished step's file into place (or makes it, if it isn't ready). Every
+// event carries a sequence number, and one older than what is shown is
+// dropped.
 //
 // Built from DOM calls with textContent: the file's name comes from disk.
 "use strict";
 
-// compress_plan.LADDER's length (tests/test_compress_panel_behavior.py pins it).
-const COMPRESS_LADDER_STEPS = 10;
-const COMPRESS_LEVELS = [
-  { value: "light", step: 0, title: "Best quality", purpose: "For printing", tip: "Keeps images as they are and tidies the file." },
-  { value: "balanced", step: 2, title: "Balanced", purpose: "For reading on screen", tip: "Reduces images to 150 ppi." },
-  { value: "strong", step: 4, title: "Smallest file", purpose: "For email and uploads", tip: "Reduces images to 96 ppi." },
-];
-const COMPRESS_NO_CHANGE_TIP = "This file is already compressed to this level.";
-// Once the estimates are in: Balanced if it helps, else Smallest file, else
-// Best quality.
-const COMPRESS_DEFAULT_ORDER = ["balanced", "strong", "light"];
-// Sizes and limits count as upload forms do: 1 KB is 1,000 bytes. A step
-// fits a limit at 97% of it or less (compress_plan.fits).
-const COMPRESS_UNITS = { KB: 1000, MB: 1000 * 1000 };
-const COMPRESS_MARGIN_PERCENT = 97;
-const COMPRESS_LIMIT_DIGITS = 4; // 1 to 9999
-const COMPRESS_PRESETS = [
-  { value: 50, unit: "KB" },
-  { value: 100, unit: "KB" },
-  { value: 200, unit: "KB" },
-  { value: 300, unit: "KB" },
-  { value: 500, unit: "KB" },
-  { value: 1, unit: "MB" },
-  { value: 2, unit: "MB" },
-];
-// What a size-limit step does, in plain words (compress_plan.kind).
-const COMPRESS_KINDS = {
-  sharp: { icon: "compress_sharp", title: "Sharp", line: "Colour kept. Close to the original." },
-  good: { icon: "compress_screen", title: "Good for reading on screen", line: "Colour kept. Images slightly softer." },
-  readable: { icon: "compress_soft", title: "Readable", line: "Images are soft. Check small text after saving." },
-  bw: {
-    icon: "compress_bw",
-    title: "Black and white",
-    line: "Scanned pages become black and white. Text stays readable.",
-  },
-};
-const COMPRESS_CHECKING_TEXT = "Checking which sizes this file can reach…";
-
-// Sizes in this dialog: whole KB under 1 MB, one decimal for MB.
-function compressSize(bytes) {
-  const kb = Math.max(1, Math.round(bytes / COMPRESS_UNITS.KB));
-  if (kb < 1000) return `${kb} KB`;
-  return `${(bytes / COMPRESS_UNITS.MB).toFixed(1)} MB`;
-}
-
-// "75% smaller".
-function compressSaving(before, after) {
-  return `${Math.round(100 - (100 * after) / Math.max(1, before))}% smaller`;
-}
-
-function compressLimitBytes(value, unit) {
-  return value * COMPRESS_UNITS[unit];
-}
-
-function compressFits(size, limit) {
-  return size * 100 <= limit * COMPRESS_MARGIN_PERCENT;
-}
-
-// A Quality card whose estimate is finished and doesn't save 5%: "No change".
-function compressNoChange(row) {
-  return Boolean(row) && row.state === "done" && !row.helps;
-}
-
-function compressLevelRow(steps, level) {
-  return steps[COMPRESS_LEVELS.find((l) => l.value === level).step];
-}
-
-function compressLevelsSettled(steps) {
-  return COMPRESS_LEVELS.every((l) => steps[l.step] && ["done", "failed"].includes(steps[l.step].state));
-}
-
-function compressAllNoChange(steps) {
-  return COMPRESS_LEVELS.every((l) => compressNoChange(steps[l.step]));
-}
-
-// The level to select once the estimates are in, or null when none helps.
-// A level whose estimate failed still counts: its size is just unknown.
-function compressDefaultLevel(steps) {
-  return COMPRESS_DEFAULT_ORDER.find((level) => !compressNoChange(compressLevelRow(steps, level))) || null;
-}
-
-// The best-quality step under `limit` from the steps known so far, and
-// whether a later result could still change that: compress_plan.choose,
-// which the job checks again, so the two must agree. `step` null and
-// `settled` true is "too small for this file".
-function compressChoice(steps, limit) {
-  const last = COMPRESS_LADDER_STEPS - 1;
-  const known = (i) => Boolean(steps[i]) && (steps[i].state === "done" || steps[i].state === "failed");
-  const done = (i) => Boolean(steps[i]) && steps[i].state === "done";
-  let every = true;
-  for (let i = 0; i <= last; i++) if (!known(i)) every = false;
-  let best = null;
-  for (let i = 0; i <= last; i++) {
-    if (done(i) && compressFits(steps[i].size, limit)) {
-      best = i;
-      break;
-    }
-  }
-  if (best === null) return { step: null, settled: (done(last) && known(0)) || every };
-  for (let i = best - 1; i >= 0; i--) {
-    if (!known(i)) return { step: best, settled: every };
-    if (done(i)) return { step: best, settled: true };
-  }
-  return { step: best, settled: true };
-}
-
-// The smallest result known so far, or null.
-function compressFloor(steps) {
-  const sizes = Object.values(steps)
-    .filter((row) => row && row.state === "done")
-    .map((row) => row.size);
-  return sizes.length ? Math.min(...sizes) : null;
-}
-
-// A limit's state for this file: "hidden" (at or above its size: it would
-// do nothing), "reachable", "too_small", or "checking".
-function compressLimitState(limit, fileSize, steps) {
-  if (limit >= fileSize) return "hidden";
-  const choice = compressChoice(steps, limit);
-  if (choice.step !== null) return "reachable";
-  return choice.settled ? "too_small" : "checking";
-}
-
-// The "Other size…" field's number, or null for anything but a whole number
-// 1–9999.
-function compressLimitValue(text) {
-  if (!/^\d{1,4}$/.test(String(text))) return null;
-  const value = Number(text);
-  return value >= 1 ? value : null;
-}
-
-function compressSameLimit(a, b) {
-  return Boolean(a) && Boolean(b) && a.value === b.value && a.unit === b.unit;
-}
+// The rules, sizes and words are in compress-rules.js, loaded first.
 
 const CompressPanel = (() => {
   let ui = null;
@@ -188,7 +59,25 @@ const CompressPanel = (() => {
       otherText: "",
       otherUnit: unit,
       saveHeld: false,
+      // A big file's estimates (step → { size, kind }), whether there was
+      // too little free space to check, the newest sequence number shown
+      // for each, the folder the work was asked for, and the limit Python
+      // was last told about.
+      estimates: null,
+      nospace: false,
+      seen: {},
+      folder: null,
+      sentLimit: null,
     };
+  }
+
+  // A new session (the old one ended): nothing it knew applies.
+  function resetResults(cs) {
+    cs.steps = {};
+    cs.estimates = null;
+    cs.nospace = false;
+    cs.seen = {};
+    cs.sentLimit = null;
   }
 
   // The header's one line of facts, the same in every state.
@@ -213,16 +102,67 @@ const CompressPanel = (() => {
       return;
     }
     cs.unchecked = false;
+    if (cs.session !== null && cs.session !== answer.session) resetResults(cs);
     cs.session = answer.session;
+    cs.folder = folder;
     const known = await callApi("get_compress_estimates", cs.session);
-    if (ui.state() !== s) return;
-    // An event may have brought a newer row while this was on its way.
-    for (const [step, row] of Object.entries(known || {})) {
-      const now = cs.steps[step];
-      if (!now || now.state === "working") cs.steps[step] = row;
-    }
+    if (ui.state() !== s || cs.session !== answer.session) return;
+    applySnapshot(cs, known || {});
     settle(s);
     if (s.phase === "setup") ui.rerender();
+    destinationChanged(s); // Save in changed while this was on its way
+  }
+
+  function rowOf(event) {
+    return { state: event.state, size: event.size, helps: event.helps, kind: event.kind };
+  }
+
+  // What Python knew when asked. An event may have brought something newer
+  // while this was on its way: each part is taken only if it is newer.
+  function applySnapshot(cs, known) {
+    for (const [step, row] of Object.entries(known.steps || {})) {
+      const unseen = !row.seq && !(step in cs.steps);
+      if (unseen || compressNewer(cs.seen, `step${step}`, row.seq || 0)) cs.steps[step] = rowOf(row);
+    }
+    if (compressNewer(cs.seen, "estimates", known.estimates_seq || 0)) cs.estimates = known.estimates || null;
+    if (compressNewer(cs.seen, "nospace", known.nospace_seq || 0)) cs.nospace = Boolean(known.nospace);
+  }
+
+  // One event; false when it is older than what is shown.
+  function applyEvent(cs, event) {
+    if ("estimates" in event) {
+      if (!compressNewer(cs.seen, "estimates", event.seq)) return false;
+      cs.estimates = event.estimates || null;
+      return true;
+    }
+    if ("nospace" in event) {
+      if (!compressNewer(cs.seen, "nospace", event.seq)) return false;
+      cs.nospace = Boolean(event.nospace);
+      return true;
+    }
+    if (typeof event.step !== "number" || !compressNewer(cs.seen, `step${event.step}`, event.seq)) return false;
+    if (event.state === "stopped") delete cs.steps[event.step];
+    else cs.steps[event.step] = rowOf(event);
+    return true;
+  }
+
+  // Tell Python the limit the reader has chosen (its step goes first and its
+  // file is kept), when it changes.
+  function syncSelection(s) {
+    const cs = s.compress;
+    if (!cs.session || cs.mode !== "limit") return;
+    const limit = activeLimit(cs);
+    const key = limit ? `${cs.session} ${limit.value} ${limit.unit}` : `${cs.session}`;
+    if (key === cs.sentLimit) return;
+    cs.sentLimit = key;
+    callApi("select_compress_limit", cs.session, limit ? limit.value : null, limit ? limit.unit : null);
+  }
+
+  // Save in changed: after "not enough free disk space", try again there.
+  function destinationChanged(s) {
+    const cs = s && s.compress;
+    if (!cs || s.phase !== "setup" || !cs.nospace || s.destination.value().folder === cs.folder) return;
+    startWork(s);
   }
 
   function opened(s) {
@@ -246,17 +186,19 @@ const CompressPanel = (() => {
     const remembered = COMPRESS_PRESETS.find((p) => compressSameLimit(p, cs.remembered));
     if (!cs.limit && !cs.limitPicked && remembered) {
       const limit = compressLimitBytes(remembered.value, remembered.unit);
-      if (compressLimitState(limit, s.info.size, cs.steps) === "reachable") cs.limit = remembered;
+      if (compressLimitState(limit, s.info.size, cs.steps, cs.estimates) === "reachable") cs.limit = remembered;
     }
   }
 
   function onEstimate(event) {
     const s = ui && ui.state();
-    if (!s || !s.compress || event.session !== s.compress.session || typeof event.step !== "number") return;
+    if (!s || !s.compress || event.session !== s.compress.session) return;
     const cs = s.compress;
-    if (event.state === "stopped") delete cs.steps[event.step];
-    else cs.steps[event.step] = { state: event.state, size: event.size, helps: event.helps, kind: event.kind };
+    if (!applyEvent(cs, event)) return;
     settle(s);
+    // "Not enough space" for a folder the reader has since moved away from:
+    // ask again in the new one.
+    if ("nospace" in event) destinationChanged(s);
     if (s.phase !== "setup" || ui.hidden()) return;
     // A redraw would rebuild the KB/MB button under its open menu: wait for
     // the menu to close.
@@ -293,7 +235,10 @@ const CompressPanel = (() => {
     modes.classList.add("segmented--full", "compress-modes");
     ui.body.append(modes);
     if (cs.mode === "quality") qualityBlock(s);
-    else limitBlock(s);
+    else {
+      syncSelection(s);
+      limitBlock(s);
+    }
     ui.body.append(ui.destinationBlock());
     const notes = ui.notesBlock();
     if (notes) ui.body.append(notes);
@@ -306,6 +251,7 @@ const CompressPanel = (() => {
   // The right side of a card: "About 6.2 MB" over "75% smaller".
   function sizeCell(s, row) {
     const cell = el("span", "compress-size");
+    if ((!row || row.state === "working") && s.compress.nospace) return cell; // the note below says why
     if (!row || row.state === "working") {
       const busy = el("span", "compress-estimating", "Estimating");
       busy.setAttribute("aria-label", "Estimating the size");
@@ -352,7 +298,11 @@ const CompressPanel = (() => {
     }
     initRadioCards(list, { selectOnArrow: true });
     ui.body.append(list);
-    if (compressAllNoChange(cs.steps)) {
+    if (cs.nospace) {
+      const note = el("p", "compress-hint", COMPRESS_NO_SPACE_TEXT);
+      note.setAttribute("role", "status");
+      ui.body.append(note);
+    } else if (compressAllNoChange(cs.steps)) {
       ui.body.append(
         el("p", "compress-hint", "This file is already as small as these levels can make it. Try a size limit.")
       );
@@ -380,7 +330,7 @@ const CompressPanel = (() => {
   }
 
   function floorText(cs) {
-    const floor = compressFloor(cs.steps);
+    const floor = compressFloor(cs.steps, cs.estimates);
     return floor === null ? "" : compressSize(floor);
   }
 
@@ -390,7 +340,7 @@ const CompressPanel = (() => {
     group.setAttribute("aria-labelledby", "compressPillsLabel");
     COMPRESS_PRESETS.forEach((preset, n) => {
       const bytes = compressLimitBytes(preset.value, preset.unit);
-      const state = compressLimitState(bytes, s.info.size, cs.steps);
+      const state = compressLimitState(bytes, s.info.size, cs.steps, cs.estimates);
       if (state === "hidden") return;
       const pill = el("button", "compress-pill", presetLabel(preset));
       pill.type = "button";
@@ -429,7 +379,10 @@ const CompressPanel = (() => {
       card.append(el("span", "compress-outcome-tile"), text);
       return card;
     }
-    const row = cs.steps[step];
+    // A step decided on an estimate shows the estimate until the real one is
+    // in; both are "About".
+    const real = cs.steps[step] && cs.steps[step].state === "done" ? cs.steps[step] : null;
+    const row = real || (cs.estimates || {})[step];
     const words = COMPRESS_KINDS[row.kind] || COMPRESS_KINDS.sharp;
     const text = el("span", "compress-outcome-text");
     text.append(el("span", "compress-outcome-title", words.title), el("span", "compress-outcome-line", words.line));
@@ -438,6 +391,16 @@ const CompressPanel = (() => {
       text,
       el("span", "compress-outcome-size", `About ${compressSize(row.size)}`)
     );
+    return card;
+  }
+
+  // The card when there was too little free disk space to check.
+  function noSpaceCard() {
+    const card = el("div", "compress-outcome is-nospace");
+    card.setAttribute("role", "status");
+    const text = el("span", "compress-outcome-text");
+    text.append(el("span", "compress-outcome-line", COMPRESS_NO_SPACE_TEXT));
+    card.append(iconEl("info", "compress-outcome-tile"), text);
     return card;
   }
 
@@ -451,18 +414,24 @@ const CompressPanel = (() => {
       return note;
     }
     const limit = activeBytes(cs);
+    // A limit already settled on a step really made keeps its card (and
+    // Compress) when "not enough free disk space" comes later.
+    const settledForReal =
+      limit !== null && limit < s.info.size && compressLimitReady(cs.steps, cs.estimates, limit, true);
+    if (cs.nospace && !settledForReal) return noSpaceCard();
     if (limit === null) {
       // Nothing picked yet: while pills are still undecided, say so.
       const checking =
         !cs.other &&
         COMPRESS_PRESETS.some(
-          (p) => compressLimitState(compressLimitBytes(p.value, p.unit), s.info.size, cs.steps) === "checking"
+          (p) =>
+            compressLimitState(compressLimitBytes(p.value, p.unit), s.info.size, cs.steps, cs.estimates) === "checking"
         );
       return checking ? outcomeCard(cs, null) : null;
     }
-    const state = compressLimitState(limit, s.info.size, cs.steps);
+    const state = compressLimitState(limit, s.info.size, cs.steps, cs.estimates);
     if (state === "hidden" || state === "too_small") return null; // the field says why
-    const choice = compressChoice(cs.steps, limit);
+    const choice = compressDecision(cs.steps, cs.estimates, limit);
     return outcomeCard(cs, choice.settled ? choice.step : null);
   }
 
@@ -547,7 +516,7 @@ const CompressPanel = (() => {
     const out = [row];
     const limit = activeBytes(cs);
     if (limit !== null) {
-      const state = compressLimitState(limit, s.info.size, cs.steps);
+      const state = compressLimitState(limit, s.info.size, cs.steps, cs.estimates);
       const label = `${compressLimitValue(cs.otherText)} ${cs.otherUnit}`;
       if (state === "too_small") {
         input.classList.add("is-error");
@@ -600,8 +569,7 @@ const CompressPanel = (() => {
     if (cs.mode === "limit") {
       const limit = activeBytes(cs);
       if (limit === null || !cs.session || limit >= s.info.size) return false;
-      const choice = compressChoice(cs.steps, limit);
-      return choice.step !== null && choice.settled;
+      return compressLimitReady(cs.steps, cs.estimates, limit, cs.nospace);
     }
     return !compressAllNoChange(cs.steps) && !compressNoChange(compressLevelRow(cs.steps, cs.level));
   }
@@ -671,6 +639,11 @@ const CompressPanel = (() => {
       el("p", "compress-line", line),
       sizeBars(r.before, r.after)
     );
+    // A step chosen on an estimate that turned out over the limit: the next
+    // one down was used (rare; Python logs it).
+    if (r.mode === "limit" && COMPRESS_DROPPED[r.dropped]) {
+      wrap.append(el("p", "compress-hint compress-dropped", COMPRESS_DROPPED[r.dropped]));
+    }
     const note = readingNote(r);
     if (note) wrap.append(el("p", "compress-hint", note));
     ui.body.append(wrap);
@@ -739,6 +712,7 @@ const CompressPanel = (() => {
     description,
     opened,
     closed,
+    destinationChanged,
     renderSetup,
     renderResult,
     ready,

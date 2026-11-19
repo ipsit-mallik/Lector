@@ -7,11 +7,18 @@ exists, so one left behind by a crash or a forced quit is deleted at the next
 start (`clean_leftovers`, from `__main__`). Only files whose name has
 Lector's own prefix and suffix are ever deleted from it.
 
+Before one is written, the free space on its drive is checked
+(`free_bytes`): under twice the original's size plus `KEEP_RESERVE`, a step's
+file is deleted as soon as its size is known (`keeps_files`), and under the
+original's size a step is taken not to fit on the drive at all (`can_write`).
+
 No PyMuPDF: the worker writes into the paths made here.
 """
+import errno
 import json
 import logging
 import os
+import shutil
 import tempfile
 import threading
 from pathlib import Path
@@ -23,6 +30,33 @@ log = logging.getLogger(__name__)
 PREFIX = ".lector-compress-"
 SUFFIX = safe_write.TEMP_SUFFIX
 MANIFEST_NAME = "compress-scratch.json"
+
+# Free space left beyond the temporary files kept while the dialog is open.
+KEEP_RESERVE = 200 * 1000 * 1000
+# Windows' "disk full" errors (ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL).
+_WIN_DISK_FULL = (39, 112)
+
+
+def free_bytes(folder: str) -> int | None:
+    """Free space on `folder`'s drive, or None when it can't be read."""
+    try:
+        return shutil.disk_usage(folder).free
+    except (OSError, ValueError):
+        return None
+
+
+def keeps_files(free: int | None, source_size: int) -> bool:
+    """Whether there is room to keep each step's file until the dialog closes."""
+    return free is None or free >= 2 * source_size + KEEP_RESERVE
+
+
+def can_write(free: int | None, source_size: int) -> bool:
+    """Whether one step's file (at most about the original's size) fits."""
+    return free is None or free >= source_size
+
+
+def is_space_error(exc: OSError) -> bool:
+    return exc.errno == errno.ENOSPC or getattr(exc, "winerror", None) in _WIN_DISK_FULL
 
 
 def _is_ours(path: str) -> bool:

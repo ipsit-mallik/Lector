@@ -334,7 +334,12 @@ def compress_images(job_id: str, recipe: compress_plan.Recipe) -> dict:
     many scanned pages were made each) and `rewritten` (MuPDF changed an
     image); and what the PDF holds, the same for every recipe: `images`
     (any image drawn) and `scans` (how many scanned pages)."""
-    doc = _doc(job_id)
+    return compress_document(_doc(job_id), recipe)
+
+
+def compress_document(doc: pymupdf.Document, recipe: compress_plan.Recipe) -> dict:
+    """`compress_images` on an open document (a job's, or a sample's:
+    `sampling.py`)."""
     placements = _image_placements(doc)
     scans = _scanned_pages(doc, placements) if placements else []
     outcome = {

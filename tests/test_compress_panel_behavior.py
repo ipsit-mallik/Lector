@@ -1,4 +1,5 @@
-"""Behaviour of frontend/pages/compress-panel.js and Compress's parts of
+"""Behaviour of frontend/pages/compress-panel.js (and its rules,
+compress-rules.js) and Compress's parts of
 frontend/js/file-jobs.js (docs/PRD.md § "Post-v1: file tools" → Compress).
 
 Held here:
@@ -17,7 +18,17 @@ Held here:
   is selected once it is reachable, and otherwise none is; "Other size…"
   checks the typed value against the floor, and Esc closes it;
 - sizes count 1 KB as 1,000 bytes; the options each tab sends; the Done
-  state's readability note.
+  state's readability note;
+- a big file's estimates: the page's `compressDecision` gives the same
+  answer as limit_plan.decide, case by case; a pill is enabled on an
+  estimate at 80% of its limit or less, dimmed at 130% or more, and
+  "Checking…" between; its card shows the estimate and changes when a real
+  result changes the step; the limit chosen is sent to Python;
+- a result older than one already shown (by its sequence number) is
+  ignored, from an event or from the snapshot;
+- "Not enough free disk space": in the result card and in Quality, Compress
+  off in Size limit, and a new Save in folder asks again;
+- the Done state says when a lower step was used to fit.
 
 Run under Node like tests/test_error_text_behavior.py, with a small stand-in
 for the DOM: the panel builds its cards from `el` calls, which build plain
@@ -35,10 +46,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from lector.features.file_tools import compress_plan  # noqa: E402
+from lector.features.file_tools import compress_plan, limit_plan  # noqa: E402
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
-SCRIPTS = [FRONTEND / "js" / "file-jobs.js", FRONTEND / "pages" / "compress-panel.js"]
+SCRIPTS = [FRONTEND / "js" / "file-jobs.js", FRONTEND / "pages" / "compress-rules.js", FRONTEND / "pages" / "compress-panel.js"]
 
 # (sizes by step, None for a step that failed; limit) → (step, settled).
 # Run through compress_plan.choose here and compressChoice in the page: the
@@ -56,6 +67,43 @@ CHOICE_CASES = [
     ({n: 500_000 for n in range(10)}, 100_000),
     ({9: 500_000, 0: 400_000}, 600_000),
     ({9: 9_000, 1: 50_000}, 100_000),
+]
+
+
+def _flat(size: int) -> dict:
+    return {n: size for n in range(10)}
+
+
+# (real sizes, estimates, limit) → (step, settled), through limit_plan.decide
+# and compressDecision. Estimates are step → size, None for one that failed.
+_LADDER = [5_000_000, 4_000_000, 2_000_000, 1_500_000, 1_200_000, 700_000, 600_000, 300_000, 100_000, 90_000]
+# Steps 1–3 estimated just over 1 MB (98–105%).
+_CLOSE = [3_000_000, 1_050_000, 1_020_000, 980_000, 700_000, 600_000, 500_000, 400_000, 300_000, 100_000]
+DECISION_CASES = [
+    ({}, None, 1_000_000),
+    ({}, _flat(800_000), 1_000_000),
+    ({}, _flat(800_001), 1_000_000),
+    ({}, _flat(1_300_000), 1_000_000),
+    ({}, _flat(1_299_999), 1_000_000),
+    ({}, {9: 100_000}, 1_000_000),
+    ({}, {9: 2_000_000, 0: 9_000_000}, 1_000_000),
+    ({5: 1_100_000}, {**_flat(5_000_000), **{n: 700_000 for n in range(5, 10)}}, 1_000_000),
+    ({4: 900_000, 3: 1_200_000}, {**_flat(5_000_000), **{n: 700_000 for n in range(5, 10)}}, 1_000_000),
+    ({9: 1_050_000}, {0: 9_000_000, 9: 1_000_000}, 1_000_000),
+    ({}, {**_flat(5_000_000), 9: None, 8: 600_000}, 1_000_000),
+    ({9: None}, {**_flat(2_000_000), 0: 3_000_000}, 1_000_000),
+    ({}, dict(enumerate(_LADDER)), 2_000_000),
+    ({}, dict(enumerate(_LADDER)), 1_250_000),
+    ({8: 840_000}, {**_flat(9_000_000), 7: 1_900_000, 8: 850_000, 9: 850_000}, 2_000_000),
+    # A better step estimated just over the limit, or one the sample couldn't
+    # make, is in doubt: reachable, not final, until it is made for real.
+    ({4: 700_000, 9: 100_000, 0: 3_000_000}, dict(enumerate(_CLOSE)), 1_000_000),
+    ({}, dict(enumerate(_CLOSE)), 1_000_000),
+    ({4: 700_000, 3: 955_000}, dict(enumerate(_CLOSE)), 1_000_000),
+    ({4: 700_000, 3: 955_000, 2: 1_030_000}, dict(enumerate(_CLOSE)), 1_000_000),
+    ({4: 700_000}, {**dict(enumerate(_CLOSE)), 3: None}, 1_000_000),
+    ({4: 700_000, 3: None}, {**dict(enumerate(_CLOSE)), 2: 1_300_000}, 1_000_000),
+    ({}, {**dict(enumerate(_CLOSE)), 3: 1_300_000}, 1_000_000),
 ]
 
 HARNESS = r"""
@@ -92,12 +140,13 @@ const textOf = (node) => (node.textContent || "") + (node.children || []).map(te
 
 const listeners = {};
 const answers = { start_compress_estimates: { ok: true, session: 7 }, get_compress_estimates: {} };
+const apiCalls = [];
 const context = vm.createContext({
   console,
   setTimeout,
   window: { addEventListener: (type, fn) => { listeners[type] = fn; } },
   document: { getElementById: () => null },
-  callApi: (method) => Promise.resolve(answers[method] || { ok: true }),
+  callApi: (method, ...args) => { apiCalls.push([method, ...args]); return Promise.resolve(answers[method] || { ok: true }); },
   el: (tag, className, text) => { const n = new FakeNode(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; },
   iconEl: (name, className = "") => { const n = new FakeNode("span"); n.className = className; n.dataset.icon = name; return n; },
   initRadioCards: () => {},
@@ -124,6 +173,12 @@ const rows = (sizes) => Object.fromEntries(Object.entries(sizes).map(([k, v]) =>
 check("compressChoice agrees with compress_plan.choose",
   JSON.parse(process.env.CHOICE_CASES).map(([sizes, limit]) => run(`compressChoice(${JSON.stringify(rows(sizes))}, ${limit})`)),
   JSON.parse(process.env.CHOICE_WANT));
+const estimateRows = (sizes) => sizes === null ? null
+  : Object.fromEntries(Object.entries(sizes).map(([k, v]) => [k, v === null ? null : { size: v, kind: "good" }]));
+check("compressDecision agrees with limit_plan.decide",
+  JSON.parse(process.env.DECISION_CASES).map(([real, est, limit]) =>
+    run(`compressDecision(${JSON.stringify(rows(real))}, ${JSON.stringify(estimateRows(est))}, ${limit})`)),
+  JSON.parse(process.env.DECISION_WANT));
 
 const level = (step, helps, size = 1000) => ({ [step]: { state: "done", size, helps } });
 check("default: Balanced when it helps",
@@ -303,6 +358,139 @@ const checkAll = (sizes = SCAN10, kinds = KINDS10) => [9, 0, 8, 7, 6, 5, 4, 3, 2
   check("the remembered pill is back", panel.jobOptions(s), { mode: "limit", limit: 200, unit: "KB", session: 7 });
 }
 
+// A big file: pills decided on estimates, with room to spare.
+{
+  const s = fresh("limit", 110 * MB, { compress_limit: 2, compress_unit: "MB" });
+  check("before the estimates, every pill is checking",
+    pills().every((p) => p.classList.contains("is-checking")), true);
+  const est = (sizes) => Object.fromEntries(sizes.map((size, step) => [step, { size, kind: step >= 7 ? "bw" : step >= 5 ? "good" : "sharp" }]));
+  // About a 110 MB scan's ladder: 1 MB's floor is at 103%, so it waits.
+  const LADDER110 = [110e6, 110e6, 58e6, 28e6, 14.4e6, 5.08e6, 4.84e6, 2.28e6, 1.03e6, 1.03e6];
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 10, estimates: est(LADDER110) } });
+  const states = () => pills().map((p) => [textOf(p), p.classList.contains("is-too-small") ? "too_small"
+    : p.classList.contains("is-checking") ? "checking" : "reachable"]);
+  check("estimates: 50–500 KB dimmed (130% or more), 1 MB checking (103%), 2 MB enabled (52%)", states(),
+    [["50 KB", "too_small"], ["100 KB", "too_small"], ["200 KB", "too_small"], ["300 KB", "too_small"],
+     ["500 KB", "too_small"], ["1 MB", "checking"], ["2 MB", "reachable"]]);
+  check("the remembered 2 MB is selected", s.compress.limit, { value: 2, unit: "MB" });
+  // Step 7 is estimated at 114% of 2 MB: too close to rule out, so 2 MB's
+  // card waits for it to be made for real.
+  check("a better step in doubt: the card is checking", byClass(body, "compress-outcome")[0].classList.contains("is-checking"), true);
+  check("and Compress waits", compressOn(), false);
+  done(7, 2.5e6, "bw");
+  check("once it is really over, its card is like any other: the step and About its estimate", textOf(byClass(body, "compress-outcome")[0]),
+    "Black and whiteScanned pages become black and white. Text stays readable.About 1.0 MB");
+  check("Compress is on for it", compressOn(), true);
+  check("the chosen limit is sent to Python",
+    apiCalls.filter((c) => c[0] === "select_compress_limit").slice(-1)[0], ["select_compress_limit", 7, 2, "MB"]);
+  check("a dimmed pill's tooltip gives the estimated floor",
+    pills()[0].dataset.tooltip, "Too small for this file. The smallest it can go is about 1.0 MB.");
+  // The real step 8 came out over the limit: the card moves to the next step down.
+  done(8, 2.3e6, "bw");
+  check("a real result over the limit moves the answer to the next step",
+    context.compressDecision(s.compress.steps, s.compress.estimates, 2e6), { step: 9, settled: true });
+  check("and the card with it", textOf(byClass(body, "compress-outcome")[0]),
+    "Black and whiteScanned pages become black and white. Text stays readable.About 1.0 MB");
+  done(9, 0.9e6, "bw");
+  check("its real size once it is in", textOf(byClass(body, "compress-outcome")[0]),
+    "Black and whiteScanned pages become black and white. Text stays readable.About 900 KB");
+  check("1 MB is decided by the real floor now", states()[5], ["1 MB", "reachable"]);
+}
+{
+  // Between the margins: Checking until a real step decides it.
+  fresh("limit", 110 * MB, { compress_limit: 50 });
+  const sizes = Object.fromEntries([...Array(10)].map((_, n) => [n, { size: n >= 8 ? 900_000 : 50e6, kind: "bw" }]));
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 3, estimates: sizes } });
+  const one = pills().find((p) => textOf(p) === "1 MB");
+  check("90% of 1 MB: checking", one.classList.contains("is-checking"), true);
+  check("2 MB at 45%: enabled", pills().find((p) => textOf(p) === "2 MB").getAttribute("aria-disabled"), null);
+  check("with a checking card while 1 MB is open", byClass(body, "compress-outcome")[0].classList.contains("is-checking"), true);
+}
+
+// The stale result race: what is older than what is shown is ignored.
+{
+  const s = fresh("limit", 901188);
+  event(9, { state: "done", size: 9389, helps: true, kind: "bw", seq: 5 });
+  event(9, { state: "working", seq: 4 });
+  check("an older Working after a newer result is ignored", s.compress.steps[9].state, "done");
+  event(9, { state: "stopped", seq: 3 });
+  check("so is an older Stopped", s.compress.steps[9] && s.compress.steps[9].state, "done");
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 9, estimates: { 9: { size: 1, kind: "bw" } } } });
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 8, estimates: null } });
+  check("older estimates are ignored", s.compress.estimates, { 9: { size: 1, kind: "bw" } });
+  event(9, { state: "stopped", seq: 6 });
+  check("a newer one applies", s.compress.steps[9], undefined);
+}
+// The snapshot asked for when the dialog opens comes back after newer events
+// (run once the blocks above have finished with the shared dialog state).
+setTimeout(() => {
+  const s = fresh("limit", 901188);
+  answers.get_compress_estimates = {
+    steps: { 9: { state: "working", seq: 2 }, 0: { state: "done", size: 900983, helps: false, kind: "sharp", seq: 3 } },
+    estimates: null, estimates_seq: 0, nospace: false, nospace_seq: 0,
+  };
+  const opening = panel.opened(s);
+  event(9, { state: "done", size: 9389, helps: true, kind: "bw", seq: 4 });
+  opening.then(() => {
+    check("a stale snapshot doesn't bring back Checking", s.compress.steps[9].state, "done");
+    check("what it has that is new still applies", s.compress.steps[0].state, "done");
+    answers.get_compress_estimates = {};
+    finish();
+  });
+}, 20);
+
+// Not enough free disk space.
+{
+  const s = fresh("limit", 901188);
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 30, nospace: true } });
+  check("Size limit: the result card says so", textOf(byClass(body, "compress-outcome")[0]),
+    "Not enough free disk space to check sizes. Free up space or choose another Save in folder.");
+  check("and Compress is off", compressOn(), false);
+  s.compress.mode = "quality"; render();
+  check("Quality: the same message in place of its estimates",
+    [byClass(body, "compress-estimating").length, textOf(byClass(body, "compress-hint")[0])],
+    [0, "Not enough free disk space to check sizes. Free up space or choose another Save in folder."]);
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 29, nospace: false } });
+  check("an older all-clear doesn't hide it", s.compress.nospace, true);
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 31, nospace: false } });
+  check("a newer all-clear does", s.compress.nospace, false);
+}
+{
+  // "Not enough space" after the selected limit was settled on real steps:
+  // its card and Compress stay.
+  const s = fresh("limit", 901188, { compress_limit: 200, compress_unit: "KB" });
+  [[9, 9389], [0, 900983], [3, 262308], [4, 147254]].forEach(([step, size], n) =>
+    event(step, { state: "done", size, helps: true, kind: "good", seq: 50 + n }));
+  check("200 KB settled on step 4", [s.compress.limit, compressOn()], [{ value: 200, unit: "KB" }, true]);
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 60, nospace: true } });
+  check("a late 'not enough space' keeps a settled card", textOf(byClass(body, "compress-outcome")[0]).startsWith("Good"), true);
+  check("and Compress", compressOn(), true);
+  check("but only for a real step", context.compressLimitReady({}, { 4: { size: 1, kind: "good" }, 3: { size: 9e9 } }, 200000, true), false);
+}
+// Save in changed after "not enough space" (on its own, once the blocks
+// above are done with the shared state and the bridge stand-in).
+setTimeout(() => {
+  const s = fresh("limit", 901188);
+  listeners["lector:compressestimate"]({ detail: { session: 7, seq: 40, nospace: true } });
+  s.compress.folder = "D:\\Full";
+  apiCalls.length = 0;
+  panel.destinationChanged(s);
+  setTimeout(() => {
+    check("a new Save in folder asks again", apiCalls.some((c) => c[0] === "start_compress_estimates"), true);
+    // Save in changed *before* the "not enough space" for the old folder
+    // came: that event itself asks again.
+    const t = fresh("limit", 901188);
+    t.compress.folder = "D:\\Full";
+    apiCalls.length = 0;
+    listeners["lector:compressestimate"]({ detail: { session: 7, seq: 70, nospace: true } });
+    setTimeout(() => {
+      check("a late 'not enough space' for a folder since left asks again",
+        apiCalls.some((c) => c[0] === "start_compress_estimates"), true);
+      finish();
+    }, 0);
+  }, 0);
+}, 40);
+
 // The Done state's note.
 {
   const s = fresh("limit");
@@ -321,6 +509,12 @@ const checkAll = (sizes = SCAN10, kinds = KINDS10) => [9, 0, 8, 7, 6, 5, 4, 3, 2
   check("within the limit", textOf(byClass(body, "compress-line")[0]), "That's within your 200 KB limit. Saved to Downloads as x.pdf.");
   check("quality: as before", note({ mode: "quality", lowered: true, black_and_white: false }),
     ["Pages are now at a lower resolution. Open the file to check it's easy to read."]);
+  check("a drop into black and white says so", note({ mode: "limit", kind: "bw", dropped: "bw" }),
+    ["To fit, Lector used black and white.",
+     "Pages are now black and white at a lower resolution. Open the file to check it's easy to read."]);
+  check("a drop in colour says the quality was lowered", note({ mode: "limit", kind: "good", dropped: "quality" }),
+    ["To fit, Lector lowered the image quality."]);
+  check("no drop, no line", note({ mode: "limit", kind: "good", dropped: null }), []);
 }
 
 // The background work couldn't start (an unreadable file): no endless Checking.
@@ -348,10 +542,22 @@ const checkAll = (sizes = SCAN10, kinds = KINDS10) => [9, 0, 8, 7, 6, 5, 4, 3, 2
   });
 }
 
-let pendingChecks = 2; // the async checks above, and the end of this script
+let pendingChecks = 4; // the four async checks above, and the end of this script
 function finish() { if (--pendingChecks === 0) console.log(JSON.stringify(results)); }
 setTimeout(() => finish(), 0);
 """
+
+
+def _decision_cases() -> tuple[list, list]:
+    def keyed(sizes):
+        return None if sizes is None else {str(k): v for k, v in sizes.items()}
+
+    cases = [[keyed(real), keyed(est), limit] for real, est, limit in DECISION_CASES]
+    want = []
+    for real, est, limit in DECISION_CASES:
+        step, settled = limit_plan.decide(real, est, limit)
+        want.append({"step": step, "settled": settled})
+    return cases, want
 
 
 def _choice_cases() -> tuple[list, list]:
@@ -368,10 +574,13 @@ class CompressPanelBehaviour(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cases, want = _choice_cases()
+        decisions, decided = _decision_cases()
         env = {
             **os.environ,
             "CHOICE_CASES": json.dumps(cases),
             "CHOICE_WANT": json.dumps(want),
+            "DECISION_CASES": json.dumps(decisions),
+            "DECISION_WANT": json.dumps(decided),
             "LADDER_STEPS": str(len(compress_plan.LADDER)),
         }
         out = subprocess.run(

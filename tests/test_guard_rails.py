@@ -29,6 +29,9 @@ PYMUPDF_ALLOWED = {
     # The file tools' engine: it runs only in the OCR worker process, and
     # docs/ARCHITECTURE.md § "File tools" records why it is its own module.
     "lector/features/file_tools/engine.py",
+    # Compress's in-memory sample of a big file: worker-only too, the same
+    # section says why it isn't more of engine.py.
+    "lector/features/file_tools/sampling.py",
     "lector/features/home/recent.py",
     "lector/features/reading/document.py",
     "lector/features/reading/ocr.py",

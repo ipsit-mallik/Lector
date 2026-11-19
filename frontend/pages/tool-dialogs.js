@@ -237,7 +237,12 @@ const ToolDialog = (() => {
       originLabel: "Beside the original",
       suggestName: async (folder) => (await callApi("suggest_tool_name", tool, source, folder)).stem,
       pickFolder: chooseFolder,
-      onChange: updatePrimary,
+      onChange: () => {
+        updatePrimary();
+        // Compress retries its checking in a new folder after "not enough
+        // free disk space".
+        if (s && s.compress) CompressPanel.destinationChanged(s);
+      },
     });
   }
 

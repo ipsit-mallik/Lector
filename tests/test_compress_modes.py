@@ -10,13 +10,15 @@ Held here:
 - Quality: the estimates fill in, and a level under 5% smaller is "No
   change"; Compress on a finished estimate does no second compression (the
   engine's calls are counted), and one still running is waited for;
-- Size limit: every step is made, smallest first, and kept across tabs; a
-  file with no scanned page or no image makes fewer; Compress moves the
-  chosen step's file into place with no second compression; the safety net
-  holds a step that doesn't fit after all; the bridge refuses a limit that
-  isn't settled, is too small, or is at or above the file's size;
-- temporary files go when the dialog closes, when a job takes one, at quit
-  and at the next start;
+- Size limit: only the steps a visible pill still needs are made, smallest
+  first, and the ones Quality made are kept across tabs; a file with no
+  scanned page or no image makes fewer; Compress moves the chosen step's file
+  into place with no second compression; the safety net holds a step that
+  doesn't fit after all; the bridge refuses a limit that isn't settled, is
+  too small, or is at or above the file's size;
+- temporary files go as soon as they are no pill's answer and no Quality
+  level's step, when the dialog closes, when a job takes one, at quit and at
+  the next start;
 - black-and-white changes only images that cover most of a page;
 - no tool's default name stacks its own suffix.
 
@@ -43,7 +45,7 @@ import pymupdf  # noqa: E402
 import file_tools_support as fx  # noqa: E402
 import pdf_support  # noqa: E402
 from lector import api as api_module  # noqa: E402
-from lector.features.file_tools import compress_plan, destinations, engine, jobs, messages, tools  # noqa: E402
+from lector.features.file_tools import compress_plan, destinations, engine, jobs, limit_plan, messages, tools  # noqa: E402
 from lector.features.file_tools.estimates import CompressEstimates  # noqa: E402
 from lector.features.file_tools.scratch import PREFIX, ScratchFiles, clean_leftovers  # noqa: E402
 from lector.features.reading import ocr  # noqa: E402
@@ -378,14 +380,22 @@ class _Estimates(_Folder):
         while self.estimates._thread is not None and time.monotonic() < deadline:
             time.sleep(0.05)
 
+    def steps(self, session: int) -> dict:
+        return self.estimates.snapshot(session).get("steps", {})
+
     def wait_done(self, session: int, steps) -> dict:
         deadline = time.monotonic() + WAIT_S
         while time.monotonic() < deadline:
-            snap = self.estimates.snapshot(session)
+            snap = self.steps(session)
             if all(snap.get(step, {}).get("state") == "done" for step in steps):
                 return snap
             time.sleep(0.05)
-        self.fail(f"never finished: {self.estimates.snapshot(session)}")
+        self.fail(f"never finished: {self.steps(session)}")
+
+    def settled(self, session: int) -> dict:
+        """Wait until the background work has nothing left to do."""
+        self.wait_idle()
+        return self.steps(session)
 
     def start(self, source: Path, mode: str = compress_plan.QUALITY, session=None) -> int:
         return self.estimates.start(tools.Source(str(source)), [str(self.folder)], session, mode)
@@ -424,10 +434,11 @@ class _Estimates(_Folder):
         )
 
     def run_limit(self, source: Path, limit: int, session: int, held: list | None = None) -> dict:
-        step, settled = self.estimates.choose(session, limit)
+        step, settled, planned = self.estimates.decide(session, limit)
         self.assertTrue(settled)
         self.assertIsNotNone(step)
         dest = self.folder / "out.pdf"
+        known = self.estimates.real_sizes(session)
         self.estimates.give_way(session, step)
         return self.run_job(
             lambda ctx: tools.compress_to_limit(
@@ -438,8 +449,10 @@ class _Estimates(_Folder):
                 limit,
                 "X KB",
                 self.scratch,
-                lambda c: self.estimates.wait_for(session, step, c),
+                lambda c, each: self.estimates.wait_for(session, each, c),
                 (held if held is not None else []).append,
+                known,
+                planned,
             )
         )
 
@@ -506,30 +519,42 @@ class QualityEstimateTests(_Estimates):
         session = self.start(source)
         self.estimates.give_way()
         self.wait_idle()
-        self.assertLessEqual(len(self.estimates.snapshot(session)), 1)
+        self.assertLessEqual(len(self.steps(session)), 1)
         self.assertLessEqual(self.worker.count("compress_images"), 1)
 
 
 class SizeLimitCheckTests(_Estimates):
-    def test_every_step_is_made_smallest_first_and_kept_across_tabs(self):
+    def test_size_limit_makes_only_what_a_visible_pill_needs_and_keeps_qualitys_steps(self):
         source = scan_with_photos_pdf(self.folder)
         session = self.start(source)
         self.wait_done(session, compress_plan.QUALITY_ORDER)
         # Size limit: the steps Quality made aren't made again.
         self.assertEqual(self.start(source, compress_plan.SIZE_LIMIT, session), session)
-        snap = self.wait_done(session, range(len(compress_plan.LADDER)))
-        self.assertEqual(self.made(), [2, 4, 0, 9, 8, 7, 6, 5, 3, 1])
-        self.assertEqual(self.worker.count("compress_images"), len(compress_plan.LADDER))
+        snap = self.settled(session)
+        made = self.made()
+        self.assertEqual(made[:3], list(compress_plan.QUALITY_ORDER))
+        # Each step after them is the one the plan picks from what was known
+        # then, smallest first; it stops once every visible pill is settled.
+        limits = limit_plan.limits_of_interest(os.path.getsize(source), None)
+        known = {step: snap[step]["size"] for step in compress_plan.QUALITY_ORDER}
+        for step in made[3:]:
+            self.assertEqual(limit_plan.next_step(known, None, limits, None), step)
+            known[step] = snap[step]["size"]
+        self.assertIsNone(limit_plan.next_step(known, None, limits, None))
+        self.assertTrue(all(compress_plan.choose(known, limit)[1] for limit in limits))
+        self.assertNotIn(1, made)  # no visible pill's answer can depend on it here
+        self.assertEqual(self.worker.count("compress_images"), len(made))
         # And back to Quality: nothing is redone.
         self.start(source, compress_plan.QUALITY, session)
         self.wait_idle()
-        self.assertEqual(self.worker.count("compress_images"), len(compress_plan.LADDER))
-        sizes = [snap[n]["size"] for n in range(len(compress_plan.LADDER))]
-        self.assertEqual(sizes[1:], sorted(sizes[1:], reverse=True), sizes)
-        kinds = [snap[n]["kind"] for n in range(len(compress_plan.LADDER))]
-        self.assertEqual(kinds[6], compress_plan.READABLE)
-        self.assertEqual(kinds[7:], [compress_plan.BLACK_AND_WHITE] * 3)
-        self.assertEqual(len(self.scratch_files()), len(compress_plan.LADDER))
+        self.assertEqual(self.worker.count("compress_images"), len(made))
+        sizes = [known[n] for n in sorted(known) if n]
+        self.assertEqual(sizes, sorted(sizes, reverse=True), sizes)
+        self.assertEqual(snap[6]["kind"], compress_plan.READABLE)
+        self.assertEqual([snap[n]["kind"] for n in (7, 8, 9)], [compress_plan.BLACK_AND_WHITE] * 3)
+        # Only the current answers' files, and Quality's, are left.
+        kept = limit_plan.answers(known, None, limits) | set(compress_plan.QUALITY_ORDER)
+        self.assertEqual(len(self.scratch_files()), len(kept))
         self.estimates.stop(discard=True)
         self.assertEqual(self.scratch_files(), [])
         self.assertEqual(json.loads(self.manifest.read_text())["files"], [])
@@ -537,14 +562,15 @@ class SizeLimitCheckTests(_Estimates):
     def test_a_pdf_with_no_scanned_page_shares_the_black_and_white_steps(self):
         source = fx.photo_pdf(self.folder)
         session = self.start(source, compress_plan.SIZE_LIMIT)
-        snap = self.wait_done(session, range(len(compress_plan.LADDER)))
-        # 8 is 9 (both colour 50/30 here), 5 is 6 (both colour 72/50).
+        snap = self.settled(session)
+        # 8 is 9 here (both colour 50/30): made once, shared.
+        self.assertEqual(self.made()[0], compress_plan.LAST_STEP)
         self.assertNotIn(8, self.made())
-        self.assertNotIn(5, self.made())
-        self.assertEqual(len(self.made()), len(compress_plan.LADDER) - 2)
         self.assertEqual(snap[8]["size"], snap[9]["size"])
-        self.assertEqual(snap[5]["size"], snap[6]["size"])
-        self.assertEqual(len(self.scratch_files()), len(compress_plan.LADDER) - 2)
+        # The lossless step fits every visible pill, so nothing else is made,
+        # and only its file (Best quality's) is kept.
+        self.assertEqual(self.made(), [compress_plan.LAST_STEP, 0])
+        self.assertEqual(len(self.scratch_files()), 1)
         self.estimates.stop(discard=True)
         self.assertEqual(self.scratch_files(), [])
 
@@ -556,6 +582,11 @@ class SizeLimitCheckTests(_Estimates):
         doc.save(source)
         doc.close()
         session = self.start(source, compress_plan.SIZE_LIMIT)
+        # Under 50 KB: every pill is hidden, so nothing needs checking.
+        self.assertEqual(self.settled(session), {})
+        self.assertEqual(self.made(), [])
+        # A limit typed in "Other size…" is checked, in one attempt.
+        self.estimates.select(session, os.path.getsize(source) // 2)
         snap = self.wait_done(session, range(len(compress_plan.LADDER)))
         self.assertEqual(self.made(), [compress_plan.LAST_STEP])
         self.assertEqual(len({row["size"] for row in snap.values()}), 1)
@@ -564,37 +595,49 @@ class SizeLimitCheckTests(_Estimates):
     def test_compress_moves_the_steps_file_with_no_second_compression(self):
         source = scan_with_photos_pdf(self.folder)
         session = self.start(source, compress_plan.SIZE_LIMIT)
-        snap = self.wait_done(session, range(len(compress_plan.LADDER)))
+        snap = self.settled(session)
         sizes = {n: row["size"] for n, row in snap.items()}
         compressions = self.worker.count("compress_images")
-        # A limit midway between two steps: the better one doesn't fit at 97%.
-        limit = int((sizes[3] / 0.97 + sizes[2] / 0.97) / 2)
+        # The 100 KB pill: between two steps, and the better one doesn't fit.
+        limit = 100_000
+        step, settled, _planned = self.estimates.decide(session, limit)
+        self.assertTrue(settled)
+        self.assertFalse(compress_plan.fits(sizes[step - 1], limit))
+        files = len(self.scratch_files())
         outcome = self.run_limit(source, limit, session)
         self.assertEqual(outcome["state"], jobs.DONE, outcome)
         result = outcome["result"]
-        self.assertEqual(result["after"], sizes[3])
+        self.assertEqual(result["after"], sizes[step])
         self.assertLessEqual(result["after"] * 100, limit * 97)
-        self.assertEqual(result["kind"], snap[3]["kind"])
+        self.assertEqual(result["kind"], snap[step]["kind"])
+        self.assertIsNone(result["dropped"])
         self.assertEqual(self.worker.count("compress_images"), compressions)
         self.assertEqual(self.worker.count("save_compressed"), compressions)
-        self.assertEqual(len(self.scratch_files()), len(compress_plan.LADDER) - 1)
+        self.assertEqual(len(self.scratch_files()), files - 1)
         self.estimates.stop(discard=True)
         self.assertEqual(self.scratch_files(), [])
         self.assertEqual(self.scratch.tracked(), [])
 
     def test_a_shared_file_taken_by_a_job_takes_its_twin_too(self):
         source = fx.photo_pdf(self.folder)
+        # Step 9's size, from a compression of its own, so the limit can be
+        # chosen before the dialog's checking starts: just over step 9's size,
+        # which 8 shares on a file with no scanned page.
+        tmp = self.scratch.new([str(self.folder)])
+        smallest = tools.compress_attempt(fx.InlineContext(), tools.Source(str(source)), tmp, compress_plan.LADDER[9])
+        self.scratch.discard(tmp)
+        limit = smallest.size * 100 // 97 + 1
         session = self.start(source, compress_plan.SIZE_LIMIT)
-        snap = self.wait_done(session, range(len(compress_plan.LADDER)))
-        # Between step 7 and the 8/9 pair: 8 is the best that fits.
-        limit = int((snap[8]["size"] / 0.97 + snap[7]["size"] / 0.97) / 2)
-        self.assertEqual(self.estimates.choose(session, limit), (8, True))
+        self.estimates.select(session, limit)
+        self.settled(session)
+        self.assertEqual(self.estimates.decide(session, limit), (8, True, None))
+        snap = self.steps(session)
         outcome = self.run_limit(source, limit, session)
         self.assertEqual(outcome["state"], jobs.DONE, outcome)
         self.assertEqual(outcome["result"]["after"], snap[8]["size"])
-        stopped = [e["step"] for e in self.events if e["state"] == "stopped"]
+        stopped = [e["step"] for e in self.events if e.get("state") == "stopped"]
         self.assertEqual(sorted(stopped), [8, 9])
-        left = self.estimates.snapshot(session)
+        left = self.steps(session)
         self.assertNotIn(8, left)
         self.assertNotIn(9, left)
 
@@ -607,7 +650,7 @@ class SizeLimitCheckTests(_Estimates):
         with self.assertLogs("lector.features.file_tools.tools", "WARNING"):
             result = tools.compress_to_limit(
                 fx.InlineContext(), tools.Source(str(source)), str(dest), 9, attempt.size, "1 KB",
-                self.scratch, lambda ctx: attempt, held.append,
+                self.scratch, lambda ctx, step: attempt, held.append,
             )
         self.assertTrue(result["unreachable"])
         self.assertFalse(dest.exists())
@@ -626,7 +669,7 @@ class SizeLimitCheckTests(_Estimates):
         with self.assertLogs("lector.features.file_tools.tools", "WARNING"):
             result = tools.compress_to_limit(
                 fx.InlineContext(), tools.Source(str(source)), str(dest), 9, attempt.size * 10, "X KB",
-                self.scratch, lambda ctx: attempt, [].append,
+                self.scratch, lambda ctx, step: attempt, [].append,
             )
         self.assertEqual(result["after"], os.path.getsize(dest))
         self.assertEqual(result["kind"], compress_plan.BLACK_AND_WHITE)
@@ -658,12 +701,12 @@ class EstimateRaceTests(_Folder):
             worker.gate.set()
             deadline = time.monotonic() + WAIT_S
             while time.monotonic() < deadline:
-                snap = estimates.snapshot(session)
+                snap = estimates.snapshot(session)["steps"]
                 if all(snap.get(step, {}).get("state") == "done" for step in compress_plan.QUALITY_ORDER):
                     break
                 time.sleep(0.05)
             self.assertEqual(
-                {step: row["state"] for step, row in estimates.snapshot(session).items()},
+                {step: row["state"] for step, row in estimates.snapshot(session)["steps"].items()},
                 {step: "done" for step in compress_plan.QUALITY_ORDER},
             )
             self.assertEqual(len(self.scratch_files()), 3)  # the stopped run's file went
@@ -685,9 +728,9 @@ class EstimateRaceTests(_Folder):
             deadline = time.monotonic() + WAIT_S
             while time.monotonic() < deadline and estimates._thread is not None:
                 time.sleep(0.05)
-            snap = estimates.snapshot(session)
+            snap = estimates.snapshot(session)["steps"]
             self.assertEqual(sorted(snap), sorted(compress_plan.QUALITY_ORDER))
-            self.assertIn({"session": session, "step": 9, "state": "stopped"}, events)
+            self.assertTrue(any(e.get("step") == 9 and e.get("state") == "stopped" for e in events), events)
         finally:
             worker.gate.set()
             estimates.stop(discard=True)
@@ -786,21 +829,28 @@ class ApiCompressTests(_Folder):
             time.sleep(0.1)
         self.fail("the job never ended")
 
-    def checked(self, source: Path) -> tuple[int, dict]:
-        """Open Size limit for `source` and wait for every step."""
-        session = self.api.start_compress_estimates(str(source), str(self.folder), None, "limit")["session"]
+    def idle(self, session: int) -> dict:
         deadline = time.monotonic() + WAIT_S
-        while time.monotonic() < deadline:
-            snap = self.api.get_compress_estimates(session)
-            if len(snap) == len(compress_plan.LADDER) and all(r["state"] == "done" for r in snap.values()):
-                return session, snap
+        while self.api._estimates._thread is not None and time.monotonic() < deadline:
             time.sleep(0.1)
-        self.fail(f"the checking never finished: {self.api.get_compress_estimates(session)}")
+        self.assertIsNone(self.api._estimates._thread, "the checking never finished")
+        return self.api.get_compress_estimates(session)["steps"]
+
+    def checked(self, source: Path) -> tuple[int, dict]:
+        """Open Size limit for `source` and wait until every pill is settled."""
+        session = self.api.start_compress_estimates(str(source), str(self.folder), None, "limit")["session"]
+        return session, self.idle(session)
+
+    def picked(self, session: int, limit_kb: int) -> dict:
+        """The reader typed `limit_kb` in "Other size…": wait for its answer."""
+        self.assertTrue(self.api.select_compress_limit(session, limit_kb, "KB")["ok"])
+        return self.idle(session)
 
     def test_a_reachable_limit_is_written_from_the_checked_step(self):
         source = scan_with_photos_pdf(self.folder)
         session, snap = self.checked(source)
         limit_kb = snap[9]["size"] // 970 + 1
+        snap = self.picked(session, limit_kb)
         options = self.options(mode="limit", limit=limit_kb, unit="KB", session=session)
         answer = self.api.start_file_job("compress", str(source), options)
         self.assertTrue(answer["ok"], answer)
@@ -822,6 +872,7 @@ class ApiCompressTests(_Folder):
         self.assertTrue(self.api.file_tool_info("compress", str(locked), pdf_support.PASSWORD)["ok"])
         session, snap = self.checked(locked)
         limit_kb = snap[9]["size"] // 970 + 1
+        self.picked(session, limit_kb)
         options = self.options(mode="limit", limit=limit_kb, unit="KB", session=session)
         self.assertTrue(self.api.start_file_job("compress", str(locked), options)["ok"])
         end = self.wait_end(1)
@@ -856,11 +907,11 @@ class ApiCompressTests(_Folder):
             self.assertTrue(self.api.start_file_job("compress", str(source), options)["busy"])
         deadline = time.monotonic() + WAIT_S
         while time.monotonic() < deadline:
-            snap = self.api.get_compress_estimates(session)
+            snap = self.api.get_compress_estimates(session)["steps"]
             if len(snap) == 3 and all(r["state"] == "done" for r in snap.values()):
                 break
             time.sleep(0.1)
-        self.assertEqual(sorted(self.api.get_compress_estimates(session)), sorted(compress_plan.QUALITY_ORDER))
+        self.assertEqual(sorted(self.api.get_compress_estimates(session)["steps"]), sorted(compress_plan.QUALITY_ORDER))
 
     def test_bad_limits_are_refused(self):
         source = fx.photo_pdf(self.folder)
