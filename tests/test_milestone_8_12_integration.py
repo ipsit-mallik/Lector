@@ -34,7 +34,9 @@ from lector.features.voice import reference, router  # noqa: E402
 FRONTEND = ROOT / "frontend"
 HOME_JS = (FRONTEND / "pages" / "home.js").read_text(encoding="utf-8")
 SETTINGS_JS = (FRONTEND / "pages" / "settings.js").read_text(encoding="utf-8")
-READING_JS = (FRONTEND / "pages" / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 REFERENCE_JS = (FRONTEND / "pages" / "command-reference.js").read_text(encoding="utf-8")
 INDEX_HTML = (FRONTEND / "index.html").read_text(encoding="utf-8")
 SETTINGS_HTML = (FRONTEND / "pages" / "settings.html").read_text(encoding="utf-8")

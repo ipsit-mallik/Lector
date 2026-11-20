@@ -26,7 +26,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PAGES = ROOT / "frontend" / "pages"
 GEOMETRY_JS = PAGES / "ink-geometry.js"
 FREEHAND_JS = PAGES / "freehand.js"
-READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 READING_HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 READING_CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
 COLORS_JS = (PAGES / "highlight-colors.js").read_text(encoding="utf-8")

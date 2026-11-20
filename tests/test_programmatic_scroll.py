@@ -16,7 +16,7 @@ from pathlib import Path
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 UI_JS = FRONTEND / "js" / "ui.js"
-READING_JS = FRONTEND / "pages" / "reading.js"
+from reader_scripts import reader_js  # noqa: E402
 
 HARNESS = r"""
 const fs = require("fs");
@@ -205,16 +205,23 @@ class ScrollHelperBehaviorTests(unittest.TestCase):
 
 
 class ScrollWiringTests(unittest.TestCase):
-    JS = READING_JS.read_text(encoding="utf-8")
+    JS = reader_js()
 
     def test_the_wheel_is_never_taken_over(self):
         # Native wheel scrolling only: nothing may cancel a wheel event or turn
         # one into a scripted scroll.
+        # The one exception is the reader's Ctrl+wheel zoom (reading-zoom.js),
+        # which has to be able to cancel the web view's own zoom: it lets
+        # every wheel event without Ctrl or ⌘ straight through.
         for path in sorted(FRONTEND.rglob("*.js")):
             text = path.read_text(encoding="utf-8")
             for match in re.finditer(r'addEventListener\("(?:wheel|mousewheel)"[^\n]*', text):
+                if match.group(0) == 'addEventListener("wheel", onWheelZoom, { passive: false });':
+                    continue
                 self.assertNotIn("passive: false", match.group(0), path.name)
             self.assertNotRegex(text, r'"wheel"[^;]*preventDefault', path.name)
+        zoom = self.JS[self.JS.index("function onWheelZoom(ev) {"):]
+        self.assertTrue(zoom.startswith("function onWheelZoom(ev) {\n  if (!(ev.ctrlKey || ev.metaKey)) return;\n"))
 
     def test_no_stylesheet_turns_smooth_scrolling_on_globally(self):
         # scroll-behavior: smooth would animate every scrollTop assignment,

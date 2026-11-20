@@ -38,7 +38,7 @@ const highlightOpacityControl = document.getElementById("highlightOpacityControl
 const highlightThicknessGroup = document.getElementById("highlightThicknessGroup");
 
 const HIGHLIGHT_STYLE_LABELS = { highlight: "Highlight", underline: "Underline", strikethrough: "Strikethrough" };
-// The key that chooses each style (reading.js's keydown), shown in the tool's
+// The key that chooses each style (reading-keys.js's keydown), shown in the tool's
 // tooltip and the style card, nowhere else.
 const HIGHLIGHT_STYLE_KEYS = { h: "highlight", u: "underline", s: "strikethrough" };
 // The thickness presets are drawn proportional to their width: the widest
@@ -65,7 +65,7 @@ let popoverOpacity = null; // the settings card's opacity control
 let popoverThickness = null; // the settings card's thickness control
 let opacitySaveTimer = null;
 let styleCardOpener = null; // the badge or the tool button, for Esc to return to
-// reading.js's highlight tool: { isOn(), setOn(on) }.
+// reading-highlighting.js's highlight tool: { isOn(), setOn(on) }.
 let highlightToolHooks = { isOn: () => false, setOn: () => {} };
 
 function configureHighlightTool(hooks) {
@@ -318,7 +318,7 @@ function showActiveHighlightColor(name) {
 }
 
 // Also what the voice "highlight color <color>" command calls. The reply is
-// the reader's whole state, adopted (reading.js's adoptState): the pill and
+// the reader's whole state, adopted (reading-state.js's adoptState): the pill and
 // the card are redrawn from that state on every page boundary, so a colour
 // kept only here went back to the old one at the next page.
 async function setActiveHighlightColor(name) {
@@ -412,7 +412,7 @@ function isSettingsCardOpen() {
   return !highlightOptions.hidden;
 }
 
-// Either card: what reading.js's Esc and Focus mode close.
+// Either card: what reading-keys.js's Esc and Focus mode close.
 function isHighlightOptionsOpen() {
   return isStyleCardOpen() || isSettingsCardOpen();
 }
@@ -526,7 +526,7 @@ highlightStyleCard.addEventListener("keydown", (ev) => {
 
 highlightOptions.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
-  // Esc belongs to the card here: reading.js's own Esc closes the find bar.
+  // Esc belongs to the card here: reading-keys.js's own Esc closes the find bar.
   ev.stopPropagation();
   closeSettingsCard({ returnFocus: true });
 });

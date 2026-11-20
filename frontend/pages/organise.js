@@ -5,7 +5,7 @@
 // Everything here edits a draft held in Python (Api.organise_*, reading/
 // page_plan.py), never the document: Done applies it as one undoable change
 // ("Page changes"), through page-change-busy.js. The grid itself is
-// organise-grid.js; reading.js opens this view and asks it, before the reader
+// organise-grid.js; the reader (reading-save.js) opens this view and asks it, before the reader
 // is left or the window closes, to apply what is pending.
 //
 // Optimistic (docs/ARCHITECTURE.md § "Optimistic Organise"): an action shows
@@ -471,7 +471,7 @@ function organiseStepHistory(kind, step, can) {
 // Applies the draft (Python's organise_done) under the busy card. Null when
 // it failed, after saying so: the draft and the grid stay as they were, and
 // its thumbnails load again. The reader's state Done answers is adopted
-// (reading.js's adoptState), as is every other one Organise is answered with.
+// (reading-state.js's adoptState), as is every other one Organise is answered with.
 async function applyOrganiseDraft(options) {
   organiseGrid.freeze();
   let state = null;

@@ -18,7 +18,9 @@ from pathlib import Path
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 PAGES = FRONTEND / "pages"
 HOME_JS = (PAGES / "home.js").read_text(encoding="utf-8")
-READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 
 HARNESS = r"""
 const fs = require("fs");

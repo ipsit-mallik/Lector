@@ -191,7 +191,7 @@
           </div>
         </div>
         <!-- Live selection wash painted while a highlight is being dragged
-             out (see reading.js). Sits outside both scrollers, as a sibling
+             out (see reading-highlighting.js). Sits outside both scrollers, as a sibling
              clipped to the page area, so it can serve whichever layout is
              active without being duplicated into each one. -->
         <div class="selection-layer" id="selectionLayer" aria-hidden="true"></div>
@@ -201,7 +201,7 @@
         <!-- Amber "listening here" outline shown over the page regions voice
              matching is currently scoped to (docs/DESIGN_SYSTEM.md's third
              wash state, alongside the selection and highlight colors). Filled
-             while a push-to-talk hold is in progress; see reading.js. -->
+             while a push-to-talk hold is in progress; see reading-mic.js. -->
         <div class="voice-focus-layer" id="voiceFocusLayer" aria-hidden="true"></div>
         <!-- Find-in-document matches (find-bar.js): blue, so they never read
              as a highlight (yellow) or as voice (amber). Below the selection
@@ -284,7 +284,7 @@
         </div>
         <!-- Always shown. With nothing on the undo stack they are dimmed and
              aria-disabled rather than disabled, so they keep their tooltip
-             saying why (reading.js's updateUndoButtons). -->
+             saying why (reading-chrome.js's updateUndoButtons). -->
         <button class="icon-btn" id="undoBtn" data-icon="undo" title="Nothing to undo" aria-label="Undo highlight" aria-disabled="true"></button>
         <button class="icon-btn" id="redoBtn" data-icon="redo" title="Nothing to redo" aria-label="Redo highlight" aria-disabled="true"></button>
         <button class="icon-btn" id="findBtn" data-icon="search" title="Find in document  (Ctrl+F)"
@@ -498,6 +498,16 @@
   <script src="organise-insert.js"></script>
   <script src="organise-extract.js"></script>
   <script src="organise.js"></script>
+  <script src="reading-state.js"></script>
+  <script src="reading-layout.js"></script>
+  <script src="reading-chrome.js"></script>
+  <script src="reading-zoom.js"></script>
+  <script src="reading-highlighting.js"></script>
+  <script src="reading-ocr.js"></script>
+  <script src="reading-mic.js"></script>
+  <script src="reading-voice-commands.js"></script>
+  <script src="reading-save.js"></script>
+  <script src="reading-keys.js"></script>
   <script src="reading.js"></script>
 </body>
 </html>

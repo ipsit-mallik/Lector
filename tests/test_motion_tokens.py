@@ -9,6 +9,7 @@ the thing that switches voice activation off.
 import re
 import unittest
 from pathlib import Path
+from reader_scripts import reader_js  # noqa: E402
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 SRC_VOICE = Path(__file__).resolve().parents[1] / "src" / "lector" / "features" / "voice"
@@ -259,7 +260,7 @@ class ThemeSwitchTests(unittest.TestCase):
 
     def test_the_reader_saves_the_theme_it_cycles_to(self):
         # The next page is served in whatever settings.json holds.
-        reading_js = (FRONTEND / "pages" / "reading.js").read_text(encoding="utf-8")
+        reading_js = reader_js()
         body = reading_js[reading_js.index("async function cycleTheme"):]
         body = body[:body.index("\n}\n")]
         self.assertIn('callApi("set_theme", next)', body)

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from reader_scripts import reader_js  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parents[1] / "frontend" / "pages" / "library-search.js"
 
@@ -218,7 +219,7 @@ class HeaderWiringTests(unittest.TestCase):
 
     def test_ctrl_o_is_bound_on_home_settings_and_reading(self):
         for page in (("pages", "home.js"), ("pages", "settings.js"), ("pages", "reading.js")):
-            source = self.read(*page)
+            source = reader_js() if page[-1] == "reading.js" else self.read(*page)
             self.assertRegex(source, r'"o"', page)
             self.assertIn("ctrlKey", source, page)
 

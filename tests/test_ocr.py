@@ -37,7 +37,9 @@ from lector.features.reading.document import PdfDocument  # noqa: E402
 from lector.features.settings import store  # noqa: E402
 from lector.features.voice import command_grammar  # noqa: E402
 
-READING_JS = (ROOT / "frontend" / "pages" / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 VOICE_JS = (ROOT / "frontend" / "js" / "voice.js").read_text(encoding="utf-8")
 DESIGN_SYSTEM = (ROOT / "docs" / "DESIGN_SYSTEM.md").read_text(encoding="utf-8")
 

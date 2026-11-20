@@ -18,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PAGES = ROOT / "frontend" / "pages"
 READING_HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 READING_CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
-READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 PROGRESS_JS = (PAGES / "progress-bar.js").read_text(encoding="utf-8")
 LAYOUT_JS = (PAGES / "progress-layout.js").read_text(encoding="utf-8")
 

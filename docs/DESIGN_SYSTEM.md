@@ -388,7 +388,7 @@ The release wash a drag turns into (`.selection-rect.applied`) is drawn at the s
 
 ## Scanned pages (OCR)
 
-No new component: a scanned page looks exactly like any other page, and its reading is reported with the two surfaces that already report what highlighting did — the shared toast for the mouse, the mic pill's hint for voice. Implemented in `reading.js` (`OCR_MESSAGES`), behaviour in `docs/ARCHITECTURE.md`.
+No new component: a scanned page looks exactly like any other page, and its reading is reported with the two surfaces that already report what highlighting did — the shared toast for the mouse, the mic pill's hint for voice. Implemented in `reading-ocr.js` (`OCR_MESSAGES`), behaviour in `docs/ARCHITECTURE.md`.
 
 - **Mouse** (highlight tool on, press on an unread scanned page): toast "Reading text on this page…", held until the page is read, then replaced by "Text read — drag to highlight". The press itself selects nothing; the reader drags again.
 - **Voice** (a highlight said before the page was read): the mic pill's hint reads "Reading text on this page…" — held, not on the usual 2.5 s linger — then "Text read — say it again". Read ahead after a 1 s dwell with voice on, so this is the exception.

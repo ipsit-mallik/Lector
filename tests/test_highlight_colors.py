@@ -39,7 +39,9 @@ from lector.shared import theme  # noqa: E402
 FRONTEND = ROOT / "frontend"
 THEME_CSS = (FRONTEND / "shared" / "theme.css").read_text(encoding="utf-8")
 READING_HTML = (FRONTEND / "pages" / "reading.html").read_text(encoding="utf-8")
-READING_JS = (FRONTEND / "pages" / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 COLORS_JS = (FRONTEND / "pages" / "highlight-colors.js").read_text(encoding="utf-8")
 
 TEXT = "The quick brown fox jumps over the lazy dog"

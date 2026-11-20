@@ -34,7 +34,7 @@ from lector.features.voice import reference, router  # noqa: E402
 PAGES = ROOT / "frontend" / "pages"
 FOCUS_JS = PAGES / "focus-mode.js"
 CENTERING_JS = PAGES / "page-centering.js"
-READING_JS = PAGES / "reading.js"
+from reader_scripts import reader_js  # noqa: E402
 READING_HTML = PAGES / "reading.html"
 READING_CSS = PAGES / "reading.css"
 NODE = shutil.which("node")
@@ -74,7 +74,7 @@ class FocusVoiceCommandTests(unittest.TestCase):
         self.assertIn("Esc", keys)
 
     def test_the_reader_acts_on_both_intents(self):
-        source = READING_JS.read_text(encoding="utf-8")
+        source = reader_js()
         self.assertIn("FOCUS_MODE: () => enterFocusMode()", source)
         self.assertIn("EXIT_FOCUS_MODE: () => setFocusMode(false)", source)
 
@@ -374,7 +374,7 @@ class ReaderMarkupTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = READING_HTML.read_text(encoding="utf-8")
-        cls.js = READING_JS.read_text(encoding="utf-8")
+        cls.js = reader_js()
         cls.css = READING_CSS.read_text(encoding="utf-8")
 
     def section(self, start, end):
@@ -443,7 +443,8 @@ class ReaderMarkupTests(unittest.TestCase):
             self.assertTrue((ROOT / "frontend" / "shared" / "icons" / f"{icon}.svg").is_file(), icon)
 
     def test_the_button_toggles_focus_mode(self):
-        body = self.js[self.js.index('focusModeBtn.addEventListener("click"'):self.js.index("let dialogOpenAtKey")]
+        start = self.js.index('focusModeBtn.addEventListener("click"')
+        body = self.js[start:self.js.index("\n});", start)]
         self.assertIn("setFocusMode(false);", body)
         self.assertIn("enterFocusMode();", body)
 

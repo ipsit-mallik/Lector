@@ -50,7 +50,7 @@ from lector.shared import theme  # noqa: E402
 API_PY = ROOT / "src" / "lector" / "api.py"
 BRIDGE = ROOT / "src" / "lector" / "bridge"
 FRONTEND = ROOT / "frontend"
-READING_JS = FRONTEND / "pages" / "reading.js"
+from reader_scripts import reader_js, reader_script_defining, reader_script_paths  # noqa: E402
 NODE = shutil.which("node")
 
 # Every Api method whose reply is (or carries, for perform_save) the reader's
@@ -114,8 +114,11 @@ def _state_calls():
     """(file, method, offset, source) for every callApi of a state method;
     reading.js's undo/redo passes the name in a variable, `method`."""
     pattern = re.compile(r'callApi\(\s*(?:"(\w+)"|(method)\))')
+    # The reader's own scripts count as one, "pages/reading.js", whichever
+    # of them the call is in (docs/ARCHITECTURE.md § "Reader page layout").
+    reader = set(reader_script_paths())
     for path in sorted(FRONTEND.rglob("*.js")):
-        rel = path.relative_to(FRONTEND).as_posix()
+        rel = "pages/reading.js" if path in reader else path.relative_to(FRONTEND).as_posix()
         source = path.read_text(encoding="utf-8")
         for match in pattern.finditer(source):
             name = match.group(1) or "undo_highlight"
@@ -152,14 +155,14 @@ class FrontendAdoptsEveryStateTests(unittest.TestCase):
             self.assertIn(expected, seen)
 
     def test_the_handoffs_themselves_adopt(self):
-        reading = READING_JS.read_text(encoding="utf-8")
+        reading = reader_js()
         save = reading[reading.index("function finishSave("):]
         self.assertIn("adoptState(outcome.state)", save[: save.index("\n}")])
         hook = reading[reading.index("afterChange: async (next) => {"):]
         self.assertIn("adoptState(next)", hook[: hook.index("},")])
 
     def test_nothing_else_replaces_the_reader_s_state(self):
-        reading = READING_JS.read_text(encoding="utf-8")
+        reading = reader_js()
         assignments = re.findall(r"^\s*state = (.+)$", reading, flags=re.M)
         # adoptState's own, and the strip's scroll moving the tracked page
         # (a new object, never an edit of an adopted one).
@@ -168,7 +171,7 @@ class FrontendAdoptsEveryStateTests(unittest.TestCase):
         self.assertNotRegex(reading, r"\bstate\.\w+\s*=[^=]")
 
     def test_update_chrome_draws_the_colour_from_the_state(self):
-        reading = READING_JS.read_text(encoding="utf-8")
+        reading = reader_js()
         chrome = reading[reading.index("function updateChrome()"):]
         self.assertIn("showActiveHighlightColor(state.highlight_color)", chrome[: chrome.index("\n}")])
 
@@ -178,7 +181,7 @@ class FrontendAdoptsEveryStateTests(unittest.TestCase):
         self.assertIn('adoptState(await callApi("set_highlight_color", name), { keepPage: true })',
                       setter[: setter.index("\n}")])
         self.assertIn("buildSwatches(highlightOptionsSwatches, setActiveHighlightColor)", options)
-        reading = READING_JS.read_text(encoding="utf-8")
+        reading = reader_js()
         self.assertIn("await setActiveHighlightColor(command.color)", reading)
 
 
@@ -213,7 +216,7 @@ class AdoptStateBehaviourTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             harness = Path(tmp) / "adopt.js"
             harness.write_text(ADOPT_HARNESS, encoding="utf-8")
-            result = subprocess.run([NODE, str(harness), str(READING_JS)], capture_output=True,
+            result = subprocess.run([NODE, str(harness), str(reader_script_defining("adoptState"))], capture_output=True,
                                     text=True, encoding="utf-8", timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         out = json.loads(result.stdout)

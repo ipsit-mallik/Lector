@@ -90,7 +90,7 @@ REMOVE_CONFIRM = "remove_confirm"
 # Milestone 8.9: the "Save changes?" confirmation's own context — distinct
 # from `SAVE_DIALOG` above, which belongs to the Save-As folder browser
 # (Milestone 8.7) and already owns that name; this is the separate, older
-# copy/overwrite/discard/cancel prompt reading.js's `promptSaveIfDirty` opens.
+# copy/overwrite/discard/cancel prompt reading-save.js's `promptSaveIfDirty` opens.
 SAVE_CONFIRM = "save_confirm"
 # Milestone 8.12: the "What can I say?" panel as a modal scope. It used to leave
 # the screen beneath it listening, so "next page" kept turning pages behind an
@@ -379,7 +379,7 @@ REMOVE_CONFIRM_PHRASES: dict[str, tuple[str, ...]] = {
     CANCEL: ("cancel", "never mind"),
 }
 
-# Save-changes confirmation context (Milestone 8.9): reading.js's
+# Save-changes confirmation context (Milestone 8.9): reading-save.js's
 # `promptSaveIfDirty` (the "Save changes?" dialog, distinct from the
 # `SAVE_DIALOG` Save-As folder browser above). Reuses SAVE_COPY/SAVE_OVERWRITE
 # from SETTINGS_PHRASES rather than inventing new intent names for the same

@@ -36,7 +36,7 @@ from lector.features.voice import fuzzy
 from lector.shared import highlight_options, theme
 
 # Intent names cross the bridge to JS as plain strings, so they are part of
-# the frontend contract (see `frontend/pages/reading.js`), not private
+# the frontend contract (see `frontend/pages/reading-voice-commands.js`), not private
 # implementation detail.
 NEXT_PAGE = "NEXT_PAGE"
 PREV_PAGE = "PREV_PAGE"

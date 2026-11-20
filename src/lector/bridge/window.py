@@ -133,7 +133,7 @@ class WindowController(Controller):
                 return False
 
         # An Organise draft with changes in it is unsaved too: the page
-        # applies it first, then asks the usual question (reading.js).
+        # applies it first, then asks the usual question (reading-save.js).
         draft_pending = self._organise is not None and self._organise.steps > 0
         unsaved = self._doc.is_open and (self._doc.is_dirty or draft_pending)
         if self.closing_confirmed or not unsaved:

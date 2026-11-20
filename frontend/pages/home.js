@@ -459,7 +459,7 @@ function openToolFor(tool, path) {
   else ToolDialog.open(tool, path);
 }
 
-// What the reader reads on load to open Organise pages (reading.js's
+// What the reader reads on load to open Organise pages (reading-save.js's
 // OPEN_ORGANISE_NOTE): set once the PDF is open, so a PDF that couldn't be
 // opened leaves no note behind.
 const OPEN_ORGANISE_NOTE = "lector-open-organise";
@@ -866,7 +866,7 @@ async function handlePickerCommand(command) {
 }
 
 // Keyboard equivalent for CANCEL, the same "Escape backs out of an
-// in-progress mode" convention reading.js's cancelSelection() already uses.
+// in-progress mode" convention reading-highlighting.js's cancelSelection() already uses.
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && pickerActive) hidePicker();
 });
@@ -948,7 +948,7 @@ configureCommandReference({
 
 // --- Voice commands (Milestone 8.5, OPEN_PICKER added in 8.6) ------------- //
 // Each intent calls the exact function its equivalent click handler already
-// calls, mirroring reading.js's VOICE_ACTIONS. GO_HOME/UNDO/REDO/HELP are
+// calls, mirroring reading-voice-commands.js's VOICE_ACTIONS. GO_HOME/UNDO/REDO/HELP are
 // global (Milestone 8.4) but not wired here: "go home" is a no-op on the
 // screen that already is Home, and undo/redo/help have nothing to act on
 // with no document open and no command-reference button on this screen.

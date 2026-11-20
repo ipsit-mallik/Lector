@@ -17,7 +17,7 @@
 // DOM text of its own, still exposes its highlights to a keyboard and to a
 // screen reader. While the highlight tool is on, targets stop taking the
 // pointer so a drag can start on top of a highlight; a press there with no
-// drag still opens the editor, through highlightAtPoint() (reading.js).
+// drag still opens the editor, through highlightAtPoint() (reading-highlighting.js).
 //
 // The color values themselves are theme.css's --highlight-<name> tokens; this
 // file only ever names them. It knows nothing about the two layouts either:
@@ -37,7 +37,7 @@ const highlightEditorThicknessGroup = document.getElementById("highlightEditorTh
 // every time focus passes over it.
 const HIGHLIGHT_NAME_MAX_CHARS = 80;
 // How far outside a highlight's own box a press still counts as landing on it,
-// in PDF points — the same allowance reading.js gives a press on a character.
+// in PDF points — the same allowance reading-highlighting.js gives a press on a character.
 const HIGHLIGHT_HIT_PAD = 1.5;
 // Gap between a highlight and the editor it opens, and between the editor and
 // the page area's edges.
@@ -155,7 +155,7 @@ function forgetPageHighlights(pageIndex) {
 }
 
 // While the highlight tool is on, a press on a highlight has to start a drag
-// (reading.js), so targets let the pointer through to the page.
+// (reading-highlighting.js), so targets let the pointer through to the page.
 function setHighlightTargetsPassive(passive) {
   highlightTargetLayer.classList.toggle("is-selecting", passive);
 }
@@ -455,7 +455,7 @@ async function changeEditedAppearance(change) {
         next.opacity == null ? null : next.opacity, next.width == null ? null : next.width, next.gesture,
       );
       // Nothing to redraw when it changed nothing, but the state is still the
-      // reader's latest (reading.js's adoptState).
+      // reader's latest (reading-state.js's adoptState).
       if (state && state.affected_page != null) await highlightHooks.afterChange(state);
       else adoptState(state);
     }

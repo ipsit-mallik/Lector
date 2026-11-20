@@ -78,7 +78,7 @@ const voiceBox = createVoiceBox({
 // The mouse/keyboard way to the same panel "what can I say" opens.
 document.getElementById("voiceHelpBtn").addEventListener("click", openCommandReference);
 
-// The voice "close app"/"quit" command (Milestone 8.11) — see reading.js's
+// The voice "close app"/"quit" command (Milestone 8.11) — see reading-save.js's
 // identical closeApp() for why there is no separate click/keyboard wiring.
 async function closeApp() {
   await callApi("close_app");
@@ -368,7 +368,7 @@ initRadioCards(document.getElementById("progressBarOptions"));
 
 // --- Voice commands (Milestone 8.5) --------------------------------------- //
 // Each intent calls the exact function its equivalent click handler already
-// calls, mirroring reading.js's and home.js's VOICE_ACTIONS. Unlike home.js,
+// calls, mirroring reading-voice-commands.js's and home.js's VOICE_ACTIONS. Unlike home.js,
 // GO_HOME is wired here: Settings already has a natural action for it
 // (return to the Home screen), where Home itself does not.
 const VOICE_ACTIONS = {

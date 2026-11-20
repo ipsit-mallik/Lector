@@ -47,7 +47,9 @@ PAGES = ROOT / "frontend" / "pages"
 FIT_JS = PAGES / "zoom-fit.js"
 CONTROL_JS = PAGES / "zoom-control.js"
 SLIDER_JS = PAGES / "range-slider.js"
-READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 READING_HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 READING_CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
 THEME_CSS = (ROOT / "frontend" / "shared" / "theme.css").read_text(encoding="utf-8")

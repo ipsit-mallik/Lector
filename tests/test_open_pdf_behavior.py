@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from reader_scripts import reader_js  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = ROOT / "frontend" / "pages"
@@ -385,7 +386,7 @@ class PageWiringTests(unittest.TestCase):
     def test_no_page_calls_open_pdf_itself_or_keeps_the_old_toast(self):
         for script in ("home.js", "reading.js", "settings.js"):
             with self.subTest(script=script):
-                js = (PAGES / script).read_text(encoding="utf-8")
+                js = reader_js() if script == "reading.js" else (PAGES / script).read_text(encoding="utf-8")
                 self.assertNotIn('callApi("open_pdf"', js)
                 self.assertIn("openPdf(path", js)
                 self.assertNotIn("that PDF", js)

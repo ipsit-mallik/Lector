@@ -18,7 +18,7 @@ process also keeps a Tesseract crash out of the app.
 
 Nothing here runs on file open. `PdfDocument` starts a job only when a
 reader tries to highlight a scanned page, or when voice is on and a scanned
-page has stayed on screen (see `reading.js`).
+page has stayed on screen (see `frontend/pages/reading-ocr.js`).
 """
 import hashlib
 import logging

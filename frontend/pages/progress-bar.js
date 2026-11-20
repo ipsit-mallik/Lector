@@ -63,7 +63,7 @@ let progressPageCount = 0;
 let progressChapters = [];
 let progressHasOutline = false;
 let progressPage = 0;
-// Where the read fill ends (reading.js): a page, and how far through it, 0 to
+// Where the read fill ends (reading-layout.js): a page, and how far through it, 0 to
 // 1. Usually the page being read; scrolled to the end of the strip, the last.
 let progressFillPage = 0;
 let progressPageFraction = 0;
@@ -238,8 +238,8 @@ function progressFollowsScroll() {
   return isProgressBarVisible() && Boolean(progressGeometry);
 }
 
-// Where the read fill ends, { page, fraction }; reading.js calls this from
-// updateChrome, on a resize or zoom (the scroll range changes) and as either
+// Where the read fill ends, { page, fraction }; the reader calls this from
+// updateChrome (reading-chrome.js), on a resize or zoom (the scroll range changes) and as either
 // view scrolls.
 function updateProgressScroll({ page, fraction }) {
   if (page === progressFillPage && fraction === progressPageFraction) return;

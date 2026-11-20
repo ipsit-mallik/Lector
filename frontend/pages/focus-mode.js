@@ -151,7 +151,7 @@ document.addEventListener("pointermove", (ev) => {
   else if (wasHovered) settleFocusPeek();
 });
 
-// Called with every mic state (reading.js's renderMicState). Only shows in
+// Called with every mic state (reading-mic.js's renderMicState). Only shows in
 // Focus mode (reading.css); outside it the footer's own pill says the same.
 function showFocusVoice(micState, text) {
   const capturing = micState === "listening";

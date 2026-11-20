@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from reader_scripts import reader_js  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parents[1] / "frontend" / "pages" / "replace-dialog.js"
 
@@ -169,7 +170,7 @@ class ReadingWiringTests(unittest.TestCase):
         self.assertLess(html.index('src="replace-dialog.js"'), html.index('src="reading.js"'))
 
     def test_a_copy_onto_a_taken_name_is_asked_about_and_failures_show_the_plain_message(self):
-        js = (self.ROOT / "reading.js").read_text(encoding="utf-8")
+        js = reader_js()
         self.assertIn('callApi("describe_save_target"', js)
         self.assertIn("ReplaceDialog.open(", js)
         self.assertIn("ReplaceDialog.handleCommand(command)", js)

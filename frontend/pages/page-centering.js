@@ -5,7 +5,7 @@
 // the scroller), and only when it fits: a page too wide to sit on the window's
 // centre and still keep PAGE_CENTER_CLEARANCE_PX clear of the area's edges
 // (the toolbar side holds the scrollbar) goes back to the area's centre.
-// Book and Strip alike; reading.js calls centerPageOnWindow() whenever the
+// Book and Strip alike; reading-layout.js calls centerPageOnWindow() whenever the
 // page's width or the area's size may have changed.
 
 // Room kept between the page and the area's edge: the scrollers' 24px gutter

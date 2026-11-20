@@ -11,7 +11,9 @@ from lector.features.voice import command_grammar as grammar  # noqa: E402
 from lector.features.voice import fuzzy, reference, router  # noqa: E402
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
-READING_JS = (FRONTEND / "pages" / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 HOME_JS = (FRONTEND / "pages" / "home.js").read_text(encoding="utf-8")
 TOOL_INTENTS = (grammar.COMPRESS_FILE, grammar.MAKE_SEARCHABLE, grammar.EXPORT_IMAGES)
 

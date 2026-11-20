@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from lector.features.voice import command_grammar as grammar  # noqa: E402
 from lector.features.voice import reference, router, wake  # noqa: E402
+from reader_scripts import reader_js, reader_script_paths  # noqa: E402
 
 FRONTEND = ROOT / "frontend"
 COMPONENT = FRONTEND / "pages" / "command-reference.js"
@@ -381,7 +382,7 @@ class OneSharedComponentTests(unittest.TestCase):
 
     def test_no_page_builds_its_own_copy_of_the_list(self):
         for name, (html, js) in self.PAGES.items():
-            for path in (html, js):
+            for path in (html, *(reader_script_paths() if name == "reading" else [js])):
                 text = path.read_text(encoding="utf-8")
                 with self.subTest(screen=name, file=path.name):
                     for private in ("renderReference", "reference-card-row", "reference-section"):
@@ -390,7 +391,7 @@ class OneSharedComponentTests(unittest.TestCase):
     def test_every_entry_point_opens_the_same_component(self):
         home = self.PAGES["home"][1].read_text(encoding="utf-8")
         settings = self.PAGES["settings"][1].read_text(encoding="utf-8")
-        reading = self.PAGES["reading"][1].read_text(encoding="utf-8")
+        reading = reader_js()
         # The sidebar link, the reader's footer button, and the spoken command.
         self.assertIn('getElementById("voiceHelpBtn").addEventListener("click", openCommandReference)', home)
         self.assertIn('getElementById("voiceHelpBtn").addEventListener("click", openCommandReference)', settings)

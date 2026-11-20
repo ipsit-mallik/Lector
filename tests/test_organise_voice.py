@@ -23,7 +23,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from lector.features.voice import reference, router  # noqa: E402
 
 PAGES = ROOT / "frontend" / "pages"
-READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 ORGANISE_JS = (PAGES / "organise.js").read_text(encoding="utf-8")
 DANGER_JS = (PAGES / "danger-dialog.js").read_text(encoding="utf-8")
 INSERT_JS = (PAGES / "organise-insert.js").read_text(encoding="utf-8")
@@ -110,9 +112,12 @@ class OrganiseVoiceWiringTests(unittest.TestCase):
         button = re.search(r'organiseCancelBtn\.addEventListener\("click", \(\) => (\w+)\(\)\)', ORGANISE_JS)
         self.assertEqual(button.group(1), "cancelOrganise")
 
+    def test_the_reader_routes_spoken_commands_through_one_handler(self):
+        self.assertIn('window.addEventListener("lector:command", onVoiceCommand);', READING_JS)
+
     def test_the_danger_questions_take_spoken_answers_before_organise_does(self):
         # Discard and Delete: "confirm" is the danger button, "cancel" the safe one.
-        handler = READING_JS[READING_JS.index('window.addEventListener("lector:command"'):]
+        handler = READING_JS[READING_JS.index("function onVoiceCommand(ev) {"):]
         questions = handler.index(
             "[OrganiseDiscardDialog, OrganiseDeleteDialog, OrganiseInsertDialog, OrganiseExtractDialog]"
         )
@@ -135,7 +140,7 @@ class OrganiseVoiceWiringTests(unittest.TestCase):
         self.assertIn('command.intent === "DIALOG_PICK"', INSERT_JS)
         self.assertEqual(_intent(router.FILE_TOOL, "two"), router.DIALOG_PICK)
         # Its Open dialog is routed before anything else in Organise.
-        handler = READING_JS[READING_JS.index('window.addEventListener("lector:command"'):]
+        handler = READING_JS[READING_JS.index("function onVoiceCommand(ev) {"):]
         self.assertLess(handler.index("openFileDialog.isOpen()"), handler.index("ORGANISE_VOICE_ACTIONS"))
 
     def test_organise_claims_its_context_and_gives_it_back(self):

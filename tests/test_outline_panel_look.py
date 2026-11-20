@@ -27,7 +27,9 @@ PAGES = ROOT / "frontend" / "pages"
 HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
 OUTLINE_JS = (PAGES / "outline-panel.js").read_text(encoding="utf-8")
-READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 CENTERING_JS = (PAGES / "page-centering.js").read_text(encoding="utf-8")
 
 

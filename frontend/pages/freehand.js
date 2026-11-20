@@ -4,7 +4,7 @@
 //
 // Which mode a press is in is settled by what is under the press, once, and
 // kept for the whole drag (chooseHighlightMode): on a character (a text layer
-// or OCR text), a text highlight, the selection in reading.js; anywhere else,
+// or OCR text), a text highlight, the selection in reading-highlighting.js; anywhere else,
 // a stroke; Alt held, a stroke regardless. A press on a scanned page whose
 // text has not been read yet is a text press, which reads the page (the
 // reader presses again once it is done), since until then nothing can say
@@ -23,7 +23,7 @@
 // line, which the preview eases into over INK_STRAIGHTEN_MS, and both the
 // stroke as drawn and the line go to api.add_ink_stroke, so the first Undo
 // gives the drawn stroke back. The preview stays until the re-rendered page
-// image shows the real annotation (reading.js's commit hook resolves then).
+// image shows the real annotation (reading-highlighting.js's commit hook resolves then).
 //
 // A press and release in one place draws nothing (a click is not a stroke):
 // on an existing highlight or drawing it opens the editor, as in text mode.
@@ -35,7 +35,7 @@ const inkLayer = document.getElementById("inkLayer");
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 // How far the pointer may drift between press and release and still count as
-// a click, in CSS pixels (reading.js's CLICK_SLOP_PX for a text press).
+// a click, in CSS pixels (reading-highlighting.js's CLICK_SLOP_PX for a text press).
 const INK_CLICK_SLOP_PX = 3;
 // The ease from a stroke as drawn to the straight line it becomes: --dur-fast
 // on --ease-out (theme.css), skipped under prefers-reduced-motion.
@@ -61,9 +61,9 @@ const inkCursorCache = new Map();
 
 // hooks: {
 //   loadedPage(i)         the page's get_page_chars reply if it has arrived, else null,
-//   pageData(i)           a promise of it (cached by reading.js),
+//   pageData(i)           a promise of it (cached by reading-highlighting.js),
 //   isOnText(page, x, y)  whether a point in PDF points is on a character,
-//   beginText(el, i, ev)  start a text selection (reading.js's beginSelection),
+//   beginText(el, i, ev)  start a text selection (reading-highlighting.js's beginSelection),
 //   moveText(ev)          / endText(ev): carry it on and release it,
 //   commit(i, drawn, straight)  write the stroke; resolves once the page shows it,
 //                         to false if nothing was drawn,
@@ -90,7 +90,7 @@ function setInkStyle(style) {
 // there cannot tell text from picture until it has been read.
 const INK_UNREAD_OCR = new Set(["needed", "running", "error"]);
 // How far outside a character's box a press still lands on it, in PDF points
-// (reading.js's HIT_PAD, for the same reason).
+// (reading-highlighting.js's HIT_PAD, for the same reason).
 const INK_TEXT_HIT_PAD = 1.5;
 // OCR finds "characters" in pictures too: on a scanned ID card, one letter
 // as wide as the photo, and a real line of text whose boxes run 98pt down

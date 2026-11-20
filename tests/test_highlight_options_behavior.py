@@ -52,7 +52,9 @@ SLIDER_JS = PAGES / "range-slider.js"
 OPTIONS_JS = PAGES / "highlight-options.js"
 READING_HTML = (PAGES / "reading.html").read_text(encoding="utf-8")
 READING_CSS = (PAGES / "reading.css").read_text(encoding="utf-8")
-READING_JS = (PAGES / "reading.js").read_text(encoding="utf-8")
+from reader_scripts import reader_js  # noqa: E402
+
+READING_JS = reader_js()
 NODE = shutil.which("node")
 
 HARNESS = r"""

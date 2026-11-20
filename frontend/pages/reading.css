@@ -484,7 +484,7 @@ html, body { height: 100%; }
 .page-area:focus-visible { outline: none; }
 
 /* The page is centred on the window rather than on the page area, which the
-   toolbar makes narrower on the right: reading.js's centerPageOnWindow() sets
+   toolbar makes narrower on the right: reading-layout.js's call to centerPageOnWindow() sets
    --page-offset to how far right (or, negative, left) of the area's centre
    that is, and padding on one side moves the flex-centred page by it. It is
    0 whenever the page is too wide for that without nearing the toolbar.
@@ -531,7 +531,7 @@ html, body { height: 100%; }
   cursor: default;
   /* Deliberately no width/height transition: zoom re-anchors the scroll
    * position by measuring the pages right after resizing them (see
-   * applyZoomPreview() in reading.js), and an animated resize would report
+   * applyZoomPreview() in reading-zoom.js), and an animated resize would report
    * mid-animation sizes, anchoring the view to the wrong place. */
 }
 

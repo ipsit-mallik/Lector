@@ -1,7 +1,7 @@
 // "Applying page changes…": what Done in Organise pages, Undo page changes and
 // Redo page changes show while they run (docs/ARCHITECTURE.md § "Page changes
 // (Milestone F2)"). The card is up within a frame of the click, blocks the
-// mouse and keyboard (and voice: reading.js checks `isPageChangeBusy`), and
+// mouse and keyboard (and voice: reading-voice-commands.js checks `isPageChangeBusy`), and
 // stays up until the reader has drawn the document again.
 //
 // Every per-page cache in the reader (page images, the strip, characters and
