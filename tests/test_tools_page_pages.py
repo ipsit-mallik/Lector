@@ -144,20 +144,30 @@ class PagesSectionAndMenuTests(unittest.TestCase):
             self.assertTrue((FRONTEND / "shared" / "icons" / f"{name}.svg").is_file(), name)
 
 
+END_OF_FUNCTION = "\n}\n"
+
+
 class HomeSendsThePdfToOrganiseTests(unittest.TestCase):
     def test_both_ways_in_open_the_pdf_then_leave_the_readers_note(self):
-        # The Recent menu and the Tools page's picker share one router.
+        # A Recent menu goes straight to the tool; the Tools page asks which PDF
+        # as the first step of the tool's own dialog (Organise: its own picker,
+        # whose next step is the reader).
         self.assertRegex(HOME_JS, r"onTool: \(tool, entry\) => openToolFor\(tool, entry\.path\)")
-        self.assertRegex(HOME_JS, r"if \(path\) openToolFor\(tool, path\)")
+        page = HOME_JS[HOME_JS.index("async function openToolFromPage"):]
+        page = page[:page.index(END_OF_FUNCTION)]
+        self.assertIn('PdfPicker.choose(tool, { accept: openForOrganise })', page)
+        self.assertIn('SplitDialog.open(null, { choose: true })', page)
+        self.assertIn('ToolDialog.open(tool, null, { choose: true })', page)
         router = HOME_JS[HOME_JS.index("function openToolFor"):]
-        router = router[:router.index("\n}\n")]
+        router = router[:router.index(END_OF_FUNCTION)]
         self.assertIn('if (tool === "organise") openPathToOrganise(path);', router)
         self.assertIn('else if (tool === "split") SplitDialog.open(path);', router)
-        body = HOME_JS[HOME_JS.index("async function openPathToOrganise"):]
-        body = body[:body.index("\n}\n")]
-        # The note only once the PDF is open; then the reader.
+        body = HOME_JS[HOME_JS.index("async function openForOrganise"):]
+        body = body[:body.index(END_OF_FUNCTION)]
+        # The notes only once the PDF is open; then the reader, from either way in.
         self.assertLess(body.index("await openPdf(path"), body.index("sessionStorage.setItem(OPEN_ORGANISE_NOTE"))
-        self.assertLess(body.index("sessionStorage.setItem"), body.index('"pages/reading.html"'))
+        self.assertIn("sessionStorage.setItem(ORGANISE_RETURN_NOTE", body)
+        self.assertIn('if (await openForOrganise(path)) window.location.href = "pages/reading.html";', HOME_JS)
 
     def test_home_and_the_reader_name_the_same_note(self):
         home = re.search(r'const OPEN_ORGANISE_NOTE = "([^"]+)"', HOME_JS).group(1)

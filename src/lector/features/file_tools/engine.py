@@ -96,15 +96,40 @@ def describe_document(doc: pymupdf.Document, page_index: int = 0, scanned=None) 
     is_scanned = scanned or (lambda i: ocr.page_needs_ocr(doc[i]))
     images = set()
     for page in doc:
+        ocr.check_worker_stop()
         images.update(image[0] for image in page.get_images(full=True))
     page = doc[min(max(page_index, 0), len(doc) - 1)]
     return {
         "pages": len(doc),
         "images": len(images),
-        "textless": [i for i in range(len(doc)) if is_scanned(i)],
+        "textless": _textless(doc, is_scanned),
         "signed": doc.get_sigflags() > 0,
         "page_size": [round(page.rect.width, 2), round(page.rect.height, 2)],
     }
+
+
+def _textless(doc: pymupdf.Document, is_scanned) -> list[int]:
+    """The 0-based pages with no text that show an image, stopping between
+    pages when asked to (`ocr.check_worker_stop`)."""
+    found = []
+    for i in range(len(doc)):
+        ocr.check_worker_stop()
+        if is_scanned(i):
+            found.append(i)
+    return found
+
+
+def textless_pages(path: str, password: str | None) -> list[int]:
+    """Make searchable's look at a PDF from Home: its 0-based pages with no
+    text that show an image (`ocr.page_needs_ocr`), the one part of a tool's
+    description that reads every page. Stopped between pages when nobody
+    wants it any more. Raises SourceError when it can't be opened or the
+    password doesn't fit."""
+    doc, _needs = _open_pdf(None, path, password)
+    try:
+        return _textless(doc, lambda i: ocr.page_needs_ocr(doc[i]))
+    finally:
+        doc.close()
 
 
 def describe_path(path: str, password: str | None) -> dict:
@@ -359,6 +384,7 @@ def compress_document(doc: pymupdf.Document, recipe: compress_plan.Recipe) -> di
     low_before = _low_ppi_counts(placements)
     if recipe.black_and_white:
         for xref, ppi in scans:
+            ocr.check_worker_stop()
             made = _convert_scan(doc, xref, ppi, recipe)
             if made:
                 outcome[made] += 1
@@ -395,6 +421,7 @@ def _image_placements(doc: pymupdf.Document) -> dict[int, list[tuple[int, float,
     it covers. Only pages that have images are looked at."""
     placements: dict[int, list[tuple[int, float, float]]] = {}
     for page in doc:
+        ocr.check_worker_stop()
         if not page.get_images():
             continue
         page_area = abs(page.rect)

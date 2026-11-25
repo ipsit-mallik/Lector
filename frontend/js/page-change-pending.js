@@ -23,3 +23,11 @@ window.lectorPageChangeNote = null;
     document.documentElement.classList.add("page-change-pending");
   }
 }
+
+// Sent here from Home to organise (Home's "lector-open-organise" note, read
+// and removed by reading.js later): Organise's frame from the first frame,
+// before any script below has run (organise.css), so the reader's own
+// layout never shows in between. organise.js takes the mark off.
+if (sessionStorage.getItem("lector-open-organise") !== null) {
+  document.documentElement.classList.add("organise-pending");
+}

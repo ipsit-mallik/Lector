@@ -47,6 +47,10 @@ let organiseHooks = {
   onClose: () => {},
   // Opens a PDF a file job wrote (Extract's Open), as the reader does.
   openOutput: () => {},
+  // Organise started from Home: Done and Cancel go back there instead of
+  // to reading (reading-save.js's leaveOrganiseForHome).
+  returnsHome: () => false,
+  leaveForHome: () => {},
 };
 let organiseOpen = false;
 // The draft as this page has it (OrganisePlan.history): Python's, plus the
@@ -64,6 +68,52 @@ function configureOrganise(hooks) {
 
 function isOrganiseOpen() {
   return organiseOpen;
+}
+
+// Sent here from Home to organise (reading.js, from the first frame): the
+// view is shown at once, with a placeholder tile per page (the page's
+// number, its paper as a skeleton), until `openOrganise` has the draft and
+// draws the real ones in their place. `pages` and `name` come with Home's
+// note. Only the first screenful or so is drawn.
+const ORGANISE_PLACEHOLDER_MAX_TILES = 48;
+
+function showOrganisePlaceholder({ pages = 0, name = "" } = {}) {
+  const grid = document.getElementById("organiseGrid");
+  organiseView.hidden = false;
+  document.querySelector(".reading-view").classList.add("is-organising");
+  organiseDocName.textContent = name || "";
+  const tiles = [];
+  for (let n = 0; n < Math.min(pages, ORGANISE_PLACEHOLDER_MAX_TILES); n++) {
+    const cell = document.createElement("span");
+    cell.className = "organise-page organise-page--placeholder";
+    cell.setAttribute("aria-hidden", "true");
+    const box = document.createElement("span");
+    box.className = "organise-thumb-box";
+    const paper = document.createElement("span");
+    paper.className = "organise-paper skeleton";
+    box.appendChild(paper);
+    const num = document.createElement("span");
+    num.className = "organise-page-num";
+    num.textContent = String(n + 1);
+    cell.append(box, num);
+    tiles.push(cell);
+  }
+  grid.replaceChildren(...tiles);
+  grid.dataset.placeholder = "true";
+}
+
+// The placeholder tiles go, leaving the grid to organise-grid.js; with
+// `hide`, the view too (Organise couldn't open after all).
+function clearOrganisePlaceholder({ hide = false } = {}) {
+  const grid = document.getElementById("organiseGrid");
+  document.documentElement.classList.remove("organise-pending");
+  if (grid.dataset.placeholder !== "true") return;
+  delete grid.dataset.placeholder;
+  grid.replaceChildren();
+  if (hide) {
+    organiseView.hidden = true;
+    document.querySelector(".reading-view").classList.remove("is-organising");
+  }
 }
 
 const organiseGrid = createOrganiseGrid({
@@ -133,12 +183,17 @@ function organiseSteps() {
 // Opens the view, focused on the page being read. False, with a toast saying
 // why, for a PDF whose pages can't be changed.
 async function openOrganise() {
-  if (organiseOpen || isPageChangeBusy()) return false;
+  if (organiseOpen || isPageChangeBusy()) {
+    clearOrganisePlaceholder({ hide: !organiseOpen });
+    return false;
+  }
   const view = await callApi("organise_begin");
   if (!view.ok) {
+    clearOrganisePlaceholder({ hide: true });
     showToast(view.message);
     return false;
   }
+  clearOrganisePlaceholder();
   organiseOpen = true;
   OrganiseTiming.enable(view.debug);
   // Its own grammar ("done", "cancel"), the globals still heard.
@@ -497,6 +552,12 @@ async function applyOrganiseDraft(options) {
 // (page-change-busy.js). If applying fails the draft stays open.
 async function finishOrganise() {
   if (!organiseOpen || isPageChangeBusy()) return;
+  if (organiseHooks.returnsHome()) {
+    // Applied, then the Save question at once, then Home.
+    await organiseSettled();
+    organiseHooks.leaveForHome();
+    return;
+  }
   if (!organiseSteps()) {
     await organiseSettled();
     adoptState(await callApi("organise_done"));
@@ -527,6 +588,8 @@ async function cancelOrganise() {
   await organiseSettled();
   adoptState(await callApi("organise_cancel"));
   closeOrganiseView();
+  // Started from Home: the PDF is closed and Home is back as it was.
+  if (organiseHooks.returnsHome()) organiseHooks.leaveForHome();
 }
 
 // Before the reader is left (Library, another PDF, the window closing): the

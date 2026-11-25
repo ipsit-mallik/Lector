@@ -270,6 +270,8 @@ function createFileBrowser({
   cancelBtnId,
   confirmBtnId,
   filenameId,
+  addBtnId,
+  countId,
   mode,
   voiceContext,
   restingContext,
@@ -287,11 +289,23 @@ function createFileBrowser({
   const defaultTitle = titleEl ? titleEl.textContent : "";
   const defaultConfirmLabel = confirmBtn ? confirmBtn.textContent : "";
   const filenameRow = filenameInput ? filenameInput.closest(".browser-filename-row") : null;
+  // Choosing several files (`open({ multiple: true })`): the confirm button
+  // ("Add 3 files") and the muted count beside it, and the footer's hint.
+  const addBtn = addBtnId ? document.getElementById(addBtnId) : null;
+  const countEl = countId ? document.getElementById(countId) : null;
+  const hintEl = scrim.querySelector(".dialog-footer .hint");
+  const defaultHint = hintEl ? hintEl.textContent : "";
+  const MULTI_HINT = "Ctrl+click or Shift+click to choose several files, or say a number to add one.";
   // What this particular `open()` asked for (see there).
   let openOptions = {};
 
   let entries = [];
   let visibleEntries = [];
+  // Multi-select: the chosen files (by path), the row a Shift+click runs
+  // from, and the row with the keyboard's focus (indices into visibleEntries).
+  let selected = new Set();
+  let anchor = null;
+  let focusIndex = 0;
   let currentDir = null;
   let parentDir = null;
   let listError = null;
@@ -369,12 +383,37 @@ function createFileBrowser({
 
   // ---- Right pane: numbered rows ---------------------------------------
 
+  function multiple() {
+    return Boolean(openOptions.multiple) && mode === "open" && Boolean(addBtn);
+  }
+
   function renderRows() {
     const query = searchEl.value.trim().toLowerCase();
+    // The focused row and the Shift+click anchor are indices into the rows
+    // shown: a search changes which rows those are, so they follow their files.
+    const focusPath = visibleEntries[focusIndex] ? visibleEntries[focusIndex].path : null;
+    const anchorPath = anchor !== null && visibleEntries[anchor] ? visibleEntries[anchor].path : null;
     visibleEntries = query
       ? entries.filter((entry) => entry.name.toLowerCase().includes(query))
       : entries;
     listEl.innerHTML = "";
+    const multi = multiple();
+    if (multi) {
+      // A row hidden by the search is no longer chosen.
+      const shown = new Set(visibleEntries.map((e) => e.path));
+      selected = new Set([...selected].filter((path) => shown.has(path)));
+      const at = (path) => (path === null ? -1 : visibleEntries.findIndex((e) => e.path === path));
+      anchor = at(anchorPath) >= 0 ? at(anchorPath) : null;
+      focusIndex = Math.max(0, at(focusPath));
+      listEl.setAttribute("role", "listbox");
+      listEl.setAttribute("aria-multiselectable", "true");
+      listEl.setAttribute("aria-label", "Files in this folder");
+    } else {
+      listEl.removeAttribute("role");
+      listEl.removeAttribute("aria-multiselectable");
+      listEl.removeAttribute("aria-label");
+    }
+    updateMultiFooter();
     if (!visibleEntries.length) {
       const empty = document.createElement("div");
       empty.className = "browser-empty";
@@ -409,7 +448,24 @@ function createFileBrowser({
       badge.textContent = String(i + 1);
       row.appendChild(badge);
 
-      row.addEventListener("click", () => activateRow(i));
+      if (multi) {
+        const chosen = !entry.is_dir && selected.has(entry.path);
+        row.setAttribute("role", "option");
+        row.setAttribute("aria-selected", String(chosen));
+        row.tabIndex = i === focusIndex ? 0 : -1;
+        row.classList.toggle("is-selected", chosen);
+        const check = document.createElement("span");
+        check.className = "browser-row-check";
+        check.dataset.icon = "check";
+        check.setAttribute("aria-hidden", "true");
+        row.insertBefore(check, row.firstChild);
+        row.addEventListener("click", (ev) => onMultiClick(i, ev));
+        row.addEventListener("dblclick", () => {
+          if (!entry.is_dir) closeWith({ paths: [entry.path] });
+        });
+      } else {
+        row.addEventListener("click", () => activateRow(i));
+      }
       listEl.appendChild(row);
     });
     mountIcons(listEl);
@@ -722,6 +778,10 @@ function createFileBrowser({
     currentDir = listing.path;
     parentDir = listing.parent;
     entries = listing.entries;
+    // A new folder starts with nothing chosen.
+    selected = new Set();
+    anchor = null;
+    focusIndex = 0;
     listError = listing.error;
     searchEl.value = "";
     renderBreadcrumb();
@@ -757,10 +817,142 @@ function createFileBrowser({
       navigateTo(entry.path);
       return;
     }
-    if (mode === "open") {
+    if (multiple()) {
+      // A spoken number adds just that file.
+      closeWith({ paths: [entry.path] });
+    } else if (mode === "open") {
       closeWith({ path: entry.path });
     } else if (filenameInput) {
       filenameInput.value = entry.name;
+    }
+  }
+
+  // ---- Choosing several files ------------------------------------------
+
+  // A click chooses that file alone; Ctrl+click adds or takes it away;
+  // Shift+click chooses every file from the last one clicked. A folder still
+  // opens on a click.
+  function onMultiClick(index, ev) {
+    const entry = visibleEntries[index];
+    if (!entry) return;
+    focusIndex = index;
+    if (entry.is_dir) {
+      navigateTo(entry.path);
+      return;
+    }
+    if (ev.shiftKey && anchor !== null) {
+      const run = filesBetween(anchor, index);
+      selected = ev.ctrlKey || ev.metaKey ? new Set([...selected, ...run]) : new Set(run);
+    } else if (ev.ctrlKey || ev.metaKey) {
+      toggle(entry.path);
+      anchor = index;
+    } else {
+      selected = new Set([entry.path]);
+      anchor = index;
+    }
+    paintSelection();
+    focusRow(index);
+  }
+
+  // The files (not folders) from row `a` to row `b`, either way round.
+  function filesBetween(a, b) {
+    const [from, to] = a < b ? [a, b] : [b, a];
+    return visibleEntries.slice(from, to + 1).filter((e) => !e.is_dir).map((e) => e.path);
+  }
+
+  // A change of what is chosen, on the rows already drawn: their chosen
+  // state and the footer, nothing rebuilt (a big folder's rows, and their
+  // icons, stay as they are; `renderRows` is for a new folder or search).
+  function paintSelection() {
+    const rows = listEl.querySelectorAll(".browser-row");
+    rows.forEach((row, i) => {
+      const entry = visibleEntries[i];
+      const chosen = Boolean(entry) && !entry.is_dir && selected.has(entry.path);
+      row.setAttribute("aria-selected", String(chosen));
+      row.classList.toggle("is-selected", chosen);
+    });
+    updateMultiFooter();
+  }
+
+  function toggle(path) {
+    const next = new Set(selected);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    selected = next;
+  }
+
+  function focusRow(index) {
+    const row = listEl.querySelectorAll(".browser-row")[index];
+    if (!row) return;
+    for (const other of listEl.querySelectorAll(".browser-row")) other.tabIndex = other === row ? 0 : -1;
+    focusIndex = index;
+    row.focus({ preventScroll: true });
+    // Only the list scrolls, by the least that brings the row into view
+    // (never the dialog or the page, as the tree's own scrolling).
+    const box = listEl.getBoundingClientRect();
+    const rect = row.getBoundingClientRect();
+    if (rect.top < box.top) listEl.scrollTop -= box.top - rect.top;
+    else if (rect.bottom > box.bottom) listEl.scrollTop += rect.bottom - box.bottom;
+  }
+
+  function selectAllFiles() {
+    selected = new Set(visibleEntries.filter((e) => !e.is_dir).map((e) => e.path));
+    paintSelection();
+    focusRow(focusIndex);
+  }
+
+  // The chosen files in the order the folder shows them.
+  function chosenPaths() {
+    return entries.filter((e) => !e.is_dir && selected.has(e.path)).map((e) => e.path);
+  }
+
+  function updateMultiFooter() {
+    const multi = multiple();
+    if (addBtn) addBtn.hidden = !multi;
+    if (countEl) countEl.hidden = !multi || selected.size === 0;
+    if (hintEl) hintEl.textContent = multi ? MULTI_HINT : defaultHint;
+    if (!multi) return;
+    const count = selected.size;
+    addBtn.disabled = count === 0;
+    addBtn.textContent = count === 0 ? "Add files" : `Add ${count} ${count === 1 ? "file" : "files"}`;
+    if (countEl) countEl.textContent = count ? `${count} selected` : "";
+  }
+
+  function confirmFiles() {
+    const paths = chosenPaths();
+    if (paths.length) closeWith({ paths });
+  }
+
+  // ↑/↓ move, Shift+↑/↓ chooses the files from the anchor to the new row
+  // (as Shift+click does, so it grows and shrinks), Space adds or takes away
+  // the focused file, Enter opens a folder or adds what is chosen (the
+  // focused file when nothing is).
+  function onListKeydown(ev) {
+    if (!multiple() || !visibleEntries.length) return;
+    const entry = visibleEntries[focusIndex];
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      const next = Math.max(0, Math.min(visibleEntries.length - 1, focusIndex + (ev.key === "ArrowDown" ? 1 : -1)));
+      if (ev.shiftKey) {
+        if (anchor === null) anchor = focusIndex;
+        selected = new Set(filesBetween(anchor, next));
+        paintSelection();
+      }
+      focusRow(next);
+    } else if (ev.key === " ") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (entry && !entry.is_dir) {
+        toggle(entry.path);
+        anchor = focusIndex;
+        paintSelection();
+        focusRow(focusIndex);
+      }
+    } else if (ev.key === "Enter") {
+      ev.preventDefault();
+      if (entry && entry.is_dir) navigateTo(entry.path);
+      else if (selected.size) confirmFiles();
+      else if (entry) closeWith({ paths: [entry.path] });
     }
   }
 
@@ -804,8 +996,14 @@ function createFileBrowser({
   function closeWith(result) {
     scrim.hidden = true;
     showMode(false);
+    // The context to hand back is this open()'s, so read it before the
+    // options are put back.
+    const resting = openOptions.restingContext || restingContext;
+    openOptions = {};
+    selected = new Set();
+    updateMultiFooter();
     if (titleEl) titleEl.textContent = defaultTitle;
-    callApi("set_voice_context", openOptions.restingContext || restingContext);
+    callApi("set_voice_context", resting);
     const resolve = settleOpen;
     settleOpen = null;
     if (resolve) resolve(result);
@@ -843,8 +1041,15 @@ function createFileBrowser({
   // makes it a folder picker (the file tools' "Choose another folder…"),
   // resolving to `{ path: <the folder shown> }`; `restingContext` is the voice
   // context to hand back on close, if not the screen's own.
-  function open({ dir, filename, title, extension, kind, pickFolder = false, restingContext: resting } = {}) {
-    openOptions = { extension, kind, pickFolder, restingContext: resting };
+  // `multiple` (open mode, where the page has an Add button) lets several
+  // files be chosen; it resolves to `{ paths }` in the folder's order.
+  function open({ dir, filename, title, extension, kind, pickFolder = false, multiple: many = false,
+    restingContext: resting } = {}) {
+    openOptions = { extension, kind, pickFolder, multiple: many, restingContext: resting };
+    selected = new Set();
+    anchor = null;
+    focusIndex = 0;
+    updateMultiFooter();
     if (titleEl) titleEl.textContent = title || defaultTitle;
     showMode(pickFolder);
     return new Promise((resolve) => {
@@ -884,6 +1089,8 @@ function createFileBrowser({
   }
 
   searchEl.addEventListener("input", renderRows);
+  listEl.addEventListener("keydown", onListKeydown);
+  if (addBtn) addBtn.addEventListener("click", confirmFiles);
   cancelBtn.addEventListener("click", () => closeWith({ cancelled: true }));
   if (confirmBtn) confirmBtn.addEventListener("click", confirmSave);
 
@@ -892,7 +1099,12 @@ function createFileBrowser({
   document.addEventListener("keydown", (ev) => {
     if (!isOpen()) return;
     if (ev.key === "Escape") closeWith({ cancelled: true });
-    else if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "f") {
+    else if (multiple() && (ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "a"
+      && document.activeElement !== searchEl) {
+      // Every file shown (not while typing in the search field).
+      ev.preventDefault();
+      selectAllFiles();
+    } else if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "f") {
       ev.preventDefault();
       searchEl.focus();
       searchEl.select();

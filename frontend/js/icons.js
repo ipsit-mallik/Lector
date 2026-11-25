@@ -57,6 +57,16 @@ async function mountIcon(el, name) {
   }
 }
 
+// Only the icons under `root` not drawn yet (empty): a dialog that updates
+// its content in place mounts what it has just added, and leaves the icons
+// already there alone rather than writing every one of them again.
+function mountMissingIcons(root) {
+  const targets = Array.from(root.querySelectorAll("[data-icon]")).filter(
+    (el) => !el.firstChild && (!el.parentElement || !el.parentElement.closest("[data-icon]"))
+  );
+  return Promise.all(targets.map((el) => mountIcon(el, el.dataset.icon)));
+}
+
 async function mountIcons(root = document) {
   // Skip any element whose ancestor also carries data-icon: mounting the
   // ancestor first would overwrite its innerHTML (and this descendant) anyway,

@@ -6,7 +6,7 @@ import os
 import threading
 
 from lector.bridge import checks
-from lector.bridge.core import Controller
+from lector.bridge.core import Controller, log
 from lector.bridge.file_tool_setup import MAX_CONVERT_INPUTS, ONE_PDF_TOOLS, TOOL_SOURCE_OPEN, BadToolRequest
 from lector.features.dialogs import browser as dialog_browser
 from lector.features.file_tools import choices as tool_choices
@@ -16,6 +16,7 @@ from lector.features.file_tools import jobs as file_jobs
 from lector.features.file_tools import messages as tool_messages
 from lector.features.file_tools import naming as tool_naming
 from lector.features.file_tools import tools as file_tools
+from lector.features.file_tools import trash as tool_trash
 from lector.features.reading import page_changes, page_plan
 from lector.features.settings import store as settings
 
@@ -45,6 +46,16 @@ def _with_place(run, where: str):
         return {**result, "where": where} if isinstance(result, dict) else result
 
     return run_and_say_where
+
+
+def _file_stamp(path: str) -> tuple[int, int] | None:
+    """(size, modified time) of `path`, or None when it can't be read: what
+    says another program changed a file during a job."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return info.st_size, info.st_mtime_ns
 
 
 class FileToolJobsController(Controller):
@@ -93,18 +104,10 @@ class FileToolJobsController(Controller):
         src = self._tool_setup.job_source(source)
         if tool == tool_messages.COMPRESS:
             src = self._compress.with_session_password(src, options.get("session"))
+        if tool == tool_messages.SPLIT:
+            return self._build_split(source, src, options)
         dest, where = self._checked_dest(tool, options, [src.path], tool_destinations.BESIDE_ORIGINAL)
         page_count = self._source_page_count(source, src)
-        if tool == tool_messages.SPLIT:
-            if self._split_block(source, src):
-                raise BadToolRequest(tool_messages.SOURCE_UNREADABLE)
-            try:
-                parts = tool_naming.split_parts(options.get("mode"), options.get("value"), page_count)
-            except tool_naming.RangeError:
-                raise BadToolRequest(tool_messages.WORKER_FAILED) from None
-            if len(parts) < 2:
-                raise BadToolRequest(tool_messages.WORKER_FAILED)
-            return _with_place(lambda ctx: file_tools.split(ctx, src, parts, dest), where)
         if tool == tool_messages.COMPRESS:
             run = self._compress.build_compress(src, dest, options)
             placed = _with_place(run, where)
@@ -120,6 +123,89 @@ class FileToolJobsController(Controller):
         pages = _checked_pages(options.get("pages"), page_count)
         known = self._known_words if source == TOOL_SOURCE_OPEN else file_tools.cached_words
         return _with_place(lambda ctx: file_tools.make_searchable(ctx, src, dest, pages, known), where)
+
+    def _build_split(self, source: str, src: "file_tools.Source", options: dict):
+        """Split: one file per part, into a new folder; one part (a single
+        range) is one new PDF instead. With `options["trash"]` the original
+        then goes to the Recycle Bin, only from Home and only once every file
+        is written and checked (`_then_trash`)."""
+        page_count = self._source_page_count(source, src)
+        if self._split_block(source, src):
+            raise BadToolRequest(tool_messages.SOURCE_UNREADABLE)
+        try:
+            parts = tool_naming.split_parts(options.get("mode"), options.get("value"), page_count)
+        except tool_naming.RangeError:
+            raise BadToolRequest(tool_messages.WORKER_FAILED) from None
+        trash = options.get("trash", False)
+        if not parts or not isinstance(trash, bool) or (trash and source == TOOL_SOURCE_OPEN):
+            raise BadToolRequest(tool_messages.WORKER_FAILED)
+        kind = tool_messages.SPLIT_ONE if len(parts) == 1 else tool_messages.SPLIT
+        dest, where = self._checked_dest(kind, options, [src.path], tool_destinations.BESIDE_ORIGINAL)
+        run = _with_place(lambda ctx: file_tools.split(ctx, src, parts, dest), where)
+        return self._then_trash(run, src.path) if trash else run
+
+    def _then_trash(self, run, original: str):
+        """`run`, then the original moved to the Recycle Bin. `run` only
+        returns once every output is written and has passed its check (a
+        failure raises, so nothing is moved) and the worker has let go of the
+        original. If the reader still holds it open it is closed first; its
+        Recent and Favorites entries go once it has moved. A move that fails
+        keeps the new files and says why in the result, and so does Stop
+        pressed after the last file was saved, or an original that another
+        program changed meanwhile (the new files came from the old one)."""
+
+        def run_then_trash(ctx):
+            before = _file_stamp(original)
+            result = run(ctx)
+            if ctx.cancelled:
+                reason = tool_trash.STOPPED
+            elif before is None or _file_stamp(original) != before:
+                reason = tool_trash.CHANGED
+            else:
+                self._release_document(original)
+                reason = tool_trash.move_to_trash(original)
+            if reason is None:
+                try:
+                    self._forget_file(original)
+                except Exception:
+                    # The move has happened: a Recent entry left behind is
+                    # not a failed split (it offers Remove from Recent).
+                    log.exception("Couldn't forget a file moved to the Recycle Bin")
+                result["original"] = {"moved": True, "trash_name": tool_trash.TRASH_NAME}
+            else:
+                log.info("Split kept the original: it couldn't be moved (%s)", reason)
+                result["original"] = {
+                    "moved": False,
+                    "reason": reason,
+                    "error": tool_trash.reason_sentence(reason),
+                    "trash_name": tool_trash.TRASH_NAME,
+                }
+            return result
+
+        return run_then_trash
+
+    def _release_document(self, path: str) -> None:
+        """Let go of `path` if it is the document the reader has open (Home
+        leaves it open in Python; leaving the reader already asked about
+        unsaved changes), so Windows lets it move."""
+        if not (self._doc.is_open and self._doc.is_open_document(path)):
+            return
+        self._doc.close()
+        self._core.title = ""
+        self._core.path = ""
+        self._core.persisted_position = None
+
+    @staticmethod
+    def _forget_file(path: str) -> None:
+        """The original has gone to the Recycle Bin: its Recent and Favorites
+        entries go too (by normalised path, as the page may spell it apart)."""
+        key = os.path.normcase(os.path.abspath(path))
+        for entry in settings.get_recent_files():
+            if os.path.normcase(os.path.abspath(entry["path"])) == key:
+                settings.remove_recent_file(entry["path"])
+        for entry in settings.get_favorites():
+            if os.path.normcase(os.path.abspath(entry["path"])) == key:
+                settings.remove_favorite(entry["path"])
 
     def _build_combine(self, options: dict):
         """Combine files: at least two inputs, each a PDF, image or e-book on
@@ -236,7 +322,7 @@ class FileToolJobsController(Controller):
                 folder_label=tool_destinations.folder_label(folder),
             )
         if event.get("state") != file_jobs.WORKING:
-            self._tool_setup.tool_source = None
+            self._tool_setup.forget_tool_passwords()
         self._dispatch_page_event("lector:filejob", event)
 
     def is_tool_output(self, path: str) -> bool:

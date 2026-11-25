@@ -32,6 +32,11 @@ PYMUPDF_ALLOWED = {
     # Compress's in-memory sample of a big file: worker-only too, the same
     # section says why it isn't more of engine.py.
     "lector/features/file_tools/sampling.py",
+    # A tool dialog's quick look at a PDF from Home (page count, first page,
+    # password state): main process, opened and closed within the call, no
+    # page loop. docs/ARCHITECTURE.md § "File tools" → "What a dialog knows
+    # first" says why it doesn't go through the worker.
+    "lector/features/file_tools/quick_look.py",
     "lector/features/home/recent.py",
     "lector/features/reading/document.py",
     "lector/features/reading/ocr.py",

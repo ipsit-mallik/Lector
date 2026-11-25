@@ -204,7 +204,9 @@
       </div>
       <div class="dialog-footer">
         <span class="hint">Click a folder or PDF, or say its number, or "home" / "desktop" / "documents" / "downloads".</span>
+        <span class="browser-selected-count" id="openDialogSelectedCount" hidden></span>
         <button class="btn btn-secondary" id="openDialogCancelBtn">Cancel</button>
+        <button class="btn" id="openDialogAddBtn" hidden disabled>Add files</button>
       </div>
     </div>
   </div>
@@ -255,6 +257,8 @@
   <script src="pages/open-pdf.js"></script>
   <script src="pages/compress-rules.js"></script>
   <script src="pages/compress-panel.js"></script>
+  <script src="js/dialog-motion.js"></script>
+  <script src="js/dialog-steps.js"></script>
   <script src="pages/tool-dialogs.js"></script>
   <script src="pages/tools-page.js"></script>
   <script src="js/pointer-reorder.js"></script>

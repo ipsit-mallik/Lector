@@ -98,6 +98,9 @@ function createSaveDestination({
   let nameErrorFromCheck = null; // from Python at Start (e.g. "That's the original file")
   let menu = null;
   let menuRequest = 0;
+  // Its name not known yet (`setPending`): no error is shown for the empty
+  // Name meanwhile.
+  let pending = false;
 
   function node(tag, className, text) {
     const n = document.createElement(tag);
@@ -162,6 +165,7 @@ function createSaveDestination({
   root.append(grid, hintEl);
 
   function nameError() {
+    if (pending) return null;
     return nameErrorFromCheck || saveDestNameError(input.value);
   }
 
@@ -465,11 +469,38 @@ function createSaveDestination({
   paint();
   checkFolder();
 
+  // Made before the dialog knows the PDF well enough to name its output (a
+  // tool's dialog shows at once): the Name is a placeholder until
+  // `setSuggestedStem`, and nothing here can be used meanwhile.
+  function setPending(on) {
+    pending = Boolean(on);
+    root.classList.toggle("is-pending", pending);
+    input.classList.toggle("skeleton", pending);
+    input.readOnly = pending;
+    button.disabled = pending;
+    if (pending) input.setAttribute("aria-busy", "true");
+    else input.removeAttribute("aria-busy");
+    paint();
+  }
+
   return {
     element: root,
     // Whether the job may start: a usable name, and a folder known to be
-    // writable (not while that is still being checked).
-    isValid: () => !nameError() && !folderError && checking === 0,
+    // writable (not while that is still being checked, nor while pending).
+    isValid: () => !pending && !nameError() && !folderError && checking === 0,
+    setPending,
+    // The automatic name, now it is known: it fills the field unless the
+    // reader has typed one.
+    setSuggestedStem(next) {
+      suggestedStem = next;
+      if (!edited) {
+        input.placeholder = next;
+        if (input.value || document.activeElement !== input) input.value = next;
+        nameErrorFromCheck = null;
+      }
+      paint();
+      onChange();
+    },
     // What start_file_job and check_tool_destination are sent.
     value: () => ({ folder, name: input.value.trim() }),
     setHint,

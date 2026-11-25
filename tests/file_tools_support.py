@@ -286,5 +286,17 @@ def quick_step(value: int) -> int:
     return value * 2
 
 
+def paged_step(pages: int, per_page_s: float) -> int:
+    """Sent to the real worker: a long call made of pages, looking between
+    them for a request to stop (`ocr.check_worker_stop`), as the file tools'
+    page loops do. Returns how many pages it did."""
+    from lector.features.reading import ocr
+
+    for _page in range(pages):
+        ocr.check_worker_stop()
+        time.sleep(per_page_s)
+    return pages
+
+
 def failing_step() -> None:
     raise ValueError("planted failure text that must never reach the reader")

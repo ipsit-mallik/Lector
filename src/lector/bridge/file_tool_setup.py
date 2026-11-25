@@ -3,6 +3,7 @@ it works on, where it saves and under what name, and its previews
 (docs/ARCHITECTURE.md § "File tools"). Also the checked source a job is
 then given, which Compress and the jobs ask for."""
 import os
+import threading
 
 from lector.bridge import checks
 from lector.bridge.core import Controller, log
@@ -12,8 +13,10 @@ from lector.features.file_tools import engine as tool_engine
 from lector.features.file_tools import formats as tool_formats
 from lector.features.file_tools import messages as tool_messages
 from lector.features.file_tools import naming as tool_naming
+from lector.features.file_tools import quick_look
 from lector.features.file_tools import tools as file_tools
-from lector.features.reading import open_errors, page_changes, safe_write
+from lector.features.file_tools import trash as tool_trash
+from lector.features.reading import ocr, open_errors, page_changes
 from lector.features.settings import store as settings
 
 # A file tool's `source` meaning "the PDF open in the reader, as it is now".
@@ -27,6 +30,12 @@ MAX_CONVERT_INPUTS = 500
 
 # How long describing a file (in the worker, behind any OCR read) may take.
 DESCRIBE_TIMEOUT_S = 60
+# How long Make searchable's look at every page may take, in the worker.
+ANALYSIS_TIMEOUT_S = 300
+
+
+def _password_key(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
 
 
 class BadToolRequest(Exception):
@@ -45,15 +54,35 @@ def _file_size(path: str | None) -> int:
         return 0
 
 
+def _split_range(value) -> tuple[int, int]:
+    """Split's one range as the page sends it, [first, last], checked; (1, 1)
+    for anything else (only a suggestion is made from it)."""
+    if (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in value)
+        and value[0] <= value[1]
+    ):
+        return value[0], value[1]
+    return 1, 1
+
+
 class FileToolSetupController(Controller):
     def __init__(self, core):
         super().__init__(core)
-        # A Home PDF's password, as (path, password): held, in memory only,
-        # for the job on that file, and replaced by the next file chosen.
-        self.tool_source: tuple[str, str | None] | None = None
+        # Home PDFs' passwords, by file (normcase'd path): held, in memory
+        # only, for the jobs on those files, and let go when a job ends. By
+        # file, since the dialog looks at each PDF chosen in its list: a look
+        # at another file mustn't drop the one already unlocked.
+        self.tool_passwords: dict[str, str] = {}
         # Combine files: the passwords of the protected PDFs in its list, by
         # file (normcase'd path), in memory only, until its dialog closes.
         self.combine_passwords: dict[str, str] = {}
+        # Make searchable's look at every page (`file_tool_analysis`), the
+        # newest asked for: {path, abort, future}. One for another file stops
+        # it; one for the same file waits on the same work.
+        self._analysis: dict | None = None
+        self._analysis_lock = threading.Lock()
 
     def get_file_tool_menu(self) -> dict:
         """The reader's More menu's second line under Make searchable: how
@@ -94,8 +123,13 @@ class FileToolSetupController(Controller):
                 return outcome
             path, info = source, outcome
             info.update(unsaved=0, dirty=False, current_page=None, current_textless=False)
-        info["textless_pages"] = [i + 1 for i in info["textless"]]
-        info["textless"] = len(info["textless"])
+        if "textless" in info:
+            info["textless_pages"] = [i + 1 for i in info["textless"]]
+            info["textless"] = len(info["textless"])
+        else:
+            # From Home only the quick look is made here; Make searchable
+            # asks for its pages with no text with `file_tool_analysis`.
+            info.update(textless=None, textless_pages=None, analysis_pending=tool == tool_messages.SEARCHABLE)
         folder = os.path.dirname(path)
         info.update(
             ok=True,
@@ -113,14 +147,21 @@ class FileToolSetupController(Controller):
             if not info.get("can_change_pages", True):
                 return {"ok": False, "error": page_changes.BLOCK_MESSAGES[page_changes.RESTRICTED]}
             info["split_every"] = tool_naming.default_split_every(info["pages"])
+            # How many files the preview names before "and N more", so the
+            # dialog can keep room for the preview before it arrives.
+            info["preview_named"] = tool_naming.SPLIT_PREVIEW_NAMED
+            # "Move the original to the Recycle Bin afterwards" ("…Trash" on a Mac).
+            info["trash_name"] = tool_trash.TRASH_NAME
         return info
 
     def describe_home_source(self, path, password: str | None) -> dict:
+        """A PDF from Home at a glance (`quick_look`, in this process, a few
+        milliseconds whatever its size): never queued behind the worker."""
         if not isinstance(path, str) or not os.path.isfile(path):
             return {"ok": False, "error": open_errors.MESSAGES[open_errors.MISSING], "reason": "missing"}
         try:
-            info = self._ocr.call(tool_engine.describe_path, (path, password), timeout=DESCRIBE_TIMEOUT_S).result()
-        except tool_engine.SourceError:
+            info = quick_look.look(path, password)
+        except quick_look.Unreadable:
             return {"ok": False, "error": open_errors.MESSAGES[open_errors.NOT_A_PDF], "reason": "not_a_pdf"}
         except Exception:
             log.exception("Couldn't describe a PDF for a file tool")
@@ -128,9 +169,86 @@ class FileToolSetupController(Controller):
         if info.get("locked"):
             reason = open_errors.PASSWORD if password is None else open_errors.WRONG_PASSWORD
             return {"ok": False, "reason": reason, "error": open_errors.MESSAGES[reason], "name": os.path.basename(path)}
-        # Held for this file's job only; replaced by the next file chosen.
-        self.tool_source = (path, password) if info.get("needs_pass") else None
+        # Held for this file's job only.
+        if info.get("needs_pass") and password is not None:
+            self.tool_passwords[_password_key(path)] = password
         return info
+
+    def held_password(self, path: str) -> str | None:
+        """The password a Home PDF was unlocked with, or None."""
+        return self.tool_passwords.get(_password_key(path)) if isinstance(path, str) else None
+
+    def forget_tool_passwords(self) -> None:
+        """A job has ended, or the tool dialog closed: the passwords held for
+        it go."""
+        self.tool_passwords = {}
+
+    def forget_file_tool_passwords(self) -> dict:
+        """The tool dialog closed without a job holding them: every password
+        a Home PDF was unlocked with in it goes."""
+        self.forget_tool_passwords()
+        return {"ok": True}
+
+    # ---- Make searchable's look at every page, and the worker --------------
+
+    def file_tool_analysis(self, source: str) -> dict:
+        """Make searchable's pages with no text, for a PDF from Home (what
+        `file_tool_info` leaves out there): `{"ok": True, "textless",
+        "textless_pages"}` (1-based), `{"ok": False, "cancelled": True}` when
+        a newer request or `cancel_file_tool_analysis` stopped it, or
+        `{"ok": False, "error"}`. Runs in the worker. The newest request
+        wins: one for another file stops the older at its next page and
+        never waits behind it; one for the same file shares its work."""
+        if not isinstance(source, str) or not os.path.isfile(source):
+            return {"ok": False, "error": open_errors.MESSAGES[open_errors.MISSING], "reason": "missing"}
+        key = os.path.normcase(os.path.abspath(source))
+        with self._analysis_lock:
+            current = self._analysis
+            # Only work still going is shared: a finished look (above all a
+            # failed one, asked before the password was given) is asked again.
+            sharing = (
+                current is not None
+                and current["path"] == key
+                and not current["abort"].is_set()
+                and not current["future"].done()
+            )
+            if sharing:
+                future = current["future"]
+            else:
+                if current is not None:
+                    current["abort"].set()
+                password = self.held_password(source)
+                abort = threading.Event()
+                future = self._ocr.call(
+                    tool_engine.textless_pages, (source, password), timeout=ANALYSIS_TIMEOUT_S, abort=abort
+                )
+                self._analysis = {"path": key, "abort": abort, "future": future}
+        try:
+            pages = future.result()
+        except ocr.CallAborted:
+            return {"ok": False, "cancelled": True}
+        except tool_engine.SourceError:
+            return {"ok": False, "error": open_errors.MESSAGES[open_errors.NOT_A_PDF], "reason": "not_a_pdf"}
+        except Exception:
+            log.exception("Couldn't look for pages with no text")
+            return {"ok": False, "error": open_errors.MESSAGES[open_errors.UNKNOWN], "reason": "unknown"}
+        return {"ok": True, "textless": len(pages), "textless_pages": [i + 1 for i in pages]}
+
+    def cancel_file_tool_analysis(self) -> dict:
+        """Nobody wants the look any more (Back, another file, the dialog
+        closed): queued, it is dropped; running, it stops at its next page."""
+        with self._analysis_lock:
+            current, self._analysis = self._analysis, None
+        if current is not None:
+            current["abort"].set()
+        return {"ok": True}
+
+    def warm_file_tool_worker(self) -> dict:
+        """Start the worker process now (Home, once idle after launch, or on
+        opening the Tools page), so the first tool used doesn't wait for it.
+        Does nothing when it is already running."""
+        self._ocr.warm()
+        return {"ok": True}
 
     # ---- Where a tool saves (the dialogs' Name and "Save in" rows) ----------
 
@@ -162,12 +280,19 @@ class FileToolSetupController(Controller):
         or the first free "… (2)" there. `source` is "open", a path, or
         Convert's or Combine's first file; those two also send their whole
         list (`inputs`), which their name is made from
-        (`destinations.list_stem`: "Report (combined)", "Images 14-11-2026")."""
+        (`destinations.list_stem`: "Report (combined)", "Images 14-11-2026").
+        Split with one range is "split_one", its `inputs` that range as
+        [first, last]: "Report (pages 1–6)"."""
         origin = self._tool_origin(source)
         if tool not in tool_messages.TOOLS or origin is None:
             return {"stem": "", "extension": ""}
         if not isinstance(folder, str) or not os.path.isdir(folder):
             folder = os.path.dirname(origin)
+        if tool == tool_messages.SPLIT_ONE:
+            # Split with one range: `inputs` is that range, [first, last].
+            first, last = _split_range(inputs)
+            stem = tool_destinations.split_one_stem(origin, first, last, folder)
+            return {"stem": stem, "extension": tool_destinations.extension(tool)}
         paths = self._tool_originals(source, inputs) if isinstance(inputs, list) else []
         if tool in (tool_messages.COMBINE, tool_messages.CONVERT) and paths:
             stem = tool_destinations.suggested_list_stem(tool, paths, folder)
@@ -227,7 +352,15 @@ class FileToolSetupController(Controller):
         if not count or origin is None:
             return {"error": tool_naming.ONE_PAGE, "count": 0}
         stem = os.path.splitext(os.path.basename(origin))[0] or "untitled"
-        return tool_naming.split_preview(mode, value, count, stem)
+        preview = tool_naming.split_preview(mode, value, count, stem)
+        single = preview.get("single")
+        if single:
+            # The name it is saved under beside the original: "… (2)" when
+            # that one is taken, as the Name field and the job say.
+            free = tool_destinations.split_one_stem(origin, single["first"], single["last"], os.path.dirname(origin))
+            single["stem"] = free
+            preview["named"] = [{**preview["named"][0], "name": f"{free}{tool_destinations.PDF_EXTENSION}"}]
+        return preview
 
     def describe_combine_inputs(self, paths: list[str]) -> list[dict]:
         """Each file Combine files was given: a PDF's page count, size and
@@ -306,6 +439,4 @@ class FileToolSetupController(Controller):
             return file_tools.Source(self._doc.path, data, password)
         if not isinstance(source, str) or not os.path.isfile(source):
             raise BadToolRequest(tool_messages.SOURCE_UNREADABLE)
-        held = self.tool_source
-        password = held[1] if held and safe_write.same_file(held[0], source) else None
-        return file_tools.Source(source, None, password)
+        return file_tools.Source(source, None, self.held_password(source))

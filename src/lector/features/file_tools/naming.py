@@ -166,6 +166,19 @@ def split_part_name(stem: str, number: int) -> str:
     return f"{stem} (part {number}).pdf"
 
 
+def single_split_stem(stem: str, first: int, last: int) -> str:
+    """The one file a single range makes, before a free name is found:
+    "Report (pages 1–6)", "Report (page 4)". A name that already ends with
+    such a label (an earlier extract) has it replaced, not a second added:
+    pages 1–2 of "Report (pages 4–6)" are "Report (pages 1–2)"."""
+    return f"{_PAGES_SUFFIX.sub('', stem)} ({part_pages_label(first, last)})"
+
+
+def single_split_name(stem: str, first: int, last: int) -> str:
+    """`single_split_stem` as a file name: "Report (pages 1–6).pdf"."""
+    return f"{single_split_stem(stem, first, last)}.pdf"
+
+
 def part_pages_label(first: int, last: int) -> str:
     """What one file holds, as the preview says it: "page 5", "pages 1–10"."""
     return f"page {first}" if first == last else f"pages {first}–{last}"
@@ -274,13 +287,29 @@ def split_preview(mode, value, page_count: int, stem: str) -> dict:
         parts = split_parts(mode, value, page_count)
     except RangeError as exc:
         return {"error": exc.message, "count": 0}
-    return {
+    single = len(parts) == 1
+    named = [
+        {
+            "name": single_split_name(stem, first, last) if single else split_part_name(stem, n + 1),
+            "pages": part_pages_label(first, last),
+        }
+        for n, (first, last) in enumerate(parts[:SPLIT_PREVIEW_NAMED])
+    ]
+    preview = {
         "count": len(parts),
         "parts": [[first, last] for first, last in parts],
-        "named": [
-            {"name": split_part_name(stem, n + 1), "pages": part_pages_label(first, last)}
-            for n, (first, last) in enumerate(parts[:SPLIT_PREVIEW_NAMED])
-        ],
+        "named": named,
         "more": max(0, len(parts) - SPLIT_PREVIEW_NAMED),
         "gaps": gaps_sentence(uncovered_pages(parts, page_count)),
     }
+    if single:
+        # One range makes one file, saved as a PDF of its own rather than a
+        # folder: the dialog's button says "Save pages 1–6 as a new PDF".
+        first, last = parts[0]
+        preview["single"] = {
+            "label": part_pages_label(first, last),
+            "first": first,
+            "last": last,
+            "stem": single_split_stem(stem, first, last),
+        }
+    return preview

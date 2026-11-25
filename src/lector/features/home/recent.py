@@ -8,11 +8,11 @@ import base64
 import os
 import subprocess
 import sys
-import threading
 
 import pymupdf
 
 from lector.features.settings import store as settings
+from lector.shared.mupdf_lock import HOME_PYMUPDF_LOCK
 
 THUMBNAIL_HEIGHT = 116
 
@@ -28,8 +28,9 @@ _thumbnail_cache: dict[str, tuple[str | None, float | None]] = {}
 
 # The page lists and fetches thumbnails over separate bridge calls, which
 # pywebview runs on threads of their own, and PyMuPDF documents must not be
-# used from two threads at once.
-_fitz_lock = threading.Lock()
+# used from two threads at once; a tool dialog's quick look takes turns on
+# the same lock (lector/shared/mupdf_lock.py).
+_fitz_lock = HOME_PYMUPDF_LOCK
 
 
 def clear_caches() -> None:

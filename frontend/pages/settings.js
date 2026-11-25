@@ -78,6 +78,15 @@ const voiceBox = createVoiceBox({
 // The mouse/keyboard way to the same panel "what can I say" opens.
 document.getElementById("voiceHelpBtn").addEventListener("click", openCommandReference);
 
+// What the close gatekeeper (Python's handle_window_closing) asks when the
+// window closes with a document that has unsaved changes. Only the reader can
+// show the question; on this page the reader was left already, after it had
+// asked and been told "Don't save", so the answer is to close. Without this
+// the call failed here and the window could not be closed at all.
+async function promptSaveIfDirty() {
+  return true;
+}
+
 // The voice "close app"/"quit" command (Milestone 8.11) — see reading-save.js's
 // identical closeApp() for why there is no separate click/keyboard wiring.
 async function closeApp() {

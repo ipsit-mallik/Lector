@@ -67,6 +67,8 @@ OrganiseExtractDialog.configure({ saveAs: saveAsDialog });
 configureOrganise({
   title: () => state.title || "",
   openOutput: (path) => openToolOutput(path),
+  returnsHome: () => Boolean(organiseReturn),
+  leaveForHome: () => leaveOrganiseForHome(),
   onOpen: () => {
     setHighlightMode(false);
     closeHighlightEditor();
@@ -327,6 +329,22 @@ async function init() {
   await refresh();
 }
 
+// Sent here from Home to organise: Organise's frame and a placeholder tile
+// per page from the very first paint (organise.js), not the reader's empty
+// page while the document and the draft load.
+{
+  const raw = sessionStorage.getItem(OPEN_ORGANISE_NOTE);
+  if (raw !== null) {
+    let note = {};
+    try {
+      note = JSON.parse(raw) || {};
+    } catch {
+      note = {};
+    }
+    showOrganisePlaceholder({ pages: Number(note.pages) || 0, name: typeof note.name === "string" ? note.name : "" });
+  }
+}
+
 (async () => {
   try {
     await init();
@@ -339,8 +357,15 @@ async function init() {
   }
   // Sent here to organise (Home's Tools page and Recent menus), once the
   // card is down so Organise isn't refused as busy.
+  // Its Cancel and Done then go back to where on Home it was started.
+  takeOrganiseReturn(Boolean(state.is_open && sessionStorage.getItem(OPEN_ORGANISE_NOTE)));
   if (state.is_open && sessionStorage.getItem(OPEN_ORGANISE_NOTE)) {
     sessionStorage.removeItem(OPEN_ORGANISE_NOTE);
     startOrganise();
+  } else {
+    // Nothing to organise after all (no document open): the note goes, so
+    // it can't send a later visit to the reader into Organise.
+    sessionStorage.removeItem(OPEN_ORGANISE_NOTE);
+    clearOrganisePlaceholder({ hide: !isOrganiseOpen() });
   }
 })();

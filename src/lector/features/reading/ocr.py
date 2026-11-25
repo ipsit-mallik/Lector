@@ -349,16 +349,49 @@ class OcrJob:
 # writes to it from inside a crash, when nothing can be opened any more.
 _crash_file = None
 
+# In the worker: set by the parent when the call it is waiting on is no
+# longer wanted (its `abort` fired). Long calls look at it between pages
+# (`check_worker_stop`) and stop there, so the process carries on rather than
+# being ended. None in the main process, where nothing is ever stopped.
+_stop_request = None
 
-def _worker_init(crash_log: str) -> None:
+# How long a call asked to stop has to reach a page boundary before its
+# process is ended after all (one MuPDF call, a whole-document save or image
+# pass, has no boundary inside it).
+STOP_GRACE_S = 1.0
+
+
+class StepStopped(Exception):
+    """Raised in the worker by `check_worker_stop`: the call was asked to
+    stop, and did, between two pages."""
+
+
+def check_worker_stop() -> None:
+    """Called between pages by long worker calls: raises StepStopped once the
+    parent has asked the call to stop. Does nothing outside the worker."""
+    if _stop_request is not None and _stop_request.is_set():
+        raise StepStopped()
+
+
+def worker_ready() -> bool:
+    """Nothing: asked of a worker started ahead of need (`OcrRunner.warm`),
+    so it is up before the first real call."""
+    return True
+
+
+def _worker_init(crash_log: str | None, stop_request=None) -> None:
     """Runs first in each new worker process. A Tesseract or MuPDF crash kills
     the worker without a Python exception, which the parent only sees as a
     timeout; faulthandler leaves the stack it died in (file, line and function
     names, no page content) in `crash_log`. A log that can't be opened is
-    skipped: OCR still works without it."""
-    global _crash_file
+    skipped: OCR still works without it. `stop_request` is the parent's
+    "stop at the next page" flag (`check_worker_stop`)."""
+    global _crash_file, _stop_request
     import faulthandler
 
+    _stop_request = stop_request
+    if not crash_log:
+        return
     # Anything raised here would fail the pool's initializer, and the pool
     # would restart the worker over and over, so OCR would never run.
     try:
@@ -380,8 +413,15 @@ class WorkerLost(Exception):
 
 
 class CallAborted(Exception):
-    """A call stopped by its `abort` event: the worker process was ended
-    mid-call (and is replaced on next use), so nothing it was doing finished."""
+    """A call stopped by its `abort` event: still queued, it never ran; running,
+    it stopped at a page boundary (`replaced` False: the worker carries on,
+    holding whatever the job had open there) or, when it didn't reach one in
+    time, its process was ended (`replaced` True: whatever it held is gone).
+    Either way nothing it was doing finished."""
+
+    def __init__(self, replaced: bool = True):
+        super().__init__()
+        self.replaced = replaced
 
 
 @dataclass
@@ -432,7 +472,14 @@ class OcrRunner:
         self._closing = threading.Event()
         self._thread: threading.Thread | None = None
         self._pool = None
+        # The pool's "stop at the next page" flag, shared with its worker.
+        self._stop_request = None
         self._pool_lock = threading.Lock()
+
+    def warm(self) -> Future:
+        """Start the worker process now, ahead of the first call, so that call
+        doesn't wait for it (half a second to a second and a half to start)."""
+        return self.call(worker_ready, (), timeout=OCR_TIMEOUT_S)
 
     def submit(self, job: OcrJob) -> None:
         if self._closing.is_set():
@@ -492,23 +539,37 @@ class OcrRunner:
         if not call.future.set_running_or_notify_cancel():
             return
         if call.abort is not None and call.abort.is_set():
-            call.future.set_exception(CallAborted())
+            # Dropped from the queue: it never ran, and the worker is as it was.
+            call.future.set_exception(CallAborted(replaced=False))
             return
         try:
             pool = self._ensure_pool()
+            stop = self._stop_request
+            if stop is not None:
+                stop.clear()
             workers = _worker_pids(pool)
             pending = pool.apply_async(call.fn, call.args)
             deadline = time.monotonic() + call.timeout
+            stop_deadline = None
             while not pending.ready():
                 if self._closing.is_set():
                     raise WorkerLost()
                 if call.abort is not None and call.abort.is_set():
-                    # One long MuPDF call has no point to stop at, so the
-                    # process goes; the next call starts a fresh one.
-                    log.info("A file job was stopped mid-step; replacing the worker")
-                    self._discard_pool()
-                    call.future.set_exception(CallAborted())
-                    return
+                    if stop_deadline is None:
+                        # Asked to stop at its next page; the process carries on.
+                        stop_deadline = time.monotonic() + STOP_GRACE_S
+                        if stop is not None:
+                            stop.set()
+                    elif time.monotonic() > stop_deadline:
+                        # One long MuPDF call has no page to stop at, so the
+                        # process goes, and a fresh one starts at once.
+                        log.info("A worker call didn't stop at a page in time; replacing the worker")
+                        self._discard_pool()
+                        # Not while closing: nothing would end a new process.
+                        if not self._closing.is_set():
+                            self._ensure_pool()
+                        call.future.set_exception(CallAborted(replaced=True))
+                        return
                 if time.monotonic() > deadline or _worker_pids(pool) != workers:
                     log.error(
                         "A worker call timed out or its worker died (see ocr-worker.log); "
@@ -517,6 +578,13 @@ class OcrRunner:
                     self._discard_pool()
                     raise WorkerLost()
                 pending.wait(_WAIT_SLICE_S)
+            if stop_deadline is not None:
+                # Stopped at a page (or finished just as it was asked to):
+                # either way nobody wants the result.
+                if stop is not None:
+                    stop.clear()
+                call.future.set_exception(CallAborted(replaced=False))
+                return
             call.future.set_result(pending.get(0))
         except WorkerLost as exc:
             call.future.set_exception(exc)
@@ -574,12 +642,11 @@ class OcrRunner:
                 # Spawn, never fork: the parent holds a webview, audio streams
                 # and threads that a forked child must not inherit.
                 context = multiprocessing.get_context("spawn")
-                if self._crash_log is None:
-                    self._pool = context.Pool(processes=1)
-                else:
-                    self._pool = context.Pool(
-                        processes=1, initializer=_worker_init, initargs=(str(self._crash_log),)
-                    )
+                self._stop_request = context.Event()
+                crash_log = None if self._crash_log is None else str(self._crash_log)
+                self._pool = context.Pool(
+                    processes=1, initializer=_worker_init, initargs=(crash_log, self._stop_request)
+                )
             return self._pool
 
     def _discard_pool(self) -> None:

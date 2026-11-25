@@ -140,8 +140,14 @@ class TreeFollowsActiveFolderWiringTests(unittest.TestCase):
 
     def test_only_the_trees_own_container_is_scrolled(self):
         self.assertRegex(self.js, r"scrollElementTo\(treeEl,")
-        self.assertNotRegex(self.js, r"(listEl|scrim|document\.(body|documentElement))\.scrollTo")
+        self.assertNotRegex(self.js, r"(listEl|scrim|document\.(body|documentElement))\.scrollTo\(")
         self.assertNotRegex(self.js, r"treeEl\.scrollTo\(")
+        # The file list scrolls itself only to keep the keyboard's row in view
+        # while choosing several files (focusRow), never to follow a folder.
+        focus_row = re.search(r"function focusRow\(.*?\n  }\n", self.js, re.S).group(0)
+        outside = self.js.replace(focus_row, "")
+        self.assertIn("listEl.scrollTop", focus_row)
+        self.assertNotIn("listEl.scrollTop", outside)
 
     def test_every_folder_change_goes_through_navigate_to_which_follows_the_tree(self):
         body = re.search(r"async function navigateTo\(.*?\n  }\n", self.js, re.S)

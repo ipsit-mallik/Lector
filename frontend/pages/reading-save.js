@@ -10,14 +10,20 @@
 // Every way of leaving the reader (Library, another PDF, the window closing)
 // asks this first. An Organise draft is applied before the question, so the
 // question covers it; staying after all (Cancel) reloads the reader onto the
-// changed pages, which the view behind the draft no longer shows.
-async function promptSaveIfDirty(allowDiscard) {
+// changed pages, which the view behind the draft no longer shows. With
+// `reopenOrganise` (Organise started from Home, leaving by its Done) the
+// reload comes back into Organise, still bound for Home.
+async function promptSaveIfDirty(allowDiscard, { reopenOrganise = false } = {}) {
   if (!isOrganiseOpen()) return askToSaveIfDirty(allowDiscard);
   const applied = await applyOrganiseBeforeLeaving();
   // Organise has already adopted the state Done answered (organise.js).
   if (!applied) return false;
   const leaving = await askToSaveIfDirty(allowDiscard);
+  // Staying in the reader some other way than Organise's own Done: Organise
+  // has closed, so it no longer goes back to Home.
+  if (!leaving && !reopenOrganise) organiseReturn = null;
   if (!leaving && applied.changed) {
+    if (reopenOrganise) keepOrganiseReturn();
     // Its "older changes" toast, if any, was already shown when it applied.
     await runPageChange(
       async () => ({ ...state, pages_changed: true, history_trimmed: false }),
@@ -109,18 +115,83 @@ async function openToolOutput(path) {
 
 // Home sets this before opening a PDF to organise it (F2.7).
 const OPEN_ORGANISE_NOTE = "lector-open-organise";
+// …and this, saying where it was started (`{section, top}`: Recent,
+// Favorites or Tools, and how far down), so Organise's Cancel and Done go
+// back there rather than to reading.
+const ORGANISE_RETURN_NOTE = "lector-organise-return";
+const ORGANISE_RETURN_SECTIONS = ["recent", "favorites", "tools"];
+// Where Organise goes back to, or null (started in the reader).
+let organiseReturn = null;
+
+// Read Home's note once, as the reader starts; it is gone after, so a later
+// Organise from the ⋯ menu stays in the reader. `wanted` is false when no
+// Organise was asked for (a stale note is just dropped).
+function takeOrganiseReturn(wanted) {
+  const raw = sessionStorage.getItem(ORGANISE_RETURN_NOTE);
+  sessionStorage.removeItem(ORGANISE_RETURN_NOTE);
+  organiseReturn = null;
+  if (!wanted || !raw) return;
+  try {
+    const note = JSON.parse(raw);
+    if (!note || !ORGANISE_RETURN_SECTIONS.includes(note.section)) return;
+    const top = Number(note.top);
+    organiseReturn = { section: note.section, top: Number.isFinite(top) && top > 0 ? top : 0 };
+  } catch (err) {
+    console.error("reading-save: unreadable Organise note", err);
+  }
+}
+
+// The notes again, for a reload that must come back into Organise (the
+// Save question cancelled after Done applied the changes).
+function keepOrganiseReturn() {
+  if (!organiseReturn) return;
+  sessionStorage.setItem(OPEN_ORGANISE_NOTE, "1");
+  sessionStorage.setItem(ORGANISE_RETURN_NOTE, JSON.stringify(organiseReturn));
+}
+
+// Organise started from Home: its Done and Cancel come here. Done's changes
+// are applied and "Save changes?" asked at once (Save, Save a copy, Don't
+// save, under the usual rules); then back to that Home page. Cancelling the
+// question returns to Organise.
+async function leaveOrganiseForHome() {
+  if (await promptSaveIfDirty(true, { reopenOrganise: true })) {
+    returnToHome();
+    return;
+  }
+  if (!isOrganiseOpen() && !isPageChangeBusy()) startOrganise();
+}
+
+// Home, on the section Organise was started from, scrolled where it was.
+function returnToHome() {
+  const back = organiseReturn;
+  if (back && back.section !== "recent") sessionStorage.setItem("lector-home-section", back.section);
+  if (back && back.top) sessionStorage.setItem("lector-home-scroll", String(back.top));
+  window.location.href = "../index.html";
+}
 
 // Organise pages (organise.js): the More menu, Ctrl+Shift+O, Home's Tools
 // page and Recent menus (through a note this page reads on load). What the
 // reader has open over the page goes first, and Focus mode, which would hide
 // the footer and its mic pill.
-function startOrganise() {
-  if (document.querySelector(".dialog-scrim:not([hidden])") || isPageChangeBusy()) return;
-  if (state.organise_blocked) {
-    showToast(state.organise_blocked);
+// Home's placeholder for it (organise.js) goes when it can't open after all,
+// and so does the way back to Home: a later Organise from the ⋯ menu stays in
+// the reader.
+async function startOrganise() {
+  const notOpened = () => {
+    if (!isOrganiseOpen()) organiseReturn = null;
+  };
+  if (document.querySelector(".dialog-scrim:not([hidden])") || isPageChangeBusy()) {
+    clearOrganisePlaceholder({ hide: !isOrganiseOpen() });
+    notOpened();
     return;
   }
-  openOrganise();
+  if (state.organise_blocked) {
+    clearOrganisePlaceholder({ hide: true });
+    showToast(state.organise_blocked);
+    notOpened();
+    return;
+  }
+  if (!(await openOrganise())) notOpened();
 }
 
 // Compress, Make searchable, Export as images (tool-dialogs.js), for the PDF

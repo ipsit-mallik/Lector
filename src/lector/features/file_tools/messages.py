@@ -15,7 +15,10 @@ CONVERT = "convert"
 EXTRACT = "extract"
 COMBINE = "combine"
 SPLIT = "split"
-TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT, EXTRACT, COMBINE, SPLIT)
+# Split with one range: one PDF (a file, not a folder of parts). Only where
+# it saves and its name differ; it fails and reports as Split.
+SPLIT_ONE = "split_one"
+TOOLS = (COMPRESS, SEARCHABLE, EXPORT, CONVERT, EXTRACT, COMBINE, SPLIT, SPLIT_ONE)
 
 # Reasons of the tools' own, beside `safe_write`'s.
 SAME_AS_SOURCE = "same_as_source"
@@ -34,6 +37,7 @@ _WHAT = {
     EXTRACT: "extract the pages",
     COMBINE: "combine the files",
     SPLIT: "split the PDF",
+    SPLIT_ONE: "split the PDF",
 }
 
 _DETAIL = {

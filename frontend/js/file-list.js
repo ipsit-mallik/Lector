@@ -24,6 +24,47 @@
 // Built from DOM calls with textContent: names come from the reader's disk.
 "use strict";
 
+// Add files… may pick files already in the list: they are left out, and a
+// toast says how many ("1 file was already in the list"). Paths compare
+// without regard to case or slash direction, as Windows does.
+function fileListPathKey(path) {
+  return String(path || "").replace(/\\/g, "/").toLowerCase();
+}
+
+// A path's file name, shown on its row while Python is still describing it.
+function fileListName(path) {
+  return String(path || "").split(/[\\/]/).pop();
+}
+
+function skipListedFiles(files, paths) {
+  const listed = new Set(files.map((f) => fileListPathKey(f.path)));
+  const fresh = [];
+  for (const path of paths) {
+    const key = fileListPathKey(path);
+    if (listed.has(key)) continue;
+    listed.add(key);
+    fresh.push(path);
+  }
+  const skipped = paths.length - fresh.length;
+  if (skipped) showToast(skipped === 1 ? "1 file was already in the list" : `${skipped} files were already in the list`);
+  return fresh;
+}
+
+// `files` with the pending row for `path` replaced by its description
+// (`entry`), or without it (null). A row removed meanwhile stays removed.
+function settlePendingFile(files, path, entry) {
+  const key = fileListPathKey(path);
+  const index = files.findIndex((f) => f.pending && fileListPathKey(f.path) === key);
+  if (index < 0) return files;
+  return entry ? files.map((f, i) => (i === index ? entry : f)) : files.filter((_, i) => i !== index);
+}
+
+// Whether `path` is still waiting in the list (not removed meanwhile).
+function hasPendingFile(files, path) {
+  const key = fileListPathKey(path);
+  return files.some((f) => f.pending && fileListPathKey(f.path) === key);
+}
+
 // The dragged row's preview hangs this far right of and below the pointer,
 // so the insertion line under it stays in sight.
 const FILE_LIST_PREVIEW_OFFSET = { dx: 40, dy: 16 };
@@ -77,6 +118,18 @@ function fileListDropIndex(from, gap) {
   return gap > from ? gap - 1 : gap;
 }
 
+// Make `parent`'s children `nodes`, in that order, moving and removing as
+// little as it can: a child already in its place is left alone (its focus,
+// its images, its animations with it). Shared with the dialogs that hold a
+// list (Combine, Convert), which update their bodies the same way.
+function syncChildren(parent, nodes) {
+  nodes.forEach((node, i) => {
+    const at = parent.children[i];
+    if (at !== node) parent.insertBefore(node, at || null);
+  });
+  while (parent.children.length > nodes.length) parent.children[parent.children.length - 1].remove();
+}
+
 // One list's behaviour. `label` is the list's accessible name; `meta(file)`
 // the muted line under a file's name. `build(files, { emptyText, onAdd,
 // summary })` makes the list area for the files as they are now; the dialog
@@ -104,11 +157,16 @@ function createFileList({ label, meta, onMove, onRemove }) {
 
   let files = [];
   let rows = [];
-  // Each file's thumbnail <img>, made once: a move or a re-render puts the
-  // same, already decoded image in its new row.
-  const images = new WeakMap();
+  // Each file's row and thumbnail <img>, by path, made once: a render keeps
+  // the rows that are still listed (moving them, not making them again), so
+  // nothing reloads or flashes.
+  const rowsByKey = new Map();
+  const images = new Map();
   let lastScrollTop = 0;
-  let flipFrom = null; // file -> its row's top before a move, for FLIP
+  let flipFrom = null; // path -> its row's top before a move, for FLIP
+  let currentAdd = () => {};
+  let dropZone = null;
+  let dropZoneText = null;
   let settlePending = false;
   const motion = createReorderMotion();
 
@@ -158,13 +216,10 @@ function createFileList({ label, meta, onMove, onRemove }) {
 
   // ---- Rows -------------------------------------------------------------------
 
-  function rowButton(icon, action, name, disabled, onClick, keep) {
+  function rowButton(icon, action, onClick) {
     const button = fileListEl("button", "icon-btn icon-btn--sm");
     button.type = "button";
-    button.disabled = disabled;
-    button.dataset.keep = keep;
     button.dataset.tooltip = action;
-    button.setAttribute("aria-label", `${action}: ${name}`);
     button.appendChild(fileListIcon(icon));
     button.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -175,13 +230,14 @@ function createFileList({ label, meta, onMove, onRemove }) {
 
   function thumbnailOf(file) {
     if (!file.thumbnail) return null;
-    let img = images.get(file);
+    const key = fileListPathKey(file.path);
+    let img = images.get(key);
     if (!img) {
       img = document.createElement("img");
       img.alt = "";
       img.draggable = false;
       img.src = `data:image/png;base64,${file.thumbnail}`;
-      images.set(file, img);
+      images.set(key, img);
     }
     return img;
   }
@@ -197,44 +253,41 @@ function createFileList({ label, meta, onMove, onRemove }) {
   // was is noted first, so the rows can slide from there once redrawn.
   function move(from, to) {
     noteScroll();
-    flipFrom = new Map(rows.map((row, i) => [files[i], row.offsetTop]));
+    flipFrom = new Map(rows.map((row, i) => [fileListPathKey(files[i].path), row.offsetTop]));
     onMove(from, to);
   }
 
-  function buildRow(file, i, total) {
+  // A file's row, made once. Where it is in the list is looked up when it
+  // is used (its buttons and keys), since the same row moves.
+  function buildRow() {
     const row = fileListEl("div", "file-list-row");
     row.setAttribute("role", "listitem");
     row.tabIndex = 0;
-    row.dataset.keep = `row-${i}`;
-    row.setAttribute("aria-label", `${i + 1}. ${file.name}. Alt+Up or Alt+Down moves it.`);
+    const at = () => rows.indexOf(row);
     const thumb = fileListEl("span", "file-list-thumb");
-    const img = thumbnailOf(file);
-    if (img) thumb.appendChild(img);
+    const name = fileListEl("span", "file-list-name");
+    const metaEl = fileListEl("span", "file-list-meta");
     const text = fileListEl("span", "file-list-text");
-    text.append(fileListEl("span", "file-list-name", file.name), fileListEl("span", "file-list-meta", meta(file)));
+    text.append(name, metaEl);
+    const up = rowButton("chevron_up", "Move up", () => move(at(), at() - 1));
+    const down = rowButton("chevron_down", "Move down", () => move(at(), at() + 1));
+    const remove = rowButton("close", "Remove", () => {
+      noteScroll();
+      onRemove(at());
+    });
     const actions = fileListEl("span", "file-list-actions");
-    actions.append(
-      rowButton("chevron_up", "Move up", file.name, i === 0, () => move(i, i - 1), `up-${i}`),
-      rowButton("chevron_down", "Move down", file.name, i === total - 1, () => move(i, i + 1), `down-${i}`),
-      rowButton("close", "Remove", file.name, false, () => {
-        noteScroll();
-        onRemove(i);
-      }, `remove-${i}`)
-    );
-    row.append(
-      fileListIcon("drag_handle", "file-list-handle"),
-      fileListEl("span", "file-list-number", String(i + 1)),
-      thumb,
-      text,
-      actions
-    );
+    actions.append(up, down, remove);
+    const number = fileListEl("span", "file-list-number");
+    row.append(fileListIcon("drag_handle", "file-list-handle"), number, thumb, text, actions);
+    row.parts = { thumb, name, metaEl, number, up, down, remove };
     row.addEventListener("keydown", (ev) => {
       if (ev.target !== row || !ev.altKey) return;
       if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {
         ev.preventDefault();
         ev.stopPropagation();
-        const to = ev.key === "ArrowUp" ? i - 1 : i + 1;
-        if (to >= 0 && to < total) move(i, to);
+        const from = at();
+        const to = ev.key === "ArrowUp" ? from - 1 : from + 1;
+        if (to >= 0 && to < rows.length) move(from, to);
       }
     });
     // A press on a row is the drag's (it keeps the browser from focusing it),
@@ -243,6 +296,47 @@ function createFileList({ label, meta, onMove, onRemove }) {
       if (!ev.target.closest("button")) row.focus({ preventScroll: true });
     });
     return row;
+  }
+
+  // The row drawn as `file` at `i` of `total`: only what differs from last
+  // time is touched. A file still being described (`pending`) shows its
+  // name, with its thumbnail and its line as placeholders the size of what
+  // they stand for.
+  function updateRow(row, file, i, total) {
+    const p = row.parts;
+    const drawn = `${i}|${total}|${file.name}|${Boolean(file.pending)}|${file.pending ? "" : meta(file)}|${Boolean(file.thumbnail)}`;
+    if (row.drawn === drawn) return;
+    row.drawn = drawn;
+    row.dataset.keep = `row-${i}`;
+    row.setAttribute("aria-label", `${i + 1}. ${file.name}. Alt+Up or Alt+Down moves it.`);
+    row.setAttribute("aria-busy", String(Boolean(file.pending)));
+    p.number.textContent = String(i + 1);
+    p.name.textContent = file.name;
+    if (file.pending) {
+      const line = fileListEl("span", "skeleton skeleton-text");
+      line.style.width = "6em";
+      p.metaEl.replaceChildren(line);
+    } else {
+      p.metaEl.textContent = meta(file);
+    }
+    const img = thumbnailOf(file);
+    if (img) {
+      if (p.thumb.firstChild !== img) p.thumb.replaceChildren(img);
+      p.thumb.classList.remove("skeleton");
+    } else {
+      p.thumb.replaceChildren();
+      p.thumb.classList.toggle("skeleton", Boolean(file.pending));
+    }
+    const buttons = [
+      [p.up, "Move up", `up-${i}`, i === 0],
+      [p.down, "Move down", `down-${i}`, i === total - 1],
+      [p.remove, "Remove", `remove-${i}`, false],
+    ];
+    for (const [button, action, keep, disabled] of buttons) {
+      button.dataset.keep = keep;
+      button.disabled = disabled;
+      button.setAttribute("aria-label", `${action}: ${file.name}`);
+    }
   }
 
   // ---- Dragging ------------------------------------------------------------------
@@ -290,9 +384,9 @@ function createFileList({ label, meta, onMove, onRemove }) {
 
   // ---- After a render ----------------------------------------------------------
 
-  // The dialog takes the area out and puts it back on every render, which
-  // loses the scroll position; it is put back before the frame paints, and
-  // the rows that moved slide from where they were.
+  // After a render: the scroll position as it was (a row moved in the DOM
+  // can nudge it), the focused row in view, and the rows that moved slide
+  // from where they were, all before the frame paints.
   function settle() {
     settlePending = false;
     if (!area.isConnected) {
@@ -322,7 +416,7 @@ function createFileList({ label, meta, onMove, onRemove }) {
     if (!before || motion.reduced()) return;
     const base = motion.tokenMs("--dur-reorder");
     rows.forEach((row, i) => {
-      const from = before.get(files[i]);
+      const from = before.get(fileListPathKey(files[i].path));
       if (from === undefined || typeof row.animate !== "function") return;
       const dy = from - row.offsetTop;
       if (!dy) return;
@@ -332,27 +426,51 @@ function createFileList({ label, meta, onMove, onRemove }) {
     });
   }
 
+  // The list area for `next`, updated in place: a file already listed keeps
+  // its row (and its thumbnail image), moved if it has moved; only rows for
+  // new files are made, and rows for files gone are removed.
   function build(next, { emptyText, onAdd, summary }) {
     if (drag.active()) drag.cancel();
     files = next;
+    currentAdd = onAdd;
+    const keys = new Set(files.map((file) => fileListPathKey(file.path)));
+    for (const key of Array.from(rowsByKey.keys())) {
+      if (!keys.has(key)) {
+        rowsByKey.delete(key);
+        images.delete(key);
+      }
+    }
     if (!files.length) {
       flipFrom = null;
       lastScrollTop = 0;
       rows = [];
-      listEl.replaceChildren();
+      syncChildren(listEl, []);
       area.classList.remove("has-files");
-      area.replaceChildren(buildDropZone({ text: emptyText, onAdd }));
+      if (!dropZone || dropZoneText !== emptyText) {
+        dropZone = buildDropZone({ text: emptyText, onAdd: () => currentAdd() });
+        dropZoneText = emptyText;
+      }
+      syncChildren(area, [dropZone]);
       return area;
     }
-    rows = files.map((file, i) => buildRow(file, i, files.length));
-    listEl.replaceChildren(...rows, bar);
+    rows = files.map((file, i) => {
+      const key = fileListPathKey(file.path);
+      let row = rowsByKey.get(key);
+      if (!row) {
+        row = buildRow();
+        rowsByKey.set(key, row);
+      }
+      updateRow(row, file, i, files.length);
+      return row;
+    });
+    syncChildren(listEl, [...rows, bar]);
     count.textContent = summary;
-    const add = fileListAddButton(onAdd, "btn btn-secondary btn-sm");
-    if (stripAdd) stripAdd.replaceWith(add);
-    else strip.append(count, hint, add);
-    stripAdd = add;
+    if (!stripAdd) {
+      stripAdd = fileListAddButton(() => currentAdd(), "btn btn-secondary btn-sm");
+      strip.append(count, hint, stripAdd);
+    }
     area.classList.add("has-files");
-    area.replaceChildren(strip, frame);
+    syncChildren(area, [strip, frame]);
     if (!settlePending) {
       settlePending = true;
       queueMicrotask(settle);

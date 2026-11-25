@@ -14,7 +14,14 @@ from pathlib import Path
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 SOURCES = sorted(p for p in FRONTEND.rglob("*") if p.suffix in (".html", ".js"))
-HAND_OFF_KEYS = ("lector-home-section", "lector-open-dialog", "lector-nav-from")
+HAND_OFF_KEYS = (
+    "lector-home-section",
+    "lector-open-dialog",
+    "lector-nav-from",
+    # Organise started from Home: where to go back to, and how far down.
+    "lector-organise-return",
+    "lector-home-scroll",
+)
 
 
 class NoPersistentWebStorageTest(unittest.TestCase):

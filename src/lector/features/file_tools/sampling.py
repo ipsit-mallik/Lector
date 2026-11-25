@@ -14,6 +14,7 @@ import os
 import pymupdf
 
 from lector.features.file_tools import compress_plan, engine, limit_plan
+from lector.features.reading import ocr
 
 log = logging.getLogger(__name__)
 # job id → (the sample's bytes, how many of its first pages are the heavy ones)
@@ -36,6 +37,7 @@ def image_bytes_by_page(doc: pymupdf.Document) -> list[int]:
     seen: set[int] = set()
     out = []
     for page in doc:
+        ocr.check_worker_stop()
         total = 0
         for image in page.get_images(full=True):
             for xref in (image[0], image[1]):
@@ -95,6 +97,7 @@ def sample_open(job_id: str, data: bytes | None, path: str | None, password: str
         sample = pymupdf.open()
         try:
             for index in heavy + spread:
+                ocr.check_worker_stop()
                 sample.insert_pdf(doc, from_page=index, to_page=index)
             sample_bytes = sample.tobytes(garbage=1)
         finally:

@@ -173,6 +173,31 @@ const CompressPanel = (() => {
     if (s && s.compress) inOrder("stop_compress_estimates", true);
   }
 
+  // Back to "choose a PDF": the work stops (at its next page), and what is
+  // finished is kept, so coming back to the same PDF carries on from there.
+  // Another PDF starts a new session (`closed` first).
+  function paused(s) {
+    if (s && s.compress) inOrder("stop_compress_estimates", false);
+  }
+
+  // The tool step was drawn before Python had said what was used last (a
+  // PDF chosen in the list): now it has, the mode and the remembered limit
+  // follow it, unless the reader has picked a mode already.
+  function adoptInfo(s) {
+    const cs = s.compress;
+    const fresh = freshState(s.info);
+    if (!cs.modePicked) cs.mode = fresh.mode;
+    cs.remembered = fresh.remembered;
+    if (!cs.other) cs.otherUnit = fresh.otherUnit;
+  }
+
+  // A preset's state against the PDF's size; every one is still being
+  // checked while the size isn't known.
+  function limitState(s, bytes) {
+    if (s.info.size === null || s.info.size === undefined) return "checking";
+    return compressLimitState(bytes, s.info.size, s.compress.steps, s.compress.estimates);
+  }
+
   // Default selections, as results arrive: Quality's once every level is in
   // (unless the reader picked a card and it can still be picked); Size
   // limit's, the last limit used, once it is known to be reachable.
@@ -216,6 +241,7 @@ const CompressPanel = (() => {
     const cs = s.compress;
     if (cs.mode === mode) return;
     cs.mode = mode;
+    cs.modePicked = true;
     callApi("set_compress_mode", mode);
     startWork(s);
     ui.rerender();
@@ -340,7 +366,7 @@ const CompressPanel = (() => {
     group.setAttribute("aria-labelledby", "compressPillsLabel");
     COMPRESS_PRESETS.forEach((preset, n) => {
       const bytes = compressLimitBytes(preset.value, preset.unit);
-      const state = compressLimitState(bytes, s.info.size, cs.steps, cs.estimates);
+      const state = limitState(s, bytes);
       if (state === "hidden") return;
       const pill = el("button", "compress-pill", presetLabel(preset));
       pill.type = "button";
@@ -423,13 +449,10 @@ const CompressPanel = (() => {
       // Nothing picked yet: while pills are still undecided, say so.
       const checking =
         !cs.other &&
-        COMPRESS_PRESETS.some(
-          (p) =>
-            compressLimitState(compressLimitBytes(p.value, p.unit), s.info.size, cs.steps, cs.estimates) === "checking"
-        );
+        COMPRESS_PRESETS.some((p) => limitState(s, compressLimitBytes(p.value, p.unit)) === "checking");
       return checking ? outcomeCard(cs, null) : null;
     }
-    const state = compressLimitState(limit, s.info.size, cs.steps, cs.estimates);
+    const state = limitState(s, limit);
     if (state === "hidden" || state === "too_small") return null; // the field says why
     const choice = compressDecision(cs.steps, cs.estimates, limit);
     return outcomeCard(cs, choice.settled ? choice.step : null);
@@ -516,7 +539,7 @@ const CompressPanel = (() => {
     const out = [row];
     const limit = activeBytes(cs);
     if (limit !== null) {
-      const state = compressLimitState(limit, s.info.size, cs.steps, cs.estimates);
+      const state = limitState(s, limit);
       const label = `${compressLimitValue(cs.otherText)} ${cs.otherUnit}`;
       if (state === "too_small") {
         input.classList.add("is-error");
@@ -712,6 +735,8 @@ const CompressPanel = (() => {
     description,
     opened,
     closed,
+    paused,
+    adoptInfo,
     destinationChanged,
     renderSetup,
     renderResult,

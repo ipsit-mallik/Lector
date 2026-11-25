@@ -31,7 +31,7 @@ import unittest
 from pathlib import Path
 
 PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
-SCRIPTS = [PAGES.parent / "js" / "pointer-reorder.js"] + [PAGES / name for name in (
+SCRIPTS = [PAGES.parent / "js" / "dialog-motion.js", PAGES.parent / "js" / "pointer-reorder.js"] + [PAGES / name for name in (
     "page-change-busy.js", "organise-timing.js", "organise-plan.js", "organise-thumbs.js", "organise-motion.js",
     "organise-drag.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise-insert.js",
     "organise-extract.js", "organise.js",
@@ -442,7 +442,7 @@ const context = vm.createContext({
   requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
   getComputedStyle: () => ({ columnGap: "8px" }),
   devicePixelRatio: 1,
-  callApi, mountIcon: () => {}, mountIcons: () => {},
+  callApi, mountIcon: () => {}, mountIcons: () => {}, mountMissingIcons: () => {},
   adoptState: (state) => { adopted.push(state); return state; },
   createVoiceScope: () => ({ enter() {}, leave() { return Promise.resolve(); } }), trapFocus: () => () => {},
   initRadioCards: () => {}, ensureOpenFileDialog: () => openFileDialog, PasswordDialog,
@@ -1182,6 +1182,36 @@ const scenarios = {
     out.everyPageToast = toasts[toasts.length - 1].text;
     return out;
   },
+  // Organise started from Home (Tools, Recent or Favorites): Done and Cancel
+  // hand over to the reader's leaveOrganiseForHome instead of going back to
+  // reading. Done doesn't apply the draft itself (that hand-over does, then
+  // asks "Save changes?"); Cancel drops the draft first (after Discard).
+  async homeOrigin() {
+    let leaves = 0;
+    context.__leave = () => { leaves += 1; };
+    vm.runInContext("configureOrganise({ returnsHome: () => true, leaveForHome: () => __leave() });", context);
+    const count = (name) => calls.filter((c) => c[0] === name).length;
+    const out = {};
+    await api.openOrganise(); await settle();
+    dispatch(byId.organiseDoneBtn, "click"); await settle();
+    out.doneWithout = { leaves, done: count("organise_done"), cancels: count("organise_cancel"), reloads };
+    dispatch(cell(2), "click");
+    dispatch(byId.organiseRotateRightBtn, "click"); await settle();
+    dispatch(byId.organiseDoneBtn, "click"); await settle();
+    out.doneWith = { leaves, done: count("organise_done"), reloads, busy: !byId.pageChangeBusy.hidden,
+      rotated: count("organise_action") };
+    dispatch(byId.organiseCancelBtn, "click"); await settle();
+    out.discardAsked = discard.open;
+    question("organiseDiscard").answer(false); await settle();
+    out.keepEditing = { leaves, open: api.isOrganiseOpen(), cancels: count("organise_cancel") };
+    dispatch(byId.organiseCancelBtn, "click"); await settle();
+    question("organiseDiscard").answer(true); await settle();
+    out.discarded = { leaves, open: api.isOrganiseOpen(), cancels: count("organise_cancel") };
+    await api.openOrganise(); await settle();
+    key(cell(0), "Escape"); await settle();
+    out.cancelWithout = { leaves, cancels: count("organise_cancel"), asked: discard.open };
+    return out;
+  },
 };
 
 scenarios[process.env.SCENARIO]().then(
@@ -1370,6 +1400,20 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertEqual(out["reloads"], 1)
         self.assertEqual(out["note"], {"unsaved": True, "trimmed": False})
         self.assertTrue(out["busyStill"])  # until the reloaded page has drawn
+
+    def test_started_from_home_done_and_cancel_hand_over_to_going_home(self):
+        out = self.run_scenario("homeOrigin")
+        # Done, with or without changes: the hand-over applies and asks; Organise
+        # itself neither applies the draft nor reloads the reader.
+        self.assertEqual(out["doneWithout"], {"leaves": 1, "done": 0, "cancels": 0, "reloads": 0})
+        self.assertEqual(out["doneWith"], {"leaves": 2, "done": 0, "reloads": 0, "busy": False, "rotated": 1})
+        # Cancel with changes asks first; Keep editing stays in Organise.
+        self.assertTrue(out["discardAsked"])
+        self.assertEqual(out["keepEditing"], {"leaves": 2, "open": True, "cancels": 0})
+        # Discard drops the draft, then goes home.
+        self.assertEqual(out["discarded"], {"leaves": 3, "open": False, "cancels": 1})
+        # Cancel (Esc) with nothing changed: straight home.
+        self.assertEqual(out["cancelWithout"], {"leaves": 4, "cancels": 2, "asked": False})
 
     def test_cancel_and_esc_without_changes_leave_at_once(self):
         out = self.run_scenario("cancelWithout")

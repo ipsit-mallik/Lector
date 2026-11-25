@@ -511,7 +511,9 @@ class CompressEstimates:
             look = {**before, "sampled": False}
         else:
             try:
-                look = ctx.step(sampling.sample_open, job, source.data, path, source.password)
+                # Long: a dialog that closes or moves on stops it at its next
+                # page rather than waiting for the whole look.
+                look = ctx.step(sampling.sample_open, job, source.data, path, source.password, long=True)
             except JobCancelled:
                 return
             except Exception:
@@ -532,7 +534,7 @@ class CompressEstimates:
         ctx = WorkerSteps(self._worker, abort, job, messages.COMPRESS)
         recipe = compress_plan.LADDER[step]
         try:
-            measured = ctx.step(sampling.sample_step, job, recipe)
+            measured = ctx.step(sampling.sample_step, job, recipe, long=True)
             estimate = {"size": limit_plan.scale_sample(look, measured), "kind": compress_plan.kind(recipe, measured["info"])}
         except JobCancelled:
             return

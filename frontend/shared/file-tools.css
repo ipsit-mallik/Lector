@@ -315,6 +315,16 @@
 .split-preview-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .split-preview-pages { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .split-preview-more { color: var(--text-muted); }
+/* "Move the original to the Recycle Bin afterwards" and, under it, what will
+   happen either way, indented to the box's text. */
+.split-trash { margin-top: var(--space-4); }
+.split-trash-outcome {
+  margin: var(--space-1) 0 0 calc(18px + var(--space-2));
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.split-result-original { margin-top: var(--space-2); }
+
 .split-preview .split-preview-gaps {
   margin: var(--space-1) 0 0;
   padding-top: var(--space-2);
@@ -567,6 +577,27 @@
    `.dialog-card { overflow: hidden }` comes later and would win a tie. */
 .dialog-card.dialog-card--tool { overflow: visible; }
 .dialog-card--tool .dialog-footer { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+
+/* The stepped dialog (js/dialog-steps.js): Home's Tools page asks which PDF
+   and then shows the tool in the same card. While it moves between steps
+   the card clips to the height it is easing to, and a copy of the old step
+   (on the card's own surface) fades out over the new one, which fades in. */
+.dialog-card--tool { position: relative; }
+/* While the card eases to a new height (js/dialog-motion.js) it clips to
+   the height it has got to. */
+.dialog-card.dialog-card--tool.is-resizing { overflow: clip; }
+.dialog-step-ghost {
+  position: absolute;
+  inset: 0 0 auto 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+  background-color: var(--surface-2);
+}
+
+/* The tool step's Back: secondary, at the footer's left end; Cancel and the
+   primary stay at the right. */
+.dialog-footer .dialog-footer-back { margin-right: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .save-dest-menu { animation: none; }

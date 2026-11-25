@@ -333,6 +333,18 @@ class Api:
     def file_tool_info(self, tool: str, source: str, password: str | None = None) -> dict:
         return self._tool_setup.file_tool_info(tool, source, password)
 
+    def file_tool_analysis(self, source: str) -> dict:
+        return self._tool_setup.file_tool_analysis(source)
+
+    def cancel_file_tool_analysis(self) -> dict:
+        return self._tool_setup.cancel_file_tool_analysis()
+
+    def warm_file_tool_worker(self) -> dict:
+        return self._tool_setup.warm_file_tool_worker()
+
+    def forget_file_tool_passwords(self) -> dict:
+        return self._tool_setup.forget_file_tool_passwords()
+
     def get_save_places(self, origin_folder: str) -> dict:
         return self._tool_setup.get_save_places(origin_folder)
 

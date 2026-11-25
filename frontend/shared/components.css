@@ -222,6 +222,16 @@ button {
    "Page entrance". */
 .dialog-scrim--enter { animation: fade-in var(--dur-base) var(--ease-out); }
 .dialog-scrim--enter .dialog-card { animation: pop-in var(--dur-base) var(--ease-out); }
+/* A dialog with another opened over it (the file browser, Save-As,
+   "Replace?", a password: js/dialog-motion.js's stackDialog) stays where it
+   is, under that one, and keeps the only dim on screen: the dialog over it
+   has none of its own (its card still makes its entrance), so the dim's
+   opacity never changes as the other opens or closes. */
+.dialog-scrim.dialog-scrim--under { z-index: 99; }
+body.has-stacked-dialog .dialog-scrim:not(.dialog-scrim--under):not([hidden]) {
+  background-color: transparent;
+  animation: none;
+}
 
 .dialog-body {
   padding: var(--dialog-pad-y) var(--dialog-pad-x) var(--dialog-pad-y);
@@ -810,6 +820,13 @@ kbd,
   animation: skeleton-sweep 1.4s var(--ease-out) infinite;
 }
 .skeleton-line { height: 10px; margin: var(--space-1) 0; }
+/* A word or number still to come, in a line of text: as tall as the
+   letters, as wide as what it stands for (set where it is made). */
+.skeleton.skeleton-text {
+  display: inline-block;
+  height: 0.9em;
+  vertical-align: -0.1em;
+}
 
 @keyframes skeleton-sweep {
   from { background-position: 150% 0; }

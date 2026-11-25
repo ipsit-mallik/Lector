@@ -57,6 +57,12 @@
   --dur-base: 200ms;
   --stagger: 40ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Height changes only (a dialog card easing to its new content,
+   * js/dialog-motion.js). --ease-out puts about a third of a change into
+   * its first frame, which reads as a jump before the motion; this starts
+   * gently (about a tenth in the first frame of --dur-base) and still
+   * settles without overshoot. */
+  --ease-size: cubic-bezier(0.2, 0, 0, 1);
 
   /* Distances for the movements the app allows: a card's hover lift, a page
    * section's entrance rise, and the scale a popover or confirmation dialog

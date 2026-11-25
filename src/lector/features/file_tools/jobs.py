@@ -101,9 +101,10 @@ class JobContext:
 
     def step(self, fn: Callable, *args, long: bool = False):
         """`fn(*args)` in the worker, after checking for a cancel. A `long`
-        step is stopped mid-way by a cancel (its worker is ended); any other
-        runs to its end first. Raises JobCancelled, JobFailed, or `fn`'s own
-        exception."""
+        step is stopped mid-way by a cancel: at its next page
+        (`ocr.check_worker_stop`), or, with no page reached within
+        `ocr.STOP_GRACE_S`, by ending its worker; any other runs to its end
+        first. Raises JobCancelled, JobFailed, or `fn`'s own exception."""
         self.check()
         future = self._worker.call(
             fn,
@@ -113,8 +114,10 @@ class JobContext:
         )
         try:
             return future.result()
-        except ocr.CallAborted:
-            self.worker_gone = True
+        except ocr.CallAborted as exc:
+            # Stopped at a page, the worker still holds what the job opened
+            # there (released as usual); ended, it holds nothing.
+            self.worker_gone = exc.replaced
             raise JobCancelled() from None
         except ocr.WorkerLost:
             self.worker_gone = True

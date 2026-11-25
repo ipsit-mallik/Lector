@@ -367,6 +367,9 @@ function initRadioCards(group, { selectOnArrow = true } = {}) {
 
   const ARROW_STEP = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
   group.addEventListener("keydown", (e) => {
+    // With Alt, Ctrl or Meta held an arrow is someone else's shortcut (a
+    // stepped dialog's Back is Alt+←): the group leaves it alone.
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
     const step = ARROW_STEP[e.key];
     const all = enabled();
     const index = all.indexOf(document.activeElement);
@@ -394,13 +397,17 @@ function initRadioCards(group, { selectOnArrow = true } = {}) {
 // last. Returns the function that stops it. Only controls the reader can
 // reach count: hidden ones, disabled ones and a radio group's unselected
 // cards (tabIndex -1) are skipped.
+// Anything inert doesn't count: a stepped dialog's fading copy of its last
+// step, and the whole dialog while another is stacked over it (its trap
+// then stands aside for that one's).
 function trapFocus(container) {
   const reachable = () =>
     Array.from(container.querySelectorAll("button, input, select, textarea, a[href], [tabindex]")).filter(
-      (el) => el.tabIndex >= 0 && !el.disabled && el.getClientRects().length > 0
+      (el) => el.tabIndex >= 0 && !el.disabled && !el.closest("[inert]") && el.getClientRects().length > 0
     );
   const onKeydown = (ev) => {
     if (ev.key !== "Tab") return;
+    if (container.closest("[inert]")) return;
     const all = reachable();
     if (!all.length) return;
     const first = all[0];

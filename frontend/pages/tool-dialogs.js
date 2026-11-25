@@ -2,7 +2,8 @@
 // (docs/PRD.md § "Post-v1: file tools"), opened from the reader's More menu,
 // Home's Tools page, a Recent entry's "⋯" menu, or by voice. One card, three
 // states: Set up (the choices), Working (progress), Result. Only the body and
-// footer change between them.
+// footer change between them. From the Tools page it first asks which PDF,
+// as a step of the same card (js/dialog-steps.js), with Back in Set up.
 //
 // The work itself is a job in Python (api.py's `start_file_job`), followed
 // through `FileJobs` (js/file-jobs.js). In the reader, Keep reading closes
@@ -39,6 +40,38 @@ const EXPORT_PPI = [96, 150, 300];
 
 // How long after the last keystroke the Pages field is checked.
 const RANGE_CHECK_DELAY_MS = 150;
+
+const TOOL_READ_ERROR = "Couldn't read the PDF. It may be damaged or no longer there.";
+
+// The choices a tool step starts from before Python has said what was used
+// last (settings' file tool prefs); replaced by those once it has.
+const DEFAULT_TOOL_PREFS = {
+  compress_mode: "quality",
+  compress_limit: null,
+  compress_unit: "KB",
+  export_format: "png",
+  export_ppi: 150,
+};
+
+// A placeholder for a word or number still to come (components.css's
+// `.skeleton-text`), `width` wide.
+function skeletonText(width) {
+  const span = el("span", "skeleton skeleton-text");
+  span.style.width = width;
+  span.setAttribute("aria-hidden", "true");
+  return span;
+}
+
+// A line of facts with some still to come: each part a string, or
+// `{ pending: "4em" }` (a placeholder that wide) for one not known yet.
+function factsLine(parts) {
+  const nodes = [];
+  parts.forEach((part, i) => {
+    if (i) nodes.push(document.createTextNode(" · "));
+    nodes.push(typeof part === "string" ? document.createTextNode(part) : skeletonText(part.pending));
+  });
+  return nodes;
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -95,9 +128,20 @@ const ToolDialog = (() => {
   let primaryBtn = null;
   let rangeTimer = 0;
   let rangeCheck = 0;
+  // Opened from the Tools page: "choose a PDF" and the tool as two steps of
+  // this one card (js/dialog-steps.js); null otherwise.
+  let steps = null;
+  let browse = null; // home.js: the Open dialog, () => Promise<path | null>
 
   // The dialog's state: what it is for, what is chosen, where it stands.
   let s = null;
+  // The tool prefs Python last said (the next PDF's placeholders start
+  // from them).
+  let lastPrefs = null;
+  // Which entry into the tool step answers are for (`fill`).
+  let entryToken = 0;
+  // How often a page check stopped by an older cancel is asked again.
+  const ANALYSIS_RETRIES = 2;
 
   function build() {
     if (scrim) return;
@@ -126,12 +170,15 @@ const ToolDialog = (() => {
     card.append(body, footerEl);
     scrim.appendChild(card);
     document.body.appendChild(scrim);
+    smoothDialogHeight(card);
     scope = createVoiceScope("file_tool");
     document.addEventListener("keydown", onKeydown);
     FileJobs.subscribe(onJobEvent);
     CompressPanel.init({
       state: () => s,
-      hidden: () => scrim.hidden,
+      // On the "choose a PDF" step the tool isn't drawn: estimates that
+      // arrive meanwhile wait in its state for the way back.
+      hidden: () => scrim.hidden || choosing(),
       body: bodyEl,
       rerender,
       segmented,
@@ -151,53 +198,235 @@ const ToolDialog = (() => {
 
   // ---- Opening -------------------------------------------------------------
 
-  // Ask Python what the dialog needs to know about the PDF. From Home a
-  // protected PDF asks for its password first (password-dialog.js); it is
-  // only ever held in Python's memory, for this file's job.
-  async function fetchInfo(tool, source) {
-    const info = await callApi("file_tool_info", tool, source);
-    if (info.ok || (info.reason !== "password" && info.reason !== "wrong_password")) return info;
-    const unlocked = await PasswordDialog.ask({
-      name: info.name || baseName(source),
-      attempt: async (password) => {
-        const retry = await callApi("file_tool_info", tool, source, password);
-        if (retry.ok) return { done: retry };
-        if (retry.reason === "wrong_password") return { error: retry.error };
-        return { done: retry };
-      },
-    });
-    return unlocked || { ok: false, cancelled: true };
+  // What Python has been asked about each PDF since the dialog opened, by
+  // path: a quick look (`file_tool_info`, a few milliseconds, never behind
+  // the worker), and for Make searchable its pages with no text
+  // (`file_tool_analysis`, in the worker). Asked as soon as a PDF is chosen
+  // in the "choose a PDF" list, so they are usually in by Continue.
+  let infos = new Map();
+  let analyses = new Map();
+  // The answers already in, by path, so a step for a PDF whose look has
+  // arrived is drawn complete at once, with no placeholders to replace.
+  let known = new Map();
+  let knownAnalyses = new Map();
+
+  function requestInfo(tool, source) {
+    if (!infos.has(source)) {
+      const asked = Promise.resolve(callApi("file_tool_info", tool, source)).catch((err) => {
+        console.error("tool-dialogs: couldn't read the PDF", err);
+        return { ok: false, error: TOOL_READ_ERROR };
+      });
+      infos.set(source, asked);
+      asked.then((info) => {
+        if (infos.get(source) !== asked) return;
+        if (info.ok) known.set(source, info);
+        // A failure is asked again next time (the file may be back).
+        else if (info.reason !== "password") infos.delete(source);
+      });
+    }
+    return infos.get(source);
   }
 
-  // Open `tool`'s dialog for `source`: "open" (the reader's PDF, as it is
-  // on screen) or a path (Home).
-  async function open(tool, source) {
-    build();
-    if (!TOOL_DIALOG_META[tool]) return;
-    if (s && s.phase === "working") {
-      // A job is running: its dialog comes back instead of a new one.
-      reopen();
+  // The newest request wins in Python (an older file's check is stopped),
+  // so a waiting answer for another file is forgotten rather than reused.
+  function requestAnalysis(source) {
+    for (const other of Array.from(analyses.keys())) if (other !== source) analyses.delete(other);
+    if (!analyses.has(source)) {
+      const asked = Promise.resolve(callApi("file_tool_analysis", source)).catch((err) => {
+        console.error("tool-dialogs: couldn't look at the pages", err);
+        return { ok: false, error: TOOL_READ_ERROR };
+      });
+      analyses.set(source, asked);
+      asked.then((answer) => {
+        if (analyses.get(source) !== asked) return;
+        if (answer.ok) knownAnalyses.set(source, answer);
+        else analyses.delete(source);
+      });
+    }
+    return analyses.get(source);
+  }
+
+  // What is known about `source` now, without waiting: the quick look (and
+  // Make searchable's pages, if they are in too), or null.
+  function knownInfo(source) {
+    const info = known.get(source);
+    if (!info) return null;
+    const pages = knownAnalyses.get(source);
+    if (!info.analysis_pending || !pages) return info;
+    return { ...info, textless: pages.textless, textless_pages: pages.textless_pages, analysis_pending: false };
+  }
+
+  function forgetAnswers() {
+    infos = new Map();
+    analyses = new Map();
+    known = new Map();
+    knownAnalyses = new Map();
+  }
+
+  // Make searchable's look at every page is dropped when nobody waits for it.
+  function cancelAnalysis() {
+    analyses = new Map();
+    knownAnalyses = new Map();
+    Promise.resolve(callApi("cancel_file_tool_analysis")).catch((err) =>
+      console.error("tool-dialogs: couldn't stop the page check", err)
+    );
+  }
+
+  // A PDF chosen in the list: start reading it.
+  function prefetch(tool, source) {
+    requestInfo(tool, source);
+    if (tool === "searchable") requestAnalysis(source);
+  }
+
+  // What the dialog needs to know about `source`, or null once the reason it
+  // can't be had has been said (a toast; Home's Remove from Recent for a
+  // file that has gone; nothing when the password was cancelled). A
+  // protected PDF from Home asks for its password, over this dialog
+  // (password-dialog.js); it is only ever held in Python's memory, for this
+  // file's job.
+  // `wanted()`, when given, says whether anyone still waits for the answer
+  // (the tool step it is for is still showing): if not, nothing is asked
+  // or said.
+  async function readInfo(tool, source, { wanted = null } = {}) {
+    let info = await requestInfo(tool, source);
+    if (wanted && !wanted()) return null;
+    if (!info.ok && (info.reason === "password" || info.reason === "wrong_password")) {
+      const ask = () =>
+        PasswordDialog.ask({
+          name: info.name || baseName(source),
+          attempt: async (password) => {
+            const retry = await callApi("file_tool_info", tool, source, password);
+            if (retry.reason === "wrong_password") return { error: retry.error };
+            return { done: retry };
+          },
+        });
+      const unlocked = scrim.hidden ? await ask() : await stacked(ask);
+      info = unlocked || { ok: false, cancelled: true };
+      if (info.ok) {
+        infos.set(source, Promise.resolve(info));
+        known.set(source, info);
+      }
+      if (wanted && !wanted()) return null;
+    }
+    if (info.ok) return info;
+    if (info.cancelled) return null;
+    if (info.reason === "missing" && onMissing) onMissing(info.error, source);
+    else showToast(info.error || TOOL_READ_ERROR);
+    return null;
+  }
+
+  // The tool step for a PDF chosen in the list, before Python has said
+  // anything about it: what the list knows (its name and page count) and
+  // the last choices used, everything else a placeholder (`pending`).
+  function provisionalInfo(tool, source, entry) {
+    return {
+      ok: true,
+      pending: true,
+      name: baseName(source),
+      pages: entry && entry.page_count ? entry.page_count : null,
+      size: null,
+      page_size: null,
+      signed: false,
+      dirty: false,
+      unsaved: 0,
+      textless: null,
+      textless_pages: null,
+      current_page: null,
+      current_textless: false,
+      analysis_pending: tool === "searchable",
+      prefs: lastPrefs || DEFAULT_TOOL_PREFS,
+      output: { folder: dirName(source), stem: "", extension: tool === "export" ? "" : ".pdf" },
+    };
+  }
+
+  // Fill the tool step in as what it waits for arrives: the quick look,
+  // then (Make searchable) the pages with no text, and Compress's
+  // estimates. Each lands where its placeholder is; the card's height, if
+  // it changes at all, eases (js/dialog-motion.js).
+  // Each time the tool step is entered (Continue, or opening from a menu)
+  // its answers are for that entry only: Back, or another entry, makes them
+  // stale, and a stale one lands in nothing.
+  async function fill(state) {
+    const token = ++entryToken;
+    const here = () => s === state && token === entryToken && !choosing() && !scrim.hidden;
+    if (state.info.pending) {
+      const info = await readInfo(state.tool, state.source, { wanted: here });
+      if (!here()) return;
+      if (!info) {
+        infoFailed();
+        return;
+      }
+      adoptInfo(state, info);
+    }
+    if (state.compress) CompressPanel.opened(state);
+    if (state.tool === "searchable" && state.info.analysis_pending) analyse(state, here);
+  }
+
+  function adoptInfo(state, info) {
+    lastPrefs = info.prefs;
+    state.info = info;
+    if (state.compress) CompressPanel.adoptInfo(state);
+    if (state.tool === "export" && !state.formatPicked) {
+      state.format = info.prefs.export_format;
+      state.ppi = info.prefs.export_ppi;
+    }
+    state.destination.setSuggestedStem(info.output.stem);
+    state.destination.setPending(false);
+    redraw();
+    if (state.tool === "export" && state.exportPages === "range") checkRange();
+  }
+
+  // A check stopped by an older request's cancel (Back and Continue again
+  // quickly, or another row chosen and this one again) is asked again,
+  // while its step is still showing.
+  async function analyse(state, here) {
+    let answer = await requestAnalysis(state.source);
+    for (let again = 0; answer.cancelled && again < ANALYSIS_RETRIES && here(); again++) {
+      analyses.delete(state.source);
+      answer = await requestAnalysis(state.source);
+    }
+    if (!here() || answer.cancelled) return;
+    if (!answer.ok) {
+      showToast(answer.error || TOOL_READ_ERROR);
+      infoFailed();
       return;
     }
-    let info;
-    try {
-      info = await fetchInfo(tool, source);
-    } catch (err) {
-      console.error("tool-dialogs: couldn't read the PDF", err);
-      info = { ok: false, error: "Couldn't read the PDF. It may be damaged or no longer there." };
+    state.info = { ...state.info, textless: answer.textless, textless_pages: answer.textless_pages, analysis_pending: false };
+    redraw();
+  }
+
+  // The PDF couldn't be read (the reason has been said): back to the list,
+  // or, opened straight from a menu, closed.
+  function infoFailed() {
+    if (steps && !steps.isChoosing()) {
+      if (s && s.compress) CompressPanel.closed(s);
+      s = null;
+      steps.back();
+    } else if (!steps) {
+      close();
     }
-    if (!info.ok) {
-      if (info.cancelled) return;
-      if (info.reason === "missing" && onMissing) onMissing(info.error, source);
-      else showToast(info.error);
-      return;
-    }
-    s = {
+  }
+
+  // Draw the tool step again for something that arrived; the card's height
+  // eases to what it now needs.
+  function redraw() {
+    if (!s || choosing() || scrim.hidden) return;
+    changeDialogContent(card, rerender);
+  }
+
+  // The dialog's state for `source`. Coming Back and choosing another PDF
+  // keeps the choices that aren't about the file (Compress's mode, Export's
+  // format and resolution) and starts the rest afresh.
+  function freshState(tool, source, info, previous) {
+    const destination = makeDestination(tool, source, info);
+    if (info.pending) destination.setPending(true);
+    const next = {
       tool,
       source,
       info,
       phase: "setup",
-      destination: makeDestination(tool, source, info),
+      destination,
+      formatPicked: false,
       starting: false,
       compress: tool === "compress" ? CompressPanel.freshState(info) : null,
       format: info.prefs.export_format,
@@ -212,16 +441,116 @@ const ToolDialog = (() => {
       outcome: null,
       cancelling: false,
     };
+    if (previous && previous.tool === tool) {
+      next.format = previous.format;
+      next.ppi = previous.ppi;
+      next.formatPicked = previous.formatPicked;
+      if (next.compress && previous.compress && "mode" in previous.compress) {
+        next.compress.mode = previous.compress.mode;
+        next.compress.modePicked = true;
+      }
+    }
+    return next;
+  }
+
+  // Open `tool`'s dialog for `source`: "open" (the reader's PDF, as it is
+  // on screen) or a path (Home). With `choose` (Home's Tools page) it starts
+  // at "choose a PDF", in the same card (js/dialog-steps.js).
+  // A second open while the first is still reading (a double click on a
+  // Tools card, before the dialog shows) is ignored: it would show the dialog
+  // twice, with two focus traps.
+  let opening = false;
+  async function open(tool, source, options = {}) {
+    if (opening) return;
+    opening = true;
+    try {
+      await openNow(tool, source, options);
+    } finally {
+      opening = false;
+    }
+  }
+
+  async function openNow(tool, source, { choose = false } = {}) {
+    build();
+    if (!TOOL_DIALOG_META[tool]) return;
+    if (s && s.phase === "working") {
+      // A job is running: its dialog comes back instead of a new one.
+      reopen();
+      return;
+    }
+    if (choose) {
+      await openAtChooser(tool);
+      return;
+    }
+    // From a menu: the quick look (a few milliseconds) is there before the
+    // dialog shows; what reads every page comes after, into placeholders.
+    forgetAnswers();
+    const info = await readInfo(tool, source);
+    if (!info) return;
+    steps = null;
+    s = freshState(tool, source, info, null);
+    lastPrefs = info.prefs;
     show();
-    if (s.compress) CompressPanel.opened(s);
+    fill(s);
+  }
+
+  async function openAtChooser(tool) {
+    s = null;
+    forgetAnswers();
+    steps = createToolSteps({
+      card,
+      badge,
+      titleEl,
+      descEl,
+      bodyEl,
+      footerEl,
+      toolName: TOOL_NAMES[tool],
+      browse: () => (browse ? browse() : Promise.resolve(null)),
+      stacked,
+      prefetch: (path) => prefetch(tool, path),
+      // At once: the PDF chosen before keeps everything; another starts
+      // from what the list knows, the rest still on its way.
+      enterTool: (path, entry) => {
+        if (s && s.source === path) return;
+        const previous = s;
+        if (previous) CompressPanel.closed(previous);
+        requestInfo(tool, path);
+        const ready = knownInfo(path);
+        if (ready) lastPrefs = ready.prefs;
+        s = freshState(tool, path, ready || provisionalInfo(tool, path, entry), previous);
+      },
+      renderTool: renderToolStep,
+      entered: () => {
+        if (s) fill(s);
+      },
+      // Back: what was being worked out for the tool stops (Compress keeps
+      // what it has finished, for coming back to the same PDF).
+      leaveTool: () => {
+        entryToken += 1;
+        if (s && s.compress) CompressPanel.paused(s);
+        if (tool === "searchable") cancelAnalysis();
+      },
+      focusTool: focusFirst,
+      toolTitle: () => TOOL_DIALOG_META[tool].title,
+      currentSource: () => (s ? s.source : null),
+      close,
+    });
+    await steps.begin();
+    show();
+  }
+
+  // Whether the dialog is on its "choose a PDF" step.
+  function choosing() {
+    return Boolean(steps) && steps.isChoosing();
   }
 
   function show() {
+    if (!scrim.hidden) return;
     opener = document.activeElement;
     render();
     scrim.hidden = false;
     releaseTrap = trapFocus(card);
-    if (s.jobId) FileJobs.watch(s.jobId);
+    if (s && s.jobId) FileJobs.watch(s.jobId);
     scope.enter();
     focusFirst();
   }
@@ -246,34 +575,37 @@ const ToolDialog = (() => {
     });
   }
 
-  // "Choose another folder…": the in-app file browser, picking a folder.
-  // This card steps aside while it is up and comes back after.
+  // "Choose another folder…": the in-app file browser, picking a folder,
+  // over this card.
   async function chooseFolder(start) {
     if (!saveAs) return null;
-    const picked = await aside(() => saveAs.open({ dir: start, pickFolder: true, title: "Choose a folder" }));
+    const picked = await stacked(() => saveAs.open({ dir: start, pickFolder: true, title: "Choose a folder" }));
     return picked && !picked.cancelled ? picked.path : null;
   }
 
-  // Run `task` (another dialog) with this card hidden, then show it again,
-  // still answering to whoever opened it.
-  async function aside(task) {
-    const returnTo = opener;
-    hide();
-    try {
-      return await task();
-    } finally {
-      if (s && scrim.hidden) {
-        show();
-        opener = returnTo;
-      }
-    }
+  // Run `task` (another dialog) over this one, which stays as it is
+  // underneath (js/dialog-motion.js's `stackDialog`); focus comes back to
+  // whatever opened it.
+  function stacked(task) {
+    return stackDialog(
+      {
+        scrim,
+        onLeave: () => {
+          if (s && s.destination) s.destination.closeMenu();
+          scope.leave();
+        },
+        onReturn: () => scope.enter(),
+        refocus: focusFirst,
+      },
+      task
+    );
   }
 
   // Hide the card without forgetting it (Keep reading, the folder picker).
   function hide() {
     if (!scrim || scrim.hidden) return;
     if (s && s.destination) s.destination.closeMenu();
-    scrim.hidden = true;
+    hideDialogScrim(scrim);
     if (releaseTrap) releaseTrap();
     releaseTrap = null;
     scope.leave();
@@ -282,9 +614,17 @@ const ToolDialog = (() => {
   function close() {
     hide();
     clearTimeout(rangeTimer);
-    // Compress's estimates and held result are deleted with the dialog.
+    // Compress's estimates and held result are deleted with the dialog;
+    // Make searchable's page check, if it is still going, stops.
     CompressPanel.closed(s);
+    if (analyses.size) cancelAnalysis();
+    forgetAnswers();
+    // A protected PDF's password was held for this dialog only.
+    Promise.resolve(callApi("forget_file_tool_passwords")).catch((err) =>
+      console.error("tool-dialogs: couldn't forget the passwords", err)
+    );
     s = null;
+    steps = null;
     if (opener && opener.isConnected && opener.focus) opener.focus();
     opener = null;
   }
@@ -296,6 +636,10 @@ const ToolDialog = (() => {
   }
 
   function focusFirst() {
+    if (choosing()) {
+      steps.focusChooser();
+      return;
+    }
     const chosen =
       bodyEl.querySelector(".compress-levels [role='radio'][tabindex='0'], .compress-pills [role='radio'][tabindex='0']") ||
       bodyEl.querySelector("[role='radio'][tabindex='0']");
@@ -314,17 +658,40 @@ const ToolDialog = (() => {
   }
 
   function render() {
+    if (choosing()) steps.render();
+    else renderToolStep();
+  }
+
+  // The tool itself. Opened from the Tools page, its Set up has Back at the
+  // footer's left end (not on Working or Done).
+  function renderToolStep() {
     badge.replaceChildren(iconEl(TOOL_DIALOG_META[s.tool].icon));
     titleEl.textContent = TOOL_DIALOG_META[s.tool].title;
-    // Compress's header is one line of facts, the same in every state.
-    descEl.textContent = s.compress ? CompressPanel.description(s) : setupDescription();
+    // Compress's header is one line of facts, the same in every state (a
+    // placeholder for any not known yet).
+    if (s.compress && s.info.pending) {
+      descEl.replaceChildren(
+        ...factsLine([
+          s.info.name,
+          { pending: "3.6em" },
+          s.info.pages ? plural(s.info.pages, "page", "pages") : { pending: "4em" },
+        ])
+      );
+    } else {
+      descEl.textContent = s.compress ? CompressPanel.description(s) : setupDescription();
+    }
     bodyEl.replaceChildren();
     footerEl.replaceChildren();
     primaryBtn = null;
     if (s.phase === "setup") renderSetup();
     else if (s.phase === "working") renderWorking();
     else renderResult();
+    if (backShown()) footerEl.prepend(steps.backButton());
     mountIcons(card);
+  }
+
+  function backShown() {
+    return Boolean(steps) && !steps.isChoosing() && Boolean(s) && s.phase === "setup";
   }
 
   function footerButton(label, onClick, { primary = false, disabled = false } = {}) {
@@ -384,6 +751,11 @@ const ToolDialog = (() => {
       text.append(el("span", "option-title", option.label));
       row.append(el("span", "option-radio"), text);
       if (option.meta) row.append(el("span", "option-meta", option.meta));
+      else if (option.metaPending) {
+        const meta = el("span", "option-meta");
+        meta.append(skeletonText(option.metaPending));
+        row.append(meta);
+      }
       row.addEventListener("click", () => onPick(option.value));
       group.appendChild(row);
     }
@@ -393,6 +765,7 @@ const ToolDialog = (() => {
 
   // Re-render, keeping focus on the control in the same place.
   function rerender() {
+    if (!s || choosing()) return;
     const focused = document.activeElement;
     const groups = Array.from(card.querySelectorAll("[role='radiogroup']"));
     const groupIndex = groups.findIndex((g) => g.contains(focused));
@@ -441,6 +814,7 @@ const ToolDialog = (() => {
   // Whether Set up's primary button may run the tool now.
   function setupReady() {
     if (!s || s.phase !== "setup" || s.starting) return false;
+    if (s.info.pending || s.info.analysis_pending) return false;
     if (!s.destination.isValid()) return false;
     if (s.compress) return CompressPanel.ready(s);
     if (s.tool === "export") return exportCount() > 0;
@@ -487,8 +861,38 @@ const ToolDialog = (() => {
     else renderExportSetup();
   }
 
+  // While its pages are still being looked at (in the worker): the same
+  // parts in the same places, the counts as placeholders.
+  function renderSearchablePending() {
+    const summary = el("div", "tool-summary");
+    summary.setAttribute("aria-busy", "true");
+    const number = el("span", "tool-summary-number");
+    number.append(skeletonText("0.9em"));
+    const text = el("p", "tool-summary-text");
+    text.append(skeletonText("94%"), document.createElement("br"), skeletonText("58%"));
+    summary.append(number, text);
+    const language = el("div", "tool-row-line");
+    const value = el("span");
+    value.append(el("b", "", "English"), document.createTextNode(" · read on this computer"));
+    language.append(el("span", "", "Language"), value);
+    bodyEl.append(
+      summary,
+      radios([{ value: "all", label: "All pages without text", metaPending: "4em" }], "all", () => {}, "Pages"),
+      language,
+      destinationBlock()
+    );
+    const notes = notesBlock();
+    if (notes) bodyEl.append(notes);
+    footerButton("Cancel", close);
+    footerButton("Make searchable", start, { primary: true, disabled: true });
+  }
+
   function renderSearchableSetup() {
     const { textless, pages } = s.info;
+    if (textless === null || textless === undefined) {
+      renderSearchablePending();
+      return;
+    }
     if (!textless) {
       bodyEl.append(el("p", "tool-result", "Every page already has text. There's nothing to add."));
       footerButton("Done", close, { primary: true });
@@ -545,23 +949,33 @@ const ToolDialog = (() => {
       segmented(
         EXPORT_FORMATS.map((f) => ({ value: f.value, label: f.label })),
         s.format,
-        (value) => { s.format = value; rerender(); },
+        (value) => { s.format = value; s.formatPicked = true; rerender(); },
         "Format"
       ),
       el("span", "tool-hint", format.hint)
     );
-    const [w, h] = pixelSize(s.info.page_size, s.ppi);
+    const ppiHint = el("span", "tool-hint");
+    if (s.info.page_size) {
+      const [w, h] = pixelSize(s.info.page_size, s.ppi);
+      ppiHint.textContent = `${w} × ${h} px a page`;
+    } else {
+      ppiHint.append(skeletonText("8em"));
+    }
     const ppiControl = el("div", "tool-control");
     ppiControl.append(
       segmented(
         EXPORT_PPI.map((ppi) => ({ value: ppi, label: `${ppi} ppi` })),
         s.ppi,
-        (value) => { s.ppi = value; rerender(); },
+        (value) => { s.ppi = value; s.formatPicked = true; rerender(); },
         "Resolution"
       ),
-      el("span", "tool-hint", `${w} × ${h} px a page`)
+      ppiHint
     );
-    const pageOptions = [{ value: "all", label: "All pages", meta: plural(s.info.pages, "image", "images") }];
+    const pageOptions = [
+      s.info.pages
+        ? { value: "all", label: "All pages", meta: plural(s.info.pages, "image", "images") }
+        : { value: "all", label: "All pages", metaPending: "4.5em" },
+    ];
     if (where === "reader") {
       pageOptions.push({ value: "this", label: "This page", meta: `Page ${s.info.current_page + 1}` });
     }
@@ -591,7 +1005,8 @@ const ToolDialog = (() => {
     if (notes) bodyEl.append(notes);
     const n = exportCount();
     footerButton("Cancel", close);
-    footerButton(`Export ${plural(n, "image", "images")}`, start, { primary: true, disabled: !setupReady() });
+    const primaryLabel = s.info.pending ? "Export images" : `Export ${plural(n, "image", "images")}`;
+    footerButton(primaryLabel, start, { primary: true, disabled: !setupReady() });
   }
 
   function rangeField() {
@@ -626,7 +1041,8 @@ const ToolDialog = (() => {
   // The range is checked by the same parser the job uses (naming.py), so the
   // count on the button is the number of files that will be written.
   async function checkRange() {
-    if (!s || s.tool !== "export") return;
+    // Checked against the page count, so once it is known (`adoptInfo`).
+    if (!s || s.tool !== "export" || s.info.pending) return;
     const id = ++rangeCheck;
     const text = s.rangeText;
     const answer = text.trim()
@@ -785,7 +1201,7 @@ const ToolDialog = (() => {
       return false;
     }
     if (!target.exists || s.tool === "export") return true;
-    const replace = await aside(() => ReplaceDialog.open({ name: target.name, folder: target.folder }));
+    const replace = await stacked(() => ReplaceDialog.open({ name: target.name, folder: target.folder }));
     return Boolean(replace) && Boolean(s) && s.phase === "setup";
   }
 
@@ -863,11 +1279,29 @@ const ToolDialog = (() => {
   // ---- Keys and voice ------------------------------------------------------
 
   function onKeydown(ev) {
-    if (!scrim || scrim.hidden || !s) return;
+    if (!scrim || scrim.hidden || scrim.inert || !(s || steps)) return;
     // The Save-As or password dialog may be up over this one.
     if (document.querySelector(".dialog-scrim:not([hidden]):not(#toolDialog)")) return;
+    if (choosing()) {
+      // Esc on any step closes the whole dialog (once a PDF being opened has
+      // landed); Enter is Continue.
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        steps.cancel();
+      } else {
+        steps.handleChooserKey(ev);
+      }
+      return;
+    }
     // The "Save in" menu takes its own keys (Esc closes only the menu).
     if (s.destination && s.destination.isMenuOpen()) return;
+    // Alt+← is Back, where Back is shown.
+    if (isStepBackKey(ev) && backShown()) {
+      ev.preventDefault();
+      steps.back();
+      return;
+    }
     if (ev.key === "Escape") {
       ev.preventDefault();
       ev.stopPropagation();
@@ -897,6 +1331,10 @@ const ToolDialog = (() => {
   }
 
   function handleCommand(command) {
+    if (choosing()) {
+      steps.handleChooserCommand(command);
+      return;
+    }
     if (!s) return;
     switch (command.intent) {
       case "TOOL_CONFIRM":
@@ -917,6 +1355,8 @@ const ToolDialog = (() => {
     open,
     reopen,
     isOpen: () => Boolean(scrim) && !scrim.hidden,
+    // On its "choose a PDF" step (tests, and Home's voice routing).
+    isChoosing: choosing,
     // Whether a job this dialog started is running (shown or not).
     isWorking: () => Boolean(s) && s.phase === "working",
     handleCommand,
@@ -929,6 +1369,7 @@ const ToolDialog = (() => {
       openOutput = options.openOutput || openOutput;
       onBackground = options.onBackground || onBackground;
       onMissing = options.onMissing || onMissing;
+      browse = options.browse || browse;
     },
   };
 })();

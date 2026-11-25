@@ -24,7 +24,7 @@ const CONVERT_PAGE_SIZES = [
 ];
 
 const ConvertDialog = (() => {
-  let addFile = null; // home.js: () => Promise<path | null>
+  let addFiles = null; // home.js: () => Promise<path[]>, several at a time
   let saveAs = null;
   let openOutput = null;
 
@@ -37,6 +37,9 @@ const ConvertDialog = (() => {
   let scope = null;
   let releaseTrap = null;
   let opener = null;
+  // Set up's nodes kept between renders (`setupParts`), made again for a
+  // new dialog or after Working.
+  let setupUi = null;
 
   // { phase, files: [{path, name, type, size, pages, ebook, thumbnail}],
   //   pageSize, destination (the shared Name + "Save in" block, made with
@@ -72,11 +75,13 @@ const ConvertDialog = (() => {
     card.append(body, footerEl);
     scrim.appendChild(card);
     document.body.appendChild(scrim);
+    smoothDialogHeight(card);
     scope = createVoiceScope("file_tool");
     document.addEventListener("keydown", onKeydown);
     FileJobs.subscribe(onJobEvent);
     onConvertibleDrop((paths) => {
-      if (!isOpen() || s.phase !== "setup") return false;
+      // Not while another dialog (the Open dialog) is over it.
+      if (!isOpen() || s.phase !== "setup" || scrim.inert) return false;
       addPaths(paths);
       return true;
     });
@@ -123,7 +128,7 @@ const ConvertDialog = (() => {
     if (!scrim || scrim.hidden) return;
     if (s && s.destination) s.destination.closeMenu();
     files.cancelDrag();
-    scrim.hidden = true;
+    hideDialogScrim(scrim);
     document.body.classList.remove("is-converting");
     if (releaseTrap) releaseTrap();
     releaseTrap = null;
@@ -146,36 +151,62 @@ const ConvertDialog = (() => {
 
   // ---- Files ----------------------------------------------------------------
 
+  // The files join the list at once, as rows with their names and
+  // placeholders for the rest, which Python then describes in place. One
+  // that can't be used leaves the list again, with a toast naming it.
   async function addPaths(paths) {
     if (!s || s.phase !== "setup" || !paths.length) return;
+    // One already listed (or twice in what came) is skipped, with a toast,
+    // whether it came from Add files… or a drop: each file has one row.
+    paths = skipListedFiles(s.files, paths);
+    if (!paths.length) return;
+    const state = s;
+    const keys = new Set(paths.map(fileListPathKey));
+    state.files = [...state.files, ...paths.map((path) => ({ path, name: fileListName(path), pending: true }))];
+    renderKeepingFocus();
     let described;
     try {
       described = await callApi("describe_convert_inputs", paths);
     } catch (err) {
       console.error("convert-dialog: describe", err);
       showToast("Couldn't read those files.");
-      return;
+      described = [];
     }
-    if (!s) return;
+    if (s !== state) return;
     for (const entry of described) {
       if (entry.error) showToast(entry.error);
-      else s.files.push(entry);
+      settleFile(entry.path, entry.error ? null : entry);
+      keys.delete(fileListPathKey(entry.path));
     }
-    await suggestDest();
-    renderKeepingFocus();
+    for (const key of keys) settleFile(key, null);
+    try {
+      await suggestDest();
+    } catch (err) {
+      console.error("convert-dialog: suggesting a name", err);
+    } finally {
+      // The rows are settled whatever the name's answer: never left as placeholders.
+      if (s === state) renderKeepingFocus();
+    }
   }
 
+  // A pending row's file described (`entry`), or gone (null); one the
+  // reader removed meanwhile stays removed.
+  function settleFile(path, entry) {
+    s.files = settlePendingFile(s.files, path, entry);
+  }
+
+  // Add files…: the Open dialog, several at a time, over this one. They go
+  // after the files already listed, in the folder's order; one already
+  // listed is skipped.
   async function chooseFile() {
-    if (!addFile) return;
-    hide();
-    const path = await addFile();
+    if (!addFiles) return;
+    const paths = await stacked(addFiles);
     if (!s) return;
-    show();
-    if (path) await addPaths([path]);
+    await addPaths(paths || []);
   }
 
   function inputPaths() {
-    return s.files.map((f) => f.path);
+    return s.files.filter((f) => !f.pending).map((f) => f.path);
   }
 
   // The destination block follows the list: "Beside the first file" is the
@@ -223,26 +254,31 @@ const ConvertDialog = (() => {
   // with this card stepped aside meanwhile.
   async function chooseFolder(start) {
     if (!saveAs) return null;
-    const picked = await aside(() => saveAs.open({ dir: start, pickFolder: true, title: "Choose a folder" }));
+    const picked = await stacked(() => saveAs.open({ dir: start, pickFolder: true, title: "Choose a folder" }));
     return picked && !picked.cancelled ? picked.path : null;
   }
 
-  async function aside(task) {
-    const returnTo = opener;
-    hide();
-    try {
-      return await task();
-    } finally {
-      if (s && !isOpen()) {
-        show();
-        opener = returnTo;
-      }
-    }
+  // Another dialog (the Open dialog, the folder picker, "Replace?") over
+  // this one, which stays as it is underneath (js/dialog-motion.js).
+  function stacked(task) {
+    return stackDialog(
+      {
+        scrim,
+        onLeave: () => {
+          if (s && s.destination) s.destination.closeMenu();
+          files.cancelDrag();
+          scope.leave();
+        },
+        onReturn: () => scope.enter(),
+        refocus: focusFirst,
+      },
+      task
+    );
   }
 
   function setupReady() {
     return Boolean(s) && s.phase === "setup" && !s.starting && s.files.length > 0 &&
-      Boolean(s.destination) && s.destination.isValid();
+      !s.files.some((f) => f.pending) && Boolean(s.destination) && s.destination.isValid();
   }
 
   function updatePrimary() {
@@ -282,16 +318,22 @@ const ConvertDialog = (() => {
 
   // ---- Rendering ------------------------------------------------------------
 
+  // Set up is updated in place (`renderSetup`); Working and Result are
+  // drawn afresh. Only icons not drawn yet are mounted.
   function render() {
-    bodyEl.replaceChildren();
-    footerEl.replaceChildren();
-    primaryBtn = null;
     descEl.textContent =
       "Turns images into one PDF, one image a page, in the order below. E-books (EPUB, XPS, CBZ, FB2) work too.";
-    if (s.phase === "setup") renderSetup();
-    else if (s.phase === "working") renderWorking();
-    else renderResult();
-    mountIcons(card);
+    if (s.phase === "setup") {
+      renderSetup();
+    } else {
+      setupUi = null;
+      bodyEl.replaceChildren();
+      footerEl.replaceChildren();
+      primaryBtn = null;
+      if (s.phase === "working") renderWorking();
+      else renderResult();
+    }
+    mountMissingIcons(card);
   }
 
   // Re-render, keeping focus on the control in the same place.
@@ -322,45 +364,57 @@ const ConvertDialog = (() => {
     return button;
   }
 
-  function renderSetup() {
-    // "4 files · 4 pages", at the top of the list.
-    const summary = `${plural(s.files.length, "file", "files")} · ${plural(pageCount(), "page", "pages")}`;
-    bodyEl.appendChild(files.build(s.files, { emptyText: "Drop images or an e-book here", onAdd: chooseFile, summary }));
-
+  // Set up's parts, made once per dialog: the Page size row, the e-book
+  // note and the footer's buttons.
+  function setupParts() {
     const grid = el("div", "tool-grid");
     const sizes = el("div", "segmented");
     sizes.setAttribute("aria-label", "Page size");
-    for (const size of CONVERT_PAGE_SIZES) {
+    const sizeButtons = CONVERT_PAGE_SIZES.map((size) => {
       const button = el("button", "segmented-btn", size.label);
       button.type = "button";
       button.dataset.keep = `size-${size.value}`;
-      button.classList.toggle("selected", size.value === s.pageSize);
+      button.dataset.value = size.value;
       button.addEventListener("click", () => {
         s.pageSize = size.value;
         renderKeepingFocus();
       });
       sizes.appendChild(button);
-    }
+      return button;
+    });
     initRadioCards(sizes, { selectOnArrow: true });
     grid.append(el("span", "tool-grid-label", "Page size"), sizes);
-    bodyEl.appendChild(grid);
+    const ebookNote = el("div", "tool-notes");
+    const note = el("p", "tool-note");
+    note.append(
+      iconEl("info"),
+      el("span", "", "An e-book is laid out on A4 pages. It comes out plainer than in an e-book reader.")
+    );
+    ebookNote.appendChild(note);
+    footerEl.replaceChildren();
+    const cancel = footerButton("Cancel", close);
+    const primary = footerButton("Create PDF", start, { primary: true });
+    return { state: s, grid, sizeButtons, ebookNote, cancel, primary };
+  }
 
-    if (s.files.some((f) => f.ebook)) {
-      const notes = el("div", "tool-notes");
-      const note = el("p", "tool-note");
-      note.append(
-        iconEl("info"),
-        el("span", "", "An e-book is laid out on A4 pages. It comes out plainer than in an e-book reader.")
-      );
-      notes.appendChild(note);
-      bodyEl.appendChild(notes);
-    }
-    if (s.destination) bodyEl.appendChild(s.destination.element);
-
-    footerButton("Cancel", close);
+  // Set up, updated in place: the list keeps its rows (js/file-list.js), and
+  // the Page size row, the note, the Name block and the footer's buttons
+  // stay the same nodes; only what changed is touched.
+  function renderSetup() {
+    // "4 files · 4 pages", at the top of the list.
     const pages = pageCount();
-    const label = s.files.length && pages ? `Create PDF · ${plural(pages, "page", "pages")}` : "Create PDF";
-    footerButton(label, start, { primary: true, disabled: !setupReady() });
+    const summary = `${plural(s.files.length, "file", "files")} · ${plural(pages, "page", "pages")}`;
+    const area = files.build(s.files, { emptyText: "Drop images or an e-book here", onAdd: chooseFile, summary });
+    if (!setupUi || setupUi.state !== s) setupUi = setupParts();
+    for (const button of setupUi.sizeButtons) button.classList.toggle("selected", button.dataset.value === s.pageSize);
+    const parts = [area, setupUi.grid];
+    if (s.files.some((f) => f.ebook)) parts.push(setupUi.ebookNote);
+    if (s.destination) parts.push(s.destination.element);
+    syncChildren(bodyEl, parts);
+    syncChildren(footerEl, [setupUi.cancel, setupUi.primary]);
+    primaryBtn = setupUi.primary;
+    primaryBtn.textContent = s.files.length && pages ? `Create PDF · ${plural(pages, "page", "pages")}` : "Create PDF";
+    primaryBtn.disabled = !setupReady();
   }
 
   function renderWorking() {
@@ -425,7 +479,7 @@ const ConvertDialog = (() => {
       return false;
     }
     if (!target.exists) return true;
-    const replace = await aside(() => ReplaceDialog.open({ name: target.name, folder: target.folder }));
+    const replace = await stacked(() => ReplaceDialog.open({ name: target.name, folder: target.folder }));
     return Boolean(replace) && Boolean(s) && s.phase === "setup";
   }
 
@@ -489,7 +543,7 @@ const ConvertDialog = (() => {
   // ---- Keys and voice -------------------------------------------------------
 
   function onKeydown(ev) {
-    if (!isOpen() || !s) return;
+    if (!isOpen() || scrim.inert || !s) return;
     if (document.querySelector(".dialog-scrim:not([hidden]):not(#convertDialog)")) return;
     // The "Save in" menu takes its own keys (Esc closes only the menu).
     if (s.destination && s.destination.isMenuOpen()) return;
@@ -534,7 +588,7 @@ const ConvertDialog = (() => {
     // "Choose another folder…" picks a folder with, and how a new PDF is
     // opened.
     configure(options) {
-      addFile = options.addFile || addFile;
+      addFiles = options.addFiles || addFiles;
       saveAs = options.saveAs || saveAs;
       openOutput = options.openOutput || openOutput;
     },

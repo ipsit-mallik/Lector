@@ -21,8 +21,9 @@ import pymupdf  # noqa: E402  # PyMuPDF: builds and reads the fixtures
 
 import pdf_support  # noqa: E402
 from lector import api as api_module  # noqa: E402
-from lector.features.file_tools import destinations, jobs, messages, naming  # noqa: E402
-from lector.features.reading import ocr_cache, open_errors  # noqa: E402
+from lector.features.file_tools import destinations, jobs, messages, naming, trash  # noqa: E402
+from lector.features.file_tools import tools as file_tools_module  # noqa: E402
+from lector.features.reading import ocr_cache, open_errors, safe_write  # noqa: E402
 from lector.features.settings import store  # noqa: E402
 
 WAIT_S = 120
@@ -169,18 +170,21 @@ class SplitJobTests(unittest.TestCase):
                     found.append(event)
         return found
 
-    def split(self, source: Path, mode: str, value: str, name: str = "parts") -> dict:
+    def split(self, source: Path, mode: str, value: str, name: str = "parts", **extra) -> dict:
+        end = self.run_split(source, mode, value, name, **extra)
+        self.assertEqual(end["state"], jobs.DONE, end)
+        return end["result"]
+
+    def run_split(self, source: Path, mode: str, value: str, name: str = "parts", **extra) -> dict:
         before = len(self.ends())
-        options = {"mode": mode, "value": value, "folder": str(self.out), "name": name}
+        options = {"mode": mode, "value": value, "folder": str(self.out), "name": name, **extra}
         started = self.api.start_file_job("split", str(source), options)
         self.assertTrue(started["ok"], started)
         deadline = time.monotonic() + WAIT_S
         while time.monotonic() < deadline:
             if len(self.ends()) > before:
                 self.api._jobs.wait(WAIT_S)
-                end = self.ends()[-1]
-                self.assertEqual(end["state"], jobs.DONE, end)
-                return end["result"]
+                return self.ends()[-1]
             time.sleep(0.1)
         self.fail("no lector:filejob end event")
 
@@ -258,14 +262,123 @@ class SplitJobTests(unittest.TestCase):
         self.assertFalse(self.api.start_file_job("split", str(restricted), options)["ok"])
         self.assertEqual(list(self.out.iterdir()), [])
 
+    def test_one_range_makes_one_pdf_named_for_its_pages(self):
+        source = _pdf(self.folder / "Notes.pdf", 10, highlight_on=2)
+        info = self.api.file_tool_info("split", str(source))
+        self.assertEqual(info["trash_name"], trash.TRASH_NAME)
+        preview = self.api.split_preview(str(source), "ranges", "1–6", 10)
+        self.assertEqual(preview["count"], 1)
+        self.assertEqual(preview["single"], {"label": "pages 1–6", "first": 1, "last": 6, "stem": "Notes (pages 1–6)"})
+        self.assertEqual(preview["named"][0]["name"], "Notes (pages 1–6).pdf")
+        # The note about the pages left out still holds.
+        self.assertEqual(preview["gaps"], "Pages 7–10 aren’t in any file.")
+        self.assertEqual(self.api.split_preview(str(source), "ranges", "4", 10)["single"]["label"], "page 4")
+        named = self.api.suggest_tool_name("split_one", str(source), str(self.out), [1, 6])
+        self.assertEqual(named, {"stem": "Notes (pages 1–6)", "extension": ".pdf"})
+        four = self.api.suggest_tool_name("split_one", str(source), str(self.out), [4, 4])
+        self.assertEqual(four["stem"], "Notes (page 4)")
+        checked = self.api.check_tool_destination("split_one", str(source), str(self.out), "Notes (pages 1–6)")
+        self.assertEqual((checked["ok"], checked["name"]), (True, "Notes (pages 1–6).pdf"))
+        result = self.split(source, "ranges", "1–6", name="Notes (pages 1–6)")
+        made = self.out / "Notes (pages 1–6).pdf"
+        self.assertEqual((Path(result["path"]), result["files"], result["single"]), (made, 1, True))
+        self.assertEqual(self.texts(made), [pdf_support.page_text(n) for n in range(6)])
+        with pymupdf.open(made) as doc:
+            self.assertEqual([len(list(p.annots())) for p in doc][:3], [0, 0, 1])
+        self.assertTrue(source.exists())
+        # Once taken, the next suggestion is the free one.
+        again = self.api.suggest_tool_name("split_one", str(source), str(self.out), [1, 6])
+        self.assertEqual(again["stem"], "Notes (pages 1–6) (2)")
+
+    def test_one_ranges_preview_names_the_file_it_saves(self):
+        source = _pdf(self.folder / "Notes.pdf", 10)
+        _pdf(self.folder / "Notes (pages 1–6).pdf", 2)
+        preview = self.api.split_preview(str(source), "ranges", "1–6", 10)
+        self.assertEqual(preview["named"][0]["name"], "Notes (pages 1–6) (2).pdf")
+        self.assertEqual(preview["single"]["stem"], "Notes (pages 1–6) (2)")
+        beside = self.api.suggest_tool_name("split_one", str(source), str(self.folder), [1, 6])
+        self.assertEqual(beside["stem"], preview["single"]["stem"])
+
+    def test_one_range_of_an_extract_states_its_own_pages(self):
+        source = _pdf(self.folder / "Report (pages 4–6).pdf", 3)
+        preview = self.api.split_preview(str(source), "ranges", "1–2", 3)
+        self.assertEqual(preview["named"][0]["name"], "Report (pages 1–2).pdf")
+        named = self.api.suggest_tool_name("split_one", str(source), str(self.out), [1, 2])
+        self.assertEqual(named["stem"], "Report (pages 1–2)")
+
+    def test_the_original_moves_to_the_recycle_bin_only_after_every_file_is_checked(self):
+        source = _pdf(self.folder / "Report.pdf", 10)
+        store.add_recent_file(str(source))
+        store.add_favorite(str(source))
+        seen = []
+
+        def move(path):
+            folder = self.out / "parts"
+            seen.append((path, sorted(p.name for p in folder.iterdir()) if folder.is_dir() else None))
+            return None
+
+        self.api.file_tool_info("split", str(source))
+        with mock.patch.object(trash, "move_to_trash", side_effect=move):
+            result = self.split(source, "every", "5", trash=True)
+        self.assertEqual(seen, [(str(source), ["Report (part 1).pdf", "Report (part 2).pdf"])])
+        self.assertEqual(result["original"], {"moved": True, "trash_name": trash.TRASH_NAME})
+        self.assertEqual(store.get_recent_files(), [])
+        self.assertEqual(store.get_favorites(), [])
+
+    def test_nothing_is_moved_when_an_output_fails_its_check(self):
+        source = _pdf(self.folder / "Report.pdf", 10)
+        self.api.file_tool_info("split", str(source))
+        failing = mock.patch.object(
+            file_tools_module, "_check_pdf", side_effect=jobs.JobFailed(safe_write.VERIFY_FAILED)
+        )
+        with mock.patch.object(trash, "move_to_trash") as move, failing:
+            end = self.run_split(source, "every", "5", trash=True)
+            single = self.run_split(source, "ranges", "2–3", name="one", trash=True)
+        self.assertEqual((end["state"], single["state"]), (jobs.FAILED, jobs.FAILED))
+        move.assert_not_called()
+        self.assertTrue(source.exists())
+        self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_a_move_that_fails_keeps_the_new_files_and_says_why(self):
+        source = _pdf(self.folder / "Report.pdf", 10)
+        store.add_recent_file(str(source))
+        self.api.file_tool_info("split", str(source))
+        with mock.patch.object(trash, "move_to_trash", return_value=trash.IN_USE):
+            result = self.split(source, "ranges", "1–6", name="kept", trash=True)
+        self.assertTrue((self.out / "kept.pdf").exists())
+        self.assertEqual(result["original"]["moved"], False)
+        self.assertEqual(result["original"]["error"], "it's open in another program.")
+        self.assertEqual([e["path"] for e in store.get_recent_files()], [str(source)])
+
+    def test_an_original_open_in_the_reader_is_closed_before_it_moves(self):
+        source = _pdf(self.folder / "Open.pdf", 4)
+        self.assertTrue(self.api.open_pdf(str(source))["is_open"])
+        open_when_moved = []
+
+        def move(path):
+            open_when_moved.append(self.api._doc.is_open)
+            return None
+
+        self.api.file_tool_info("split", str(source))
+        with mock.patch.object(trash, "move_to_trash", side_effect=move):
+            self.split(source, "every", "2", trash=True)
+        self.assertEqual(open_when_moved, [False])
+        self.assertEqual(self.api._state(), {"is_open": False})
+
+    def test_the_readers_own_document_is_never_moved(self):
+        source = _pdf(self.folder / "Open.pdf", 4)
+        self.api.open_pdf(str(source))
+        options = {"mode": "every", "value": "2", "folder": str(self.out), "name": "x", "trash": True}
+        self.assertFalse(self.api.start_file_job("split", "open", options)["ok"])
+
     def test_what_the_bridge_refuses(self):
         source = _pdf(self.folder / "Short.pdf", 10)
         self.api.file_tool_info("split", str(source))
         here = {"folder": str(self.out), "name": "x"}
         for options in (
             {"mode": "every", "value": "0"},
-            {"mode": "every", "value": "10"},  # one file is no split
-            {"mode": "ranges", "value": "1–10"},
+            {"mode": "every", "value": "10"},  # every N always makes two or more
+            {"mode": "ranges", "value": "1–6", "trash": "yes"},
             {"mode": "ranges", "value": "1–11, 2"},
             {"mode": "sideways", "value": "2"},
             {},

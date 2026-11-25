@@ -35,8 +35,10 @@ function askForPassword(path) {
   });
 }
 
-// Resolves true once `path` is the open document; false when it couldn't be
-// opened (the reason has been shown) or the password box was cancelled.
+// Resolves to what Python says of the opened document (its state, `page_count`
+// and all; always truthy) once `path` is the open document; false when it
+// couldn't be opened (the reason has been shown) or the password box was
+// cancelled.
 // `onMissing(message)`, if given, shows a missing file's message instead of
 // the plain toast (Home offers to remove it from Recent).
 async function openPdf(path, { onMissing } = {}) {
@@ -50,5 +52,5 @@ async function openPdf(path, { onMissing } = {}) {
     else showToast(result.error);
     return false;
   }
-  return true;
+  return result || true;
 }

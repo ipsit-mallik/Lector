@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from lector.features.file_tools import compress_plan, engine, messages, naming
-from lector.features.file_tools.jobs import JobContext, JobFailed, write_file, write_folder
+from lector.features.file_tools.jobs import JobCancelled, JobContext, JobFailed, write_file, write_folder
 from lector.features.file_tools.scratch import ScratchFiles
 from lector.features.reading import ocr, ocr_cache, safe_write
 
@@ -60,12 +60,22 @@ class Attempt:
     facts: dict = field(default_factory=dict)
 
 
-def _open(ctx: JobContext, source: Source) -> dict:
+def _opened(ctx: JobContext, open_fn: Callable, close_fn: Callable, source: Source):
+    """`open_fn` in the worker for `source`. Stopped as it finished (a Cancel
+    while one long open runs), the worker may already hold the document, so
+    it is released here: the caller's `finally` hasn't started yet."""
     path = None if source.data is not None else source.path
     try:
-        return ctx.step(engine.open_job, ctx.job_id, source.data, path, source.password, long=True)
+        return ctx.step(open_fn, ctx.job_id, source.data, path, source.password, long=True)
     except engine.SourceError:
         raise JobFailed(messages.SOURCE_UNREADABLE) from None
+    except JobCancelled:
+        ctx.release(close_fn)
+        raise
+
+
+def _open(ctx: JobContext, source: Source) -> dict:
+    return _opened(ctx, engine.open_job, engine.close_job, source)
 
 
 def _check_pdf(ctx: JobContext, path: str, password: str | None, expect: dict) -> None:
@@ -461,15 +471,15 @@ def combine(ctx: JobContext, inputs: list[tuple[str, str | None]], dest: str) ->
 def split(ctx: JobContext, source: Source, parts: list[tuple[int, int]], dest: str) -> dict:
     """The Split job: each of `parts` ((first, last), 1-based) as its own
     PDF, "<name> (part 1).pdf" …, in a new folder, protected as the
-    original is. One step per file. Returns `{path, files}`."""
+    original is. One step per file. Returns `{path, files}`. With one part
+    `dest` is that file's path ("<name> (pages 1–6).pdf"), written like any
+    one-file tool's output, not a folder."""
+    if len(parts) == 1:
+        return _split_one(ctx, source, parts[0], dest)
     stem = os.path.splitext(os.path.basename(source.path))[0] or "untitled"
     names = [naming.split_part_name(stem, n + 1) for n in range(len(parts))]
     ctx.progress("Splitting", 0, len(parts), "file")
-    path = None if source.data is not None else source.path
-    try:
-        ctx.step(engine.split_open, ctx.job_id, source.data, path, source.password, long=True)
-    except engine.SourceError:
-        raise JobFailed(messages.SOURCE_UNREADABLE) from None
+    _opened(ctx, engine.split_open, engine.split_close, source)
     try:
         expected: list[dict] = []
 
@@ -487,6 +497,25 @@ def split(ctx: JobContext, source: Source, parts: list[tuple[int, int]], dest: s
 
         final = write_folder(dest, fill, verify)
         return {"path": final, "files": len(parts)}
+    finally:
+        ctx.release(engine.split_close)
+
+
+def _split_one(ctx: JobContext, source: Source, part: tuple[int, int], dest: str) -> dict:
+    """Split with one range: its pages as one new PDF at `dest`, through the
+    all-or-nothing write and its check. Returns `{path, files: 1, single}`."""
+    first, last = part
+    ctx.progress("Splitting", 0, 1, "file")
+    _opened(ctx, engine.split_open, engine.split_close, source)
+    try:
+        expected: list[dict] = []
+
+        def write(tmp: str) -> None:
+            ctx.progress("Writing the file", 1, 1, "file")
+            expected.append(ctx.step(engine.split_part, ctx.job_id, first - 1, last - 1, tmp, long=True))
+
+        write_file(dest, write, lambda tmp: _check_pdf(ctx, tmp, source.password, expected[0]))
+        return {"path": dest, "files": 1, "single": True}
     finally:
         ctx.release(engine.split_close)
 

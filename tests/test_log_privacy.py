@@ -226,11 +226,19 @@ class OcrCrashLogTests(unittest.TestCase):
         self.assertTrue(crash_log.exists())
 
     def test_no_crash_log_without_a_folder(self):
+        # The initializer still runs (it hands the worker its "stop at the
+        # next page" flag), with no crash log to open.
         runner = ocr.OcrRunner(mock.Mock())
         with mock.patch.object(multiprocessing, "get_context") as get_context:
             runner._ensure_pool()
 
-        self.assertNotIn("initializer", get_context.return_value.Pool.call_args.kwargs)
+        self.assertIsNone(get_context.return_value.Pool.call_args.kwargs["initargs"][0])
+
+    def test_the_initializer_opens_no_log_when_given_none(self):
+        with mock.patch("builtins.open") as opened, mock.patch("faulthandler.enable") as enable:
+            ocr._worker_init(None, None)
+        opened.assert_not_called()
+        enable.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -39,6 +39,9 @@ const openDialog = createFileBrowser({
   treeId: "openDialogTree",
   searchId: "openDialogSearch",
   cancelBtnId: "openDialogCancelBtn",
+  // Several files at once (Combine's and Convert's Add files…).
+  addBtnId: "openDialogAddBtn",
+  countId: "openDialogSelectedCount",
   mode: "open",
   voiceContext: "open_dialog",
   restingContext: "home",
@@ -317,6 +320,12 @@ toolsNav.addEventListener("click", () => setHomeSection("tools"));
 // before init() awaits anything and loads the right list. init() clears the
 // key, so a later plain visit still starts on Recent.
 const HOME_SECTION_HANDOFF_KEY = "lector-home-section";
+// Back from Organise pages started here: the section's scroll position, put
+// back once the section is first drawn (drawWhenSettled). Read now and
+// cleared in init(), like the section.
+const HOME_SCROLL_HANDOFF_KEY = "lector-home-scroll";
+const homeScroller = document.querySelector(".home-content");
+let pendingHomeScroll = Number(sessionStorage.getItem(HOME_SCROLL_HANDOFF_KEY)) || 0;
 if (sessionStorage.getItem(HOME_SECTION_HANDOFF_KEY) === "favorites") {
   homeSection = "favorites";
   syncSectionChrome();
@@ -431,6 +440,10 @@ const recentCardMenuHandlers = {
 // Convert to PDF (convert-dialog.js). A job's progress and how it ended come
 // through FileJobs (js/file-jobs.js); on Home its dialog stays open while it
 // runs (there is no reading to go back to).
+//
+// A one-PDF tool asks which PDF as the first step of its own dialog, so the
+// dim behind it never lifts between the two (js/dialog-steps.js). Organise
+// pages' next step is the reader: its picker fades out once the PDF is open.
 async function openToolFromPage(tool) {
   if (isModalOpen()) return;
   if (tool === "convert") {
@@ -441,8 +454,13 @@ async function openToolFromPage(tool) {
     CombineDialog.open();
     return;
   }
-  const path = await PdfPicker.choose(tool);
-  if (path) openToolFor(tool, path);
+  if (tool === "organise") {
+    const path = await PdfPicker.choose(tool, { accept: openForOrganise });
+    if (path) window.location.href = "pages/reading.html";
+    return;
+  }
+  if (tool === "split") SplitDialog.open(null, { choose: true });
+  else ToolDialog.open(tool, null, { choose: true });
 }
 
 // "combine files" / "split": the Tools page, then the card's own route.
@@ -463,18 +481,57 @@ function openToolFor(tool, path) {
 // OPEN_ORGANISE_NOTE): set once the PDF is open, so a PDF that couldn't be
 // opened leaves no note behind.
 const OPEN_ORGANISE_NOTE = "lector-open-organise";
+// Where Organise was started from, so its Cancel and Done come back here, to
+// the same section scrolled where it was (reading-save.js's
+// ORGANISE_RETURN_NOTE): `{section, top}`.
+const ORGANISE_RETURN_NOTE = "lector-organise-return";
 
-// Organise pages, from the Tools page or a Recent menu: the PDF is opened
-// as Open does (a protected one asks for its password, a missing one offers
-// Remove from Recent), then the reader opens with its pages laid out. A PDF
-// whose owner forbids changes opens in the reader, which says why.
-async function openPathToOrganise(path) {
-  if (!(await openPdf(path, { onMissing: (message) => offerRemoval(path, message) }))) return;
-  sessionStorage.setItem(OPEN_ORGANISE_NOTE, "1");
-  window.location.href = "pages/reading.html";
+// Opens `path` to organise it, as Open does (a protected one asks for its
+// password, a missing one offers Remove from Recent), and leaves the reader
+// its notes. False when it couldn't be opened.
+// The note carries the page count and name, so the reader's first frame is
+// already Organise, with a placeholder tile per page (organise.js's
+// `showOrganisePlaceholder`).
+async function openForOrganise(path) {
+  const opened = await openPdf(path, { onMissing: (message) => offerRemoval(path, message) });
+  if (!opened) return false;
+  const pages = (opened && opened.page_count) || 0;
+  sessionStorage.setItem(OPEN_ORGANISE_NOTE, JSON.stringify({ pages, name: pdfFileName(path) }));
+  sessionStorage.setItem(ORGANISE_RETURN_NOTE, JSON.stringify({ section: homeSection, top: homeScroller.scrollTop }));
+  return true;
 }
 
+// Organise pages from a Recent or Favorites menu: the reader opens with its
+// pages laid out. A PDF whose owner forbids changes opens in the reader,
+// which says why.
+async function openPathToOrganise(path) {
+  if (await openForOrganise(path)) window.location.href = "pages/reading.html";
+}
+
+// The file tools' worker process takes half a second to a second and a half
+// to start. It is started ahead of the first tool: once Home has settled
+// after launch (idle, this long after the page loaded), or when the Tools
+// page opens, whichever comes first. Python does nothing if it is running.
+const TOOL_WORKER_WARM_DELAY_MS = 1500;
+let toolWorkerWarmed = false;
+
+function warmToolWorker() {
+  if (toolWorkerWarmed) return;
+  toolWorkerWarmed = true;
+  Promise.resolve(callApi("warm_file_tool_worker")).catch((err) =>
+    console.error("home: starting the file tools' worker", err)
+  );
+}
+
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    if (typeof requestIdleCallback === "function") requestIdleCallback(warmToolWorker);
+    else warmToolWorker();
+  }, TOOL_WORKER_WARM_DELAY_MS);
+});
+
 function renderToolsSection() {
+  warmToolWorker();
   closePopupMenu();
   displayedEntries = [];
   recentEntries = [];
@@ -484,15 +541,17 @@ function renderToolsSection() {
   mountIcons(recentArea);
 }
 
-PdfPicker.configure({
-  browse: async () => {
-    const result = await openDialog.open({ dir: null });
-    return result && result.path ? result.path : null;
-  },
-});
+PdfPicker.configure({ browse: () => browseForToolPdf() });
+// The tools' "Browse for a PDF…": the Open dialog, listing PDFs.
+async function browseForToolPdf() {
+  const result = await openDialog.open({ dir: null });
+  return result && result.path ? result.path : null;
+}
+
 ToolDialog.configure({
   where: "home",
   saveAs: ensureSaveAsDialog("home"),
+  browse: browseForToolPdf,
   openOutput: (path) => openPath(path),
   // A Recent entry whose file has gone: the same message, with Remove from
   // Recent.
@@ -500,23 +559,29 @@ ToolDialog.configure({
 });
 FileJobs.configure({ open: (path) => openPath(path) });
 CombineDialog.configure({
-  // One file a pick: the Open dialog, listing PDFs, images and e-books.
-  addFile: async () => {
-    const result = await openDialog.open({ dir: null, kind: "insert", title: "Add a file to combine" });
-    return result && result.path ? result.path : null;
+  // The Open dialog, listing PDFs, images and e-books, several at a time.
+  addFiles: async () => {
+    const result = await openDialog.open({ dir: null, kind: "insert", title: "Add files to combine", multiple: true });
+    return result && result.paths ? result.paths : [];
   },
   saveAs: ensureSaveAsDialog("home"),
   openOutput: (path) => openPath(path),
 });
 SplitDialog.configure({
   saveAs: ensureSaveAsDialog("home"),
+  browse: browseForToolPdf,
+  openOutput: (path) => openPath(path),
   onMissing: (message, path) => offerRemoval(path, message),
+  // The original went to the Recycle Bin: Recent and Favorites lost it.
+  onOriginalMoved: () => {
+    if (homeSection !== "tools") loadSection();
+  },
 });
 ConvertDialog.configure({
-  // One file a pick: the Open dialog, listing images and e-books.
-  addFile: async () => {
-    const result = await openDialog.open({ dir: null, kind: "convert", title: "Add a file to convert" });
-    return result && result.path ? result.path : null;
+  // The Open dialog, listing images and e-books, several at a time.
+  addFiles: async () => {
+    const result = await openDialog.open({ dir: null, kind: "convert", title: "Add files to convert", multiple: true });
+    return result && result.paths ? result.paths : [];
   },
   saveAs: ensureSaveAsDialog("home"),
   openOutput: (path) => openPath(path),
@@ -698,6 +763,11 @@ async function drawWhenSettled(generation, draw) {
   if (generation !== loadGeneration) return;
   draw();
   listSkeleton.release();
+  if (pendingHomeScroll) {
+    // At once, not smoothly: this is where the reader left it.
+    homeScroller.scrollTop = pendingHomeScroll;
+    pendingHomeScroll = 0;
+  }
 }
 
 // A load that replaces the list with a different one (a switch between Recent
@@ -920,6 +990,7 @@ configureCommandReference({
   // The Settings hand-off was applied when the script loaded (above); it is
   // one-shot, so clear it here and a later plain visit starts on Recent.
   sessionStorage.removeItem(HOME_SECTION_HANDOFF_KEY);
+  sessionStorage.removeItem(HOME_SCROLL_HANDOFF_KEY);
   syncSectionChrome();
   await mountIcons();
   const theme = await callApi("get_theme");
@@ -945,6 +1016,15 @@ configureCommandReference({
   // "Open a PDF" said on Settings or Reading lands here with the dialog due.
   if (openDialogRequested) openPdfFlow();
 })();
+
+// What the close gatekeeper (Python's handle_window_closing) asks when the
+// window closes with a document that has unsaved changes. Only the reader can
+// show the question; on this page the reader was left already, after it had
+// asked and been told "Don't save", so the answer is to close. Without this
+// the call failed here and the window could not be closed at all.
+async function promptSaveIfDirty() {
+  return true;
+}
 
 // --- Voice commands (Milestone 8.5, OPEN_PICKER added in 8.6) ------------- //
 // Each intent calls the exact function its equivalent click handler already
@@ -1018,6 +1098,12 @@ window.addEventListener("lector:command", (ev) => {
   }
   if (ReplaceDialog.isOpen()) {
     ReplaceDialog.handleCommand(command);
+    return;
+  }
+  // The Open dialog over a tool's dialog (Browse, Add files…): the tool's
+  // stays open underneath, so the Open dialog is asked first.
+  if (openDialog.isOpen()) {
+    openDialog.handleCommand(command);
     return;
   }
   for (const dialog of [StopJobDialog, ToolDialog, ConvertDialog, CombineDialog, SplitDialog, PdfPicker]) {

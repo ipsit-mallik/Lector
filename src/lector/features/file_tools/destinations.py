@@ -144,6 +144,13 @@ def extract_stem(source: str, numbers: list[int], folder: str) -> str:
     return naming.free_stem(folder, stem, PDF_EXTENSION)
 
 
+def split_one_stem(source: str, first: int, last: int, folder: str) -> str:
+    """Split's Name for one range: "Report (pages 1–6)" ("(page 4)"), or the
+    first free "… (2)" in `folder`."""
+    stem = os.path.splitext(os.path.basename(source or ""))[0] or "untitled"
+    return naming.free_stem(folder, naming.single_split_stem(stem, first, last), PDF_EXTENSION)
+
+
 def folder_key(path: str) -> str:
     return os.path.normcase(os.path.normpath(os.path.abspath(path)))
 

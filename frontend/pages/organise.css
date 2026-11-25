@@ -20,6 +20,28 @@
 
 .organise-view[hidden] { display: none; }
 
+/* Sent here from Home to organise: Organise's frame from the first paint
+   (js/page-change-pending.js marks <html>), then a placeholder tile per page
+   (organise.js's showOrganisePlaceholder) until the draft is drawn. A
+   placeholder is the page's cell with its number and its paper as a
+   skeleton, A4-shaped, in the 132px box the real thumbnails use. */
+.organise-pending .reading-view > .topbar,
+.organise-pending .reading-view > .topbar + .hline,
+.organise-pending .reading-view > .body-row,
+.organise-pending .reading-view .highlight-count {
+  display: none;
+}
+.organise-pending .organise-view[hidden] { display: flex; }
+.organise-page--placeholder { pointer-events: none; }
+.organise-page--placeholder .organise-paper {
+  width: 93px;
+  height: 132px;
+  outline-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.organise-page--placeholder .organise-page-num { color: var(--text-muted); }
+
 /* ---- Top bar: what this is, Undo/Redo, Done ------------------------------ */
 
 .organise-topbar {

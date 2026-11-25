@@ -15,7 +15,7 @@
 "use strict";
 
 const CombineDialog = (() => {
-  let addFile = null; // home.js: () => Promise<path | null>
+  let addFiles = null; // home.js: () => Promise<path[]>, several at a time
   let saveAs = null;
   let openOutput = null;
 
@@ -28,10 +28,13 @@ const CombineDialog = (() => {
   let scope = null;
   let releaseTrap = null;
   let opener = null;
+  // Set up's nodes kept between renders: { state, cancel, primary, notes,
+  // notesKey }, made again for a new dialog or after Working.
+  let setupUi = null;
 
   // { phase, files: [{path, name, type, size, pages, pdf, ebook, needs_pass,
   //   signed, thumbnail}], destination (made with the first file, gone with
-  //   the last), adding, starting, jobId, event, outcome, cancelling }
+  //   the last), starting, jobId, event, outcome, cancelling }
   let s = null;
 
   const DESCRIPTION = "Joins the files below into one new PDF, in this order. The originals stay as they are.";
@@ -64,11 +67,13 @@ const CombineDialog = (() => {
     card.append(body, footerEl);
     scrim.appendChild(card);
     document.body.appendChild(scrim);
+    smoothDialogHeight(card);
     scope = createVoiceScope("file_tool");
     document.addEventListener("keydown", onKeydown);
     FileJobs.subscribe(onJobEvent);
     onCombinableDrop((paths) => {
-      if (!isOpen() || s.phase !== "setup") return false;
+      // Not while another dialog (the Open dialog, a password) is over it.
+      if (!isOpen() || s.phase !== "setup" || scrim.inert) return false;
       addPaths(paths);
       return true;
     });
@@ -90,7 +95,6 @@ const CombineDialog = (() => {
       phase: "setup",
       files: [],
       destination: null,
-      adding: false,
       starting: false,
       jobId: null,
       event: null,
@@ -115,7 +119,7 @@ const CombineDialog = (() => {
     if (!scrim || scrim.hidden) return;
     if (s && s.destination) s.destination.closeMenu();
     files.cancelDrag();
-    scrim.hidden = true;
+    hideDialogScrim(scrim);
     document.body.classList.remove("is-combining");
     if (releaseTrap) releaseTrap();
     releaseTrap = null;
@@ -152,46 +156,83 @@ const CombineDialog = (() => {
     });
   }
 
-  async function addPaths(paths) {
-    if (!s || s.phase !== "setup" || !paths.length || s.adding) return;
-    s.adding = true;
+  // The files join the list at once, as rows with their names and
+  // placeholders for the rest, which Python then describes in place (a
+  // protected PDF asks for its password over this dialog). One that can't
+  // be used leaves the list again, with a toast naming it. Files added while
+  // earlier ones are still being described join the list at once too, and
+  // are described after them, in order (one password box at a time).
+  let describing = Promise.resolve();
+
+  function addPaths(paths) {
+    if (!s || s.phase !== "setup" || !paths.length) return Promise.resolve();
+    // One already listed (or twice in what came) is skipped, with a toast,
+    // whether it came from Add files… or a drop: each file has one row.
+    paths = skipListedFiles(s.files, paths);
+    if (!paths.length) return Promise.resolve();
+    const state = s;
+    state.files = [...state.files, ...paths.map((path) => ({ path, name: fileListName(path), pending: true }))];
+    renderKeepingFocus();
+    const run = describing.then(() => describeAdded(state, paths));
+    describing = run.catch((err) => console.error("combine-dialog: adding files", err));
+    return run;
+  }
+
+  async function describeAdded(state, paths) {
+    if (s !== state) return;
+    const keys = new Set(paths.map(fileListPathKey));
+    let described;
     try {
-      let described;
-      try {
-        described = await callApi("describe_combine_inputs", paths);
-      } catch (err) {
-        console.error("combine-dialog: describe", err);
-        showToast("Couldn't read those files.");
-        return;
+      described = await callApi("describe_combine_inputs", paths);
+    } catch (err) {
+      console.error("combine-dialog: describe", err);
+      showToast("Couldn't read those files.");
+      described = [];
+    }
+    for (let entry of described) {
+      if (s !== state) return;
+      // Removed while earlier files were being described: nothing to ask.
+      if (!hasPendingFile(s.files, entry.path)) {
+        keys.delete(fileListPathKey(entry.path));
+        continue;
       }
-      for (let entry of described) {
-        if (!s) return;
-        if (entry.reason === "password") {
-          const unlocked = await aside(() => unlock(entry));
-          if (!unlocked) continue;
-          entry = unlocked;
-        }
-        if (entry.error) showToast(entry.error);
-        else s.files.push(entry);
+      if (entry.reason === "password") {
+        const unlocked = await stacked(() => unlock(entry));
+        if (s !== state) return;
+        entry = unlocked || { ...entry, cancelled: true };
       }
+      if (entry.error && !entry.cancelled) showToast(entry.error);
+      settleFile(entry.path, entry.error || entry.cancelled ? null : entry);
+      keys.delete(fileListPathKey(entry.path));
+    }
+    // Anything Python didn't answer for goes too.
+    for (const key of keys) settleFile(key, null);
+    try {
       await suggestDest();
-      renderKeepingFocus();
     } finally {
-      if (s) s.adding = false;
+      // The rows are settled whatever the name's answer: never left as placeholders.
+      if (s === state) renderKeepingFocus();
     }
   }
 
+  // A pending row's file described (`entry`), or gone (null); one the
+  // reader removed meanwhile stays removed.
+  function settleFile(path, entry) {
+    s.files = settlePendingFile(s.files, path, entry);
+  }
+
+  // Add files…: the Open dialog, several at a time, over this one. They go
+  // after the files already listed, in the folder's order; one already
+  // listed is skipped.
   async function chooseFile() {
-    if (!addFile) return;
-    hide();
-    const path = await addFile();
+    if (!addFiles) return;
+    const paths = await stacked(addFiles);
     if (!s) return;
-    show();
-    if (path) await addPaths([path]);
+    await addPaths(paths || []);
   }
 
   function inputPaths() {
-    return s.files.map((f) => f.path);
+    return s.files.filter((f) => !f.pending).map((f) => f.path);
   }
 
   // The destination block follows the list: "Beside the first file" is the
@@ -238,28 +279,32 @@ const CombineDialog = (() => {
 
   async function chooseFolder(start) {
     if (!saveAs) return null;
-    const picked = await aside(() => saveAs.open({ dir: start, pickFolder: true, title: "Choose a folder" }));
+    const picked = await stacked(() => saveAs.open({ dir: start, pickFolder: true, title: "Choose a folder" }));
     return picked && !picked.cancelled ? picked.path : null;
   }
 
-  // Another dialog in front (the folder picker, a password, "Replace?"),
-  // this one out of the way meanwhile and back after.
-  async function aside(task) {
-    const returnTo = opener;
-    hide();
-    try {
-      return await task();
-    } finally {
-      if (s && !isOpen()) {
-        show();
-        opener = returnTo;
-      }
-    }
+  // Another dialog (the Open dialog, the folder picker, a password,
+  // "Replace?") over this one, which stays as it is underneath
+  // (js/dialog-motion.js's `stackDialog`).
+  function stacked(task) {
+    return stackDialog(
+      {
+        scrim,
+        onLeave: () => {
+          if (s && s.destination) s.destination.closeMenu();
+          files.cancelDrag();
+          scope.leave();
+        },
+        onReturn: () => scope.enter(),
+        refocus: focusFirst,
+      },
+      task
+    );
   }
 
   function setupReady() {
     return Boolean(s) && s.phase === "setup" && !s.starting && s.files.length >= 2 &&
-      Boolean(s.destination) && s.destination.isValid();
+      !s.files.some((f) => f.pending) && Boolean(s.destination) && s.destination.isValid();
   }
 
   function updatePrimary() {
@@ -302,15 +347,21 @@ const CombineDialog = (() => {
 
   // ---- Rendering ------------------------------------------------------------
 
+  // Set up is updated in place (`renderSetup`); Working and Result are
+  // drawn afresh. Only icons not drawn yet are mounted.
   function render() {
-    bodyEl.replaceChildren();
-    footerEl.replaceChildren();
-    primaryBtn = null;
     descEl.textContent = DESCRIPTION;
-    if (s.phase === "setup") renderSetup();
-    else if (s.phase === "working") renderWorking();
-    else renderResult();
-    mountIcons(card);
+    if (s.phase === "setup") {
+      renderSetup();
+    } else {
+      setupUi = null;
+      bodyEl.replaceChildren();
+      footerEl.replaceChildren();
+      primaryBtn = null;
+      if (s.phase === "working") renderWorking();
+      else renderResult();
+    }
+    mountMissingIcons(card);
   }
 
   // Re-render, keeping focus on the control in the same place.
@@ -351,7 +402,7 @@ const CombineDialog = (() => {
     return wrap;
   }
 
-  function setupNotes() {
+  function setupNoteLines() {
     const lines = [];
     const locked = s.files.filter((f) => f.needs_pass).map((f) => f.name);
     if (locked.length) {
@@ -361,22 +412,36 @@ const CombineDialog = (() => {
     if (s.files.some((f) => f.ebook)) {
       lines.push("An e-book is laid out on A4 pages. It comes out plainer than in an e-book reader.");
     }
-    return notes(lines);
+    return lines;
   }
 
+  // Set up, updated in place: the list keeps its rows (js/file-list.js),
+  // and the notes, the Name block and the footer's buttons stay the same
+  // nodes; only what changed is touched, so a file added (or removed, or
+  // moved) never redraws what was there.
   function renderSetup() {
     // "3 files · 214 pages", at the top of the list.
     const pages = pageCount();
     const summary = `${plural(s.files.length, "file", "files")} · ${plural(pages, "page", "pages")}`;
-    bodyEl.appendChild(files.build(s.files, { emptyText: "Drop PDFs or images here", onAdd: chooseFile, summary }));
-    const extra = setupNotes();
-    if (extra) bodyEl.appendChild(extra);
-    if (s.destination) bodyEl.appendChild(s.destination.element);
-
-    footerButton("Cancel", close);
-    const label = s.files.length >= 2 ? `Combine · ${plural(pages, "page", "pages")}` : "Combine";
-    const primary = footerButton(label, start, { primary: true, disabled: !setupReady() });
-    if (s.files.length < 2) primary.title = "Add at least two files";
+    const area = files.build(s.files, { emptyText: "Drop PDFs or images here", onAdd: chooseFile, summary });
+    if (!setupUi || setupUi.state !== s) {
+      footerEl.replaceChildren();
+      const cancel = footerButton("Cancel", close);
+      const primary = footerButton("Combine", start, { primary: true });
+      setupUi = { state: s, cancel, primary, notesKey: null, notes: null };
+    }
+    const lines = setupNoteLines();
+    const key = lines.join("\n");
+    if (setupUi.notesKey !== key) {
+      setupUi.notesKey = key;
+      setupUi.notes = notes(lines);
+    }
+    syncChildren(bodyEl, [area, setupUi.notes, s.destination ? s.destination.element : null].filter(Boolean));
+    syncChildren(footerEl, [setupUi.cancel, setupUi.primary]);
+    primaryBtn = setupUi.primary;
+    primaryBtn.textContent = s.files.length >= 2 ? `Combine · ${plural(pages, "page", "pages")}` : "Combine";
+    primaryBtn.disabled = !setupReady();
+    primaryBtn.title = s.files.length < 2 ? "Add at least two files" : "";
   }
 
   function renderWorking() {
@@ -447,7 +512,7 @@ const CombineDialog = (() => {
       return false;
     }
     if (!target.exists) return true;
-    const replace = await aside(() => ReplaceDialog.open({ name: target.name, folder: target.folder }));
+    const replace = await stacked(() => ReplaceDialog.open({ name: target.name, folder: target.folder }));
     return Boolean(replace) && Boolean(s) && s.phase === "setup";
   }
 
@@ -510,7 +575,7 @@ const CombineDialog = (() => {
   // ---- Keys and voice -------------------------------------------------------
 
   function onKeydown(ev) {
-    if (!isOpen() || !s) return;
+    if (!isOpen() || scrim.inert || !s) return;
     if (document.querySelector(".dialog-scrim:not([hidden]):not(#combineDialog)")) return;
     if (s.destination && s.destination.isMenuOpen()) return;
     if (ev.key === "Escape") {
@@ -549,7 +614,7 @@ const CombineDialog = (() => {
     // Home's wiring, as Convert's: how "Add files…" picks a file, the file
     // browser "Choose another folder…" uses, and how a new PDF is opened.
     configure(options) {
-      addFile = options.addFile || addFile;
+      addFiles = options.addFiles || addFiles;
       saveAs = options.saveAs || saveAs;
       openOutput = options.openOutput || openOutput;
     },

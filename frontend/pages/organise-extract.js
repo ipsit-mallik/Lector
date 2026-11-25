@@ -95,15 +95,26 @@ const OrganiseExtractDialog = (() => {
     return scope.leave();
   }
 
-  // Another dialog in front (the folder picker, "Replace this file?"), this
-  // one out of the way meanwhile and back after.
-  async function aside(task) {
-    await hide();
-    try {
-      return await task();
-    } finally {
-      if (s && scrim.hidden) show();
-    }
+  // Another dialog (the folder picker, "Replace this file?") over this one,
+  // which stays as it is underneath (js/dialog-motion.js's `stackDialog`):
+  // its voice scope is left first, then the other dialog takes its own.
+  function aside(task) {
+    let leaving = Promise.resolve();
+    return stackDialog(
+      {
+        scrim,
+        onLeave: () => {
+          if (s && s.destination) s.destination.closeMenu();
+          leaving = Promise.resolve(scope.leave());
+        },
+        onReturn: () => scope.enter(),
+        refocus: focusFirst,
+      },
+      async () => {
+        await leaving;
+        return task();
+      }
+    );
   }
 
   function finish(answer) {
@@ -296,7 +307,7 @@ const OrganiseExtractDialog = (() => {
   // ---- Keys and voice ------------------------------------------------------
 
   function onKeydown(ev) {
-    if (!s || !scrim || scrim.hidden) return;
+    if (!s || !scrim || scrim.hidden || scrim.inert) return;
     if (s.destination.isMenuOpen()) return; // the "Save in" menu takes its keys
     if (ev.key === "Escape") {
       ev.preventDefault();

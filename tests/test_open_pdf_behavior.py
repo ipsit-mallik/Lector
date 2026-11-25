@@ -263,9 +263,10 @@ const check = async (name, fn) => {
 
   // --- openPdf ---------------------------------------------------------- //
 
-  await check("a PDF that opens resolves true with no toast", async () => {
-    answers = [{ is_open: true }];
-    return (await context.openPdf("D:\\a.pdf")) === true && toasts.length === 0
+  await check("a PDF that opens resolves to its state (truthy) with no toast", async () => {
+    answers = [{ is_open: true, page_count: 7 }];
+    const opened = await context.openPdf("D:\\a.pdf");
+    return Boolean(opened) && opened.page_count === 7 && toasts.length === 0
       && JSON.stringify(calls) === JSON.stringify([["open_pdf", "D:\\a.pdf"]]);
   });
 
@@ -310,7 +311,7 @@ const check = async (name, fn) => {
     type("right");
     submit();
     const opened = await pending;
-    return asked && toldWrong && opened === true && !dialog.isOpen() && toasts.length === 0
+    return asked && toldWrong && Boolean(opened) && opened.is_open === true && !dialog.isOpen() && toasts.length === 0
       && JSON.stringify(calls) === JSON.stringify([
         ["open_pdf", "D:\\Docs\\locked.pdf"],
         ["open_pdf", "D:\\Docs\\locked.pdf", "wrong"],
