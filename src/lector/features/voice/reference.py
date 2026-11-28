@@ -54,7 +54,7 @@ _SCREENS = (router.HOME, router.SETTINGS, router.READING)
 _PROMPTS = (
     router.PICKER, router.OPEN_DIALOG, router.SAVE_DIALOG,
     router.REMOVE_CONFIRM, router.SAVE_CONFIRM, router.OVERWRITE_CONFIRM, router.REPLACE_CONFIRM,
-    router.PASSWORD_PROMPT, router.FILE_TOOL,
+    router.PASSWORD_PROMPT, router.FILE_TOOL, router.ORGANISE_INSERT,
 )
 
 
@@ -460,16 +460,23 @@ def _prompts() -> dict:
                      "Picks that numbered item — a card after \"pick a file\", an entry in the "
                      "reader's outline or pages after \"show outline\" or \"show pages\", a "
                      "row in the Open PDF and Save a copy dialogs, or an option in a file "
-                     "tool's dialog (counted from the top).",
-                     "Click the item", (router.PICKER, *dialogs, router.FILE_TOOL)),
+                     "tool's dialog (counted from the top; in Insert pages, from the left).",
+                     "Click the item", (router.PICKER, *dialogs, router.FILE_TOOL, router.ORGANISE_INSERT)),
             _command(_all(o, router.CANCEL),
                      "Leaves the dialog or numbered list without doing anything. While a file "
                      "tool is working, stops it; nothing is written.",
                      "Click Cancel, or press Esc", _PROMPTS),
             _command(_all(router.FILE_TOOL_PHRASES, router.TOOL_CONFIRM),
                      "In a file tool's dialog, presses its main button: Compress, Make "
-                     "searchable, Export, Create PDF, Continue or Done.",
-                     "Click the button, or press Enter", (router.FILE_TOOL,)),
+                     "searchable, Export, Create PDF, Continue, Done or Insert.",
+                     "Click the button, or press Enter", (router.FILE_TOOL, router.ORGANISE_INSERT)),
+            _command([*_all(router.ORGANISE_INSERT_PHRASES, router.INSERT_AT_START),
+                      *_all(router.ORGANISE_INSERT_PHRASES, router.INSERT_BEFORE),
+                      *_all(router.ORGANISE_INSERT_PHRASES, router.INSERT_AFTER),
+                      *_all(router.ORGANISE_INSERT_PHRASES, router.INSERT_AT_END)],
+                     "In Insert pages, chooses where the new pages go. Before and after the "
+                     "selection are offered only when pages are selected.",
+                     "Click the place, or use the arrow keys", (router.ORGANISE_INSERT,)),
             _command(_all(o, router.DIALOG_UP), "Goes up to the parent folder.",
                      "Click the parent folder in the path above the list", dialogs),
             *quick,

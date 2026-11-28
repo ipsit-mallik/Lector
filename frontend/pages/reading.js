@@ -69,6 +69,8 @@ configureOrganise({
   openOutput: (path) => openToolOutput(path),
   returnsHome: () => Boolean(organiseReturn),
   leaveForHome: () => leaveOrganiseForHome(),
+  stayInReader: () => { organiseReturn = null; },
+  readyReader: () => readyReaderUnderOrganise(),
   onOpen: () => {
     setHighlightMode(false);
     closeHighlightEditor();
@@ -301,6 +303,21 @@ async function init() {
   // future screen) narrows itself to a different context and later
   // navigates back here.
   await callApi("set_voice_context", "reading");
+  // Opened from Home only to organise: the reader isn't drawn (nothing of it
+  // is seen, and Cancel closes the PDF); Done draws it before it is shown.
+  if (!openedToOrganise) await drawReader();
+}
+
+// Whether the reader page was opened to organise (Home's note, read before
+// the page's own start-up below), and whether the reader itself has been
+// drawn yet.
+let openedToOrganise = false;
+let readerDrawn = false;
+
+// The reader proper: layout, the left edge, the highlight tools, the page.
+async function drawReader() {
+  if (readerDrawn) return;
+  readerDrawn = true;
   // The backend has already resolved the reopen preference by this point, so
   // state.page_index/layout_mode are either the restored ones or the
   // start-at-the-beginning defaults; this view just renders what it is given.
@@ -329,11 +346,32 @@ async function init() {
   await refresh();
 }
 
+// Leaving Organise for the reader when the reader was never drawn (opened
+// from Home): the reader is laid out unseen under Organise, at the size it
+// will have (organise.css's .organise-covering), and drawn there; Organise
+// is taken down only once the page is on screen behind it.
+async function readyReaderUnderOrganise() {
+  if (readerDrawn) return;
+  const view = document.querySelector(".reading-view");
+  const organise = document.getElementById("organiseView");
+  view.style.setProperty("--organise-cover-height", `${organise.offsetHeight}px`);
+  view.classList.add("organise-covering");
+  try {
+    await drawReader();
+  } catch (err) {
+    console.error("The reader couldn't be drawn behind Organise:", err);
+  } finally {
+    view.classList.remove("organise-covering");
+    view.style.removeProperty("--organise-cover-height");
+  }
+}
+
 // Sent here from Home to organise: Organise's frame and a placeholder tile
 // per page from the very first paint (organise.js), not the reader's empty
 // page while the document and the draft load.
 {
   const raw = sessionStorage.getItem(OPEN_ORGANISE_NOTE);
+  openedToOrganise = raw !== null;
   if (raw !== null) {
     let note = {};
     try {
@@ -361,11 +399,33 @@ async function init() {
   takeOrganiseReturn(Boolean(state.is_open && sessionStorage.getItem(OPEN_ORGANISE_NOTE)));
   if (state.is_open && sessionStorage.getItem(OPEN_ORGANISE_NOTE)) {
     sessionStorage.removeItem(OPEN_ORGANISE_NOTE);
-    startOrganise();
+    await startOrganise();
+    // Organise couldn't open after all: the reader is drawn, still under
+    // the placeholder, before it shows.
+    if (!isOrganiseOpen()) await showReaderAfterAll();
   } else {
     // Nothing to organise after all (no document open): the note goes, so
     // it can't send a later visit to the reader into Organise.
     sessionStorage.removeItem(OPEN_ORGANISE_NOTE);
-    clearOrganisePlaceholder({ hide: !isOrganiseOpen() });
+    if (openedToOrganise) await showReaderAfterAll();
+    else clearOrganisePlaceholder({ hide: !isOrganiseOpen() });
+  }
+  // Home asked to organise a PDF whose pages can't be changed: it opened
+  // here instead, and says why (Home's ORGANISE_REFUSED_NOTE).
+  if (sessionStorage.getItem(ORGANISE_REFUSED_NOTE) !== null) {
+    sessionStorage.removeItem(ORGANISE_REFUSED_NOTE);
+    if (state.organise_blocked) showToast(state.organise_blocked);
   }
 })();
+
+// Opened to organise, but Organise isn't open: draw the reader before the
+// placeholder comes down (no document: back to Home, as init() does).
+async function showReaderAfterAll() {
+  if (!state.is_open) {
+    window.location.href = "../index.html";
+    return;
+  }
+  await readyReaderUnderOrganise();
+  clearOrganisePlaceholder({ hide: true });
+  pageArea.focus({ preventScroll: true });
+}

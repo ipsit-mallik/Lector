@@ -190,10 +190,7 @@ class FileToolJobsController(Controller):
         unsaved changes), so Windows lets it move."""
         if not (self._doc.is_open and self._doc.is_open_document(path)):
             return
-        self._doc.close()
-        self._core.title = ""
-        self._core.path = ""
-        self._core.persisted_position = None
+        self._core.close_document()
 
     @staticmethod
     def _forget_file(path: str) -> None:

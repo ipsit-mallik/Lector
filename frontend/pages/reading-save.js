@@ -8,27 +8,23 @@
 // ------------------------------------------------------------------ //
 
 // Every way of leaving the reader (Library, another PDF, the window closing)
-// asks this first. An Organise draft is applied before the question, so the
-// question covers it; staying after all (Cancel) reloads the reader onto the
-// changed pages, which the view behind the draft no longer shows. With
-// `reopenOrganise` (Organise started from Home, leaving by its Done) the
-// reload comes back into Organise, still bound for Home.
-async function promptSaveIfDirty(allowDiscard, { reopenOrganise = false } = {}) {
+// asks this first. It reads the one unsaved flag (state.is_dirty, Python's;
+// docs/ARCHITECTURE.md § "Unsaved state: one flag"). An Organise draft is
+// applied before the question, so the question covers it; staying after all
+// (Cancel) reloads the reader onto the changed pages, which the view behind
+// the draft no longer shows.
+async function promptSaveIfDirty(allowDiscard) {
   if (!isOrganiseOpen()) return askToSaveIfDirty(allowDiscard);
   const applied = await applyOrganiseBeforeLeaving();
   // Organise has already adopted the state Done answered (organise.js).
   if (!applied) return false;
   const leaving = await askToSaveIfDirty(allowDiscard);
-  // Staying in the reader some other way than Organise's own Done: Organise
-  // has closed, so it no longer goes back to Home.
-  if (!leaving && !reopenOrganise) organiseReturn = null;
+  // Staying in the reader: Organise has closed, so it no longer goes back
+  // to Home.
+  if (!leaving) organiseReturn = null;
   if (!leaving && applied.changed) {
-    if (reopenOrganise) keepOrganiseReturn();
     // Its "older changes" toast, if any, was already shown when it applied.
-    await runPageChange(
-      async () => ({ ...state, pages_changed: true, history_trimmed: false }),
-      { unsavedNote: state.is_dirty },
-    );
+    await runPageChange(async () => ({ ...state, pages_changed: true, history_trimmed: false }));
   }
   return leaving;
 }
@@ -116,10 +112,16 @@ async function openToolOutput(path) {
 // Home sets this before opening a PDF to organise it (F2.7).
 const OPEN_ORGANISE_NOTE = "lector-open-organise";
 // …and this, saying where it was started (`{section, top}`: Recent,
-// Favorites or Tools, and how far down), so Organise's Cancel and Done go
-// back there rather than to reading.
+// Favorites or Tools, and how far down), so Organise's Cancel goes back there
+// rather than to reading. Its Done always stays in the reader.
 const ORGANISE_RETURN_NOTE = "lector-organise-return";
 const ORGANISE_RETURN_SECTIONS = ["recent", "favorites", "tools"];
+// Home, back from Organise started on its Tools page, puts the focus on the
+// Organise pages card (home.js reads and clears it).
+const HOME_FOCUS_NOTE = "lector-home-focus";
+// Home asked to organise a PDF whose pages can't be changed, and opened it
+// here instead (home.js): the reader says why once it is drawn.
+const ORGANISE_REFUSED_NOTE = "lector-organise-refused";
 // Where Organise goes back to, or null (started in the reader).
 let organiseReturn = null;
 
@@ -141,24 +143,16 @@ function takeOrganiseReturn(wanted) {
   }
 }
 
-// The notes again, for a reload that must come back into Organise (the
-// Save question cancelled after Done applied the changes).
-function keepOrganiseReturn() {
-  if (!organiseReturn) return;
-  sessionStorage.setItem(OPEN_ORGANISE_NOTE, "1");
-  sessionStorage.setItem(ORGANISE_RETURN_NOTE, JSON.stringify(organiseReturn));
-}
-
-// Organise started from Home: its Done and Cancel come here. Done's changes
-// are applied and "Save changes?" asked at once (Save, Save a copy, Don't
-// save, under the usual rules); then back to that Home page. Cancelling the
-// question returns to Organise.
+// Organise started from Home: its Cancel comes here, once the draft has
+// been dropped, and goes back to that Home page. The PDF is as it was opened,
+// so there is normally nothing to ask; if it has unsaved changes after all,
+// the usual question comes first, and cancelling it stays in the reader.
 async function leaveOrganiseForHome() {
-  if (await promptSaveIfDirty(true, { reopenOrganise: true })) {
+  if (await promptSaveIfDirty(true)) {
     returnToHome();
     return;
   }
-  if (!isOrganiseOpen() && !isPageChangeBusy()) startOrganise();
+  organiseReturn = null;
 }
 
 // Home, on the section Organise was started from, scrolled where it was.
@@ -166,6 +160,7 @@ function returnToHome() {
   const back = organiseReturn;
   if (back && back.section !== "recent") sessionStorage.setItem("lector-home-section", back.section);
   if (back && back.top) sessionStorage.setItem("lector-home-scroll", String(back.top));
+  if (back && back.section === "tools") sessionStorage.setItem(HOME_FOCUS_NOTE, "organise");
   window.location.href = "../index.html";
 }
 

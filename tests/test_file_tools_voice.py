@@ -88,7 +88,8 @@ class ReferenceTests(unittest.TestCase):
     def test_the_dialog_grammar_is_listed(self):
         prompts = next(s for s in reference.sections(router.READING) if s["id"] == "prompts")
         confirm = [c for c in prompts["commands"] if "confirm" in c["phrases"]]
-        self.assertEqual([c["contexts"] for c in confirm], [[router.FILE_TOOL]])
+        # Insert pages has its own scope (the places by name) and hears "confirm" too.
+        self.assertEqual([c["contexts"] for c in confirm], [[router.FILE_TOOL, router.ORGANISE_INSERT]])
 
 
 class DialogGrammarTests(unittest.TestCase):

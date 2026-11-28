@@ -79,6 +79,12 @@ html, body { height: 100%; }
 
 .back-chevron svg { display: block; width: 100%; height: 100%; }
 
+.doc-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+}
+
 .doc-title {
   min-width: 0;
   font-family: var(--font-serif);
@@ -88,6 +94,37 @@ html, body { height: 100%; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Unsaved changes: a dot after the name (docs/DESIGN_SYSTEM.md § "Unsaved
+   changes"). Always laid out and only hidden, so the name keeps its place and
+   a long one truncates before it. The box is a hover target for its tooltip;
+   the dot is drawn in it, centred on the name's lower-case letters. */
+.unsaved-dot {
+  --unsaved-dot-size: 6px;
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-4);
+  height: var(--space-4);
+  margin-left: var(--space-hair);
+  /* The name's x-height sits a little under the line's middle. */
+  transform: translateY(1px);
+  visibility: hidden;
+}
+
+.unsaved-dot::before {
+  content: "";
+  width: var(--unsaved-dot-size);
+  height: var(--unsaved-dot-size);
+  border-radius: var(--radius-pill);
+  background: var(--text-secondary);
+}
+
+.unsaved-dot.is-shown {
+  visibility: visible;
 }
 
 .spacer { flex: 1; }

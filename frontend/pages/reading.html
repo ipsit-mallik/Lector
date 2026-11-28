@@ -26,7 +26,14 @@
         <button class="back-btn" id="backBtn" type="button" title="Back to Library">
           <span class="back-chevron" data-icon="chevron_left"></span><span class="back-label">Library</span>
         </button>
-        <div class="doc-title" id="docTitle"></div>
+        <!-- The name, then the unsaved-changes dot after it. The dot's room is
+             kept when it is hidden, so the name never moves as it comes and
+             goes (docs/DESIGN_SYSTEM.md § "Unsaved changes"). -->
+        <div class="doc-title-row">
+          <div class="doc-title" id="docTitle"></div>
+          <span class="unsaved-dot" id="unsavedDot" role="img" aria-label="Unsaved changes"
+                aria-hidden="true"></span>
+        </div>
       </div>
       <div class="page-controls">
         <button class="icon-btn icon-btn--sm nav-btn" id="prevBtn" type="button" title="Previous page  (←)" aria-label="Previous page">
@@ -365,7 +372,7 @@
         <span id="fileJobPillLabel"></span>
       </button>
       <span class="highlight-count" id="highlightCount">0 highlights on this page</span>
-      <!-- In Organise pages: "12 pages · 2 unsaved changes" (organise.js). -->
+      <!-- In Organise pages: "12 pages · 2 changes" (organise.js). -->
       <span class="organise-count" id="organiseCount" hidden></span>
       <button class="btn-secondary what-btn" id="referenceFooterBtn"
               title="What can I say?  (?)">What can I say?</button>
@@ -497,6 +504,7 @@
   <script src="organise-grid.js"></script>
   <script src="danger-dialog.js"></script>
   <script src="organise-discard.js"></script>
+  <script src="organise-insert-places.js"></script>
   <script src="organise-insert.js"></script>
   <script src="organise-extract.js"></script>
   <script src="organise.js"></script>

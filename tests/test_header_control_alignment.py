@@ -50,15 +50,17 @@ class FirstPaintTest(unittest.TestCase):
     """Favorites arriving from Settings must not paint Open PDF's slot, then
     drop it when the script at the bottom of the page runs."""
 
+    # The hand-off script itself (the one that moves the title), not the
+    # <head> one that only holds the first paint for the Tools page.
     def _inline_script(self):
         scripts = re.findall(r"<script>(.*?)</script>", INDEX_HTML, re.S)
-        return next((s for s in scripts if "lector-home-section" in s), "")
+        return next((s for s in scripts if "lector-home-section" in s and "sectionTitle" in s), "")
 
     def test_inline_hand_off_script_removes_open_pdf_from_the_layout(self):
         self.assertRegex(self._inline_script(), r'getElementById\("openPdfBtn"\)\.hidden\s*=\s*true')
 
     def test_inline_hand_off_script_follows_the_open_pdf_button(self):
-        self.assertLess(INDEX_HTML.index('id="openPdfBtn"'), INDEX_HTML.index("lector-home-section"))
+        self.assertLess(INDEX_HTML.index('id="openPdfBtn"'), INDEX_HTML.index(self._inline_script()))
 
 
 if __name__ == "__main__":

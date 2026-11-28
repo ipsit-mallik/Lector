@@ -27,6 +27,7 @@ async function fetchIconText(name) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
       if (!text.trimStart().startsWith("<svg")) throw new Error("not an SVG");
+      rememberIcon(name, text);
       return text;
     } catch (err) {
       failure = err;
@@ -54,6 +55,36 @@ async function mountIcon(el, name) {
     el.innerHTML = await loadIcon(name);
   } catch (err) {
     console.error(err.message);
+  }
+}
+
+// Every icon fetched is kept for the session (sessionStorage), so a page
+// that must be whole on its first paint (Home's Tools page, coming back from
+// Organise pages) can draw the icons it has seen before at once, without
+// waiting for a fetch. Best effort: a full or unavailable storage only means
+// the icon is fetched as before.
+const ICON_SESSION_PREFIX = "lector-icon:";
+
+function rememberIcon(name, text) {
+  try {
+    sessionStorage.setItem(ICON_SESSION_PREFIX + name, text);
+  } catch {
+    // Not kept: the next page fetches it.
+  }
+}
+
+// Draws, at once, every empty icon under `root` this session has already
+// fetched; the rest are left for mountIcons/mountMissingIcons.
+function mountIconsFromCache(root) {
+  for (const el of root.querySelectorAll("[data-icon]")) {
+    if (el.firstChild || (el.parentElement && el.parentElement.closest("[data-icon]"))) continue;
+    let text = null;
+    try {
+      text = sessionStorage.getItem(ICON_SESSION_PREFIX + el.dataset.icon);
+    } catch {
+      text = null;
+    }
+    if (text && text.trimStart().startsWith("<svg")) el.innerHTML = text;
   }
 }
 

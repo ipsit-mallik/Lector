@@ -47,10 +47,15 @@ let organiseHooks = {
   onClose: () => {},
   // Opens a PDF a file job wrote (Extract's Open), as the reader does.
   openOutput: () => {},
-  // Organise started from Home: Done and Cancel go back there instead of
-  // to reading (reading-save.js's leaveOrganiseForHome).
+  // Organise started from Home: Cancel goes back there instead of to
+  // reading (reading-save.js's leaveOrganiseForHome). Done always stays in
+  // the reader, which then forgets the way back (`stayInReader`).
   returnsHome: () => false,
   leaveForHome: () => {},
+  stayInReader: () => {},
+  // Resolves once the reader behind is drawn and ready to be shown: opened
+  // from Home, it isn't drawn until Organise is left for it.
+  readyReader: async () => {},
 };
 let organiseOpen = false;
 // The draft as this page has it (OrganisePlan.history): Python's, plus the
@@ -159,7 +164,7 @@ function updateOrganiseChrome() {
   setOrganiseHistoryButton(organiseRedoBtn, counts.can_redo, "Redo  (Ctrl+Y)", "Nothing to redo");
   const changes = counts.steps;
   organiseCount.textContent = changes
-    ? `${pagesText} · ${organisePlural(changes, "unsaved change", "unsaved changes")}`
+    ? `${pagesText} · ${organisePlural(changes, "change", "changes")}`
     : pagesText;
 }
 
@@ -208,12 +213,15 @@ async function openOrganise() {
   return true;
 }
 
-function closeOrganiseView() {
+// `keepOnScreen`: Organise is over, but its view stays up until the page is
+// replaced (Cancel going back to Home), so nothing else shows in between.
+function closeOrganiseView({ keepOnScreen = false } = {}) {
   organiseGrid.cancelDrag();
   organiseOpen = false;
   organiseEpoch += 1;
-  callApi("set_voice_context", "reading");
   if (organiseActionToast) organiseActionToast();
+  if (keepOnScreen) return;
+  callApi("set_voice_context", "reading");
   organiseView.hidden = true;
   organiseCount.hidden = true;
   document.querySelector(".reading-view").classList.remove("is-organising");
@@ -546,26 +554,30 @@ async function applyOrganiseDraft(options) {
   return null;
 }
 
-// Done (and the spoken "done"): apply the draft and go back to reading. With
-// nothing changed it just leaves: no snapshot, no busy card. With changes,
-// the busy card, then the reader reloading on the changed document
-// (page-change-busy.js). If applying fails the draft stays open.
+// Done (and the spoken "done"): apply the draft to the open PDF and go back
+// to reading, wherever Organise was started. Nothing is saved and nothing is
+// asked: the changes are unsaved, like a new highlight, which the header's
+// dot and the window title show, and "Save changes?" comes only on leaving.
+// With nothing changed it just leaves: no snapshot, no busy card. With
+// changes, the busy card, then the reader reloading on the changed document
+// (page-change-busy.js), which also forgets any way back to Home. If applying
+// fails the draft stays open, still bound for Home if it was.
 async function finishOrganise() {
   if (!organiseOpen || isPageChangeBusy()) return;
-  if (organiseHooks.returnsHome()) {
-    // Applied, then the Save question at once, then Home.
-    await organiseSettled();
-    organiseHooks.leaveForHome();
-    return;
-  }
   if (!organiseSteps()) {
     await organiseSettled();
     adoptState(await callApi("organise_done"));
+    await organiseHooks.readyReader();
     closeOrganiseView();
+    organiseHooks.stayInReader();
     return;
   }
-  const state = await applyOrganiseDraft({ unsavedNote: true });
-  if (state && !state.pages_changed) closeOrganiseView();
+  const state = await applyOrganiseDraft({});
+  if (state && !state.pages_changed) {
+    await organiseHooks.readyReader();
+    closeOrganiseView();
+    organiseHooks.stayInReader();
+  }
 }
 
 // Cancel (and Esc, and the spoken "cancel"): back to reading without
@@ -586,9 +598,16 @@ async function cancelOrganise() {
   // first.
   organiseEpoch += 1;
   await organiseSettled();
-  adoptState(await callApi("organise_cancel"));
+  const after = adoptState(await callApi("organise_cancel"));
+  // Started from Home: Python has closed the PDF (opened only for this) and
+  // Home comes back as it was. Organise stays on screen until Home replaces
+  // it: the reader behind was never drawn and is never shown.
+  if (organiseHooks.returnsHome() && !after.is_open) {
+    closeOrganiseView({ keepOnScreen: true });
+    organiseHooks.leaveForHome();
+    return;
+  }
   closeOrganiseView();
-  // Started from Home: the PDF is closed and Home is back as it was.
   if (organiseHooks.returnsHome()) organiseHooks.leaveForHome();
 }
 

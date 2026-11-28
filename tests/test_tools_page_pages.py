@@ -174,7 +174,7 @@ class HomeSendsThePdfToOrganiseTests(unittest.TestCase):
         reader = re.search(r'const OPEN_ORGANISE_NOTE = "([^"]+)"', READING_JS).group(1)
         self.assertEqual(home, reader)
         # The reader takes the note once and opens Organise.
-        self.assertRegex(READING_JS, r"sessionStorage\.removeItem\(OPEN_ORGANISE_NOTE\);\s*startOrganise\(\)")
+        self.assertRegex(READING_JS, r"sessionStorage\.removeItem\(OPEN_ORGANISE_NOTE\);\s*await startOrganise\(\)")
 
 
 if __name__ == "__main__":

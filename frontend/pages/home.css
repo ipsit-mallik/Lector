@@ -843,3 +843,9 @@ html, body { height: 100%; }
   line-height: 1.45;
   color: var(--text-secondary);
 }
+
+/* Back from Organise pages to the Tools page it was started from: no page
+   entrance (components.css .page-enter starts each child at opacity 0, so
+   the first frames would show an empty page). The page is drawn before the
+   first paint (home.js's drawToolsAtLoad) and is simply there, as it was. */
+.home-returning .page-enter > * { animation: none; }

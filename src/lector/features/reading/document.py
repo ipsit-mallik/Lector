@@ -203,7 +203,15 @@ class PdfDocument:
         self._password: str | None = None
         self._page_index = 0
         self._zoom = self.DEFAULT_ZOOM
+        # Unsaved changes: the one flag the reader's dot, the window title's
+        # "*" and every "Save changes?" read (docs/ARCHITECTURE.md § "Unsaved
+        # state"). `_saved_at` is where on the undo/redo timeline the file on
+        # disk is: the undo stack's length at the last save (or open), so an
+        # undo or redo landing exactly there is saved again. None once that
+        # state can't be reached any more (a new edit cleared the redo branch
+        # it was on, or trimming dropped it).
         self._dirty = False
+        self._saved_at: int | None = 0
         # Every highlight change — adding one, recolouring it, removing it —
         # is one `_Edit` on these stacks, so Undo takes back whichever came
         # last. Edits name their annotation by xref through a shared
@@ -273,9 +281,9 @@ class PdfDocument:
         # default zoom, not at whatever the previously open one was left on.
         # `Api._restore_position` overrides this when a record exists.
         self._zoom = self.DEFAULT_ZOOM
-        self._dirty = False
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._mark_saved()
         self._refs.clear()
         self._pages_changed = False
         self._history_trimmed = False
@@ -865,12 +873,17 @@ class PdfDocument:
         # A page change on top is never part of a gesture.
         top = self._undo_stack[-1] if self._undo_stack and isinstance(self._undo_stack[-1], _Edit) else None
         if gesture is not None and top is not None and top.gesture == gesture and top.ref is ref:
+            # The entry is rewritten: a save point at it (or on the redo
+            # branch cleared here) no longer describes any reachable state.
+            if self._saved_at is not None and self._saved_at >= len(self._undo_stack):
+                self._saved_at = None
             self._undo_stack.pop()
             self._redo_stack.clear()
-            self._dirty = True
-            if top.before is not None and _same_look(new, top.before.shape) and top.before.rgb == rgb:
-                return True
-            self._undo_stack.append(replace(top, after=_Look(rgb, new)))
+            if top.before is None or not _same_look(new, top.before.shape) or top.before.rgb != rgb:
+                self._undo_stack.append(replace(top, after=_Look(rgb, new)))
+            # A drag back to where it began drops the entry: saved again if
+            # the state before it was the saved one.
+            self._sync_dirty()
             return True
         self._record(_Edit(page_index, ref, (), _Look(rgb, shape), _Look(rgb, new), gesture))
         return True
@@ -898,9 +911,22 @@ class PdfDocument:
         return self._refs.setdefault(xref, _HighlightRef(xref))
 
     def _record(self, edit: _Edit) -> None:
+        # A save point on the redo branch goes with it.
+        if self._saved_at is not None and self._saved_at > len(self._undo_stack):
+            self._saved_at = None
         self._undo_stack.append(edit)
         self._redo_stack.clear()
-        self._dirty = True
+        self._sync_dirty()
+
+    def _sync_dirty(self) -> None:
+        """Unsaved unless the undo stack is exactly where the last save
+        left it."""
+        self._dirty = len(self._undo_stack) != self._saved_at
+
+    def _mark_saved(self) -> None:
+        """The document as it is now is what the file on disk holds."""
+        self._saved_at = len(self._undo_stack)
+        self._dirty = False
 
     def _move_highlight(self, edit: _Edit, frm: _Look | None, to: _Look | None) -> None:
         """Take `edit`'s highlight from look `frm` to look `to` (None:
@@ -996,7 +1022,7 @@ class PdfDocument:
                 source.append(edit)
                 raise
             target.append(edit)
-            self._dirty = True
+            self._sync_dirty()
             return page_changes.HIGHLIGHT, edit.page_index
 
     def highlight_count_on_current_page(self) -> int:
@@ -1161,9 +1187,9 @@ class PdfDocument:
             source.append(change)
             raise
         target.append(change)
-        self._dirty = True
         # The state now held may be bigger than the one it replaced.
         self._trim_history()
+        self._sync_dirty()
         return self._page_index
 
     def _refs_in_play(self) -> list[_HighlightRef]:
@@ -1208,8 +1234,12 @@ class PdfDocument:
     def _trim_history(self) -> None:
         undo, redo, trimmed = page_changes.trim(self._undo_stack, self._redo_stack)
         if trimmed:
+            self._saved_at = page_changes.saved_at_after_trim(
+                self._saved_at, len(self._undo_stack), undo, redo
+            )
             self._undo_stack, self._redo_stack = undo, redo
             self._history_trimmed = True
+            self._sync_dirty()
 
     def take_history_trimmed(self) -> bool:
         """Whether older changes were dropped since this was last asked (the
@@ -1306,7 +1336,7 @@ class PdfDocument:
                 self._verify_saved,
                 swap=self._swap_into_place,
             )
-            self._dirty = False
+            self._mark_saved()
 
     def save_copy(self, new_path: str):
         """Write the document, highlights included, to `new_path`, which may
@@ -1324,7 +1354,7 @@ class PdfDocument:
                 lambda tmp: self._write_full(tmp, encryption=pymupdf.PDF_ENCRYPT_KEEP),
                 self._verify_saved,
             )
-            self._dirty = False
+            self._mark_saved()
 
     def _write_full(self, path: str, **options) -> None:
         # No compacting garbage collection (2 and up): it renumbers objects
@@ -1384,7 +1414,7 @@ class PdfDocument:
             raise SaveError(reason) from exc
         # From here on the save has happened: nothing below may report the
         # file as unchanged, or leave the closed document behind.
-        self._dirty = False
+        self._mark_saved()
         try:
             self._doc = self._reopen_saved(dest)
         except Exception as exc:
@@ -1397,6 +1427,7 @@ class PdfDocument:
         except Exception:
             log.exception("Could not check undo/redo against the saved PDF")
             self._clear_history()
+            self._mark_saved()
 
     def _open_unlocked(self, *args, **kwargs) -> "pymupdf.Document":
         """`pymupdf.open(*args, **kwargs)` (a file this object wrote, or the
@@ -1432,7 +1463,7 @@ class PdfDocument:
             # Unreadable even now: fall back on the original as it was on
             # disk, without this session's highlights.
             self._clear_history()
-            self._dirty = False
+            self._mark_saved()
         try:
             self._doc = self._open_unlocked(original)
         except Exception:
@@ -1458,3 +1489,5 @@ class PdfDocument:
         }
         if not set(self._refs) <= live:
             self._clear_history()
+            # Only ever right after a save: what is open is what is on disk.
+            self._mark_saved()

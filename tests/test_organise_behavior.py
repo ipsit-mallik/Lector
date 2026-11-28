@@ -33,7 +33,8 @@ from pathlib import Path
 PAGES = Path(__file__).resolve().parents[1] / "frontend" / "pages"
 SCRIPTS = [PAGES.parent / "js" / "dialog-motion.js", PAGES.parent / "js" / "pointer-reorder.js"] + [PAGES / name for name in (
     "page-change-busy.js", "organise-timing.js", "organise-plan.js", "organise-thumbs.js", "organise-motion.js",
-    "organise-drag.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js", "organise-insert.js",
+    "organise-drag.js", "organise-grid.js", "danger-dialog.js", "organise-discard.js",
+    "organise-insert-places.js", "organise-insert.js",
     "organise-extract.js", "organise.js",
 )]
 
@@ -115,7 +116,9 @@ function makeEl(tag, id) {
     contains(other) { for (let n = other; n; n = n.parentNode) if (n === this) return true; return false; },
     focus() { activeElement = this; },
     scrollIntoView() {},
-    get offsetWidth() { return 3; },
+    // Insert's fit check measures these; anything else gets 3 (a forced reflow).
+    get offsetWidth() { return this.fakeWidth ?? 3; },
+    get clientWidth() { return this.fakeWidth ?? 0; },
     get offsetTop() { return this.layout().top; },
     getBoundingClientRect() {
       const l = this.layout();
@@ -406,7 +409,7 @@ function extractDialog() {
 function insertDialog() {
   const scrim = document.getElementById("organiseInsert");
   const [body, footer] = scrim.children[0].children;
-  const [, source, places] = body.children;
+  const [, source, places, preview, caption] = body.children;
   const [, label, choose] = source.children;
   const [cancel, insert] = footer.children;
   return {
@@ -414,7 +417,10 @@ function insertDialog() {
     title: document.getElementById("organiseInsertTitle").textContent,
     desc: document.getElementById("organiseInsertDesc").textContent,
     file: label.children.map((k) => k.textContent).join(" "),
-    places: places.children.map((row) => [row.children[1].children[0].textContent, row.children[2].textContent, row.classList.contains("selected")]),
+    control: places.className,
+    places: places.children.map((b) => [b.children[0].textContent, b.classList.contains("selected")]),
+    preview: preview.children.map((k) => k.textContent + (k.classList.contains("is-selected") ? "*" : "")).join(" "),
+    caption: caption.textContent,
     primary: insert.textContent,
     focused: activeElement === insert ? "insert" : activeElement === choose ? "choose" : null,
     pick: (i) => dispatch(places.children[i], "click"),
@@ -429,6 +435,7 @@ const deleted = [];
 // reading.js's adoptState: every reader state Organise is answered with.
 const adopted = [];
 let reloads = 0;
+const resizeObservers = [];
 const context = vm.createContext({
   document, console, setTimeout, clearTimeout, performance,
   matchMedia: (query) => ({ matches: query.includes("reduce") && reducedMotion }),
@@ -439,8 +446,24 @@ const context = vm.createContext({
   },
   sessionStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); }, removeItem: (k) => { delete storage[k]; } },
   IntersectionObserver: FakeObserver,
+  ResizeObserver: class {
+    constructor(callback) { this.callback = callback; this.targets = []; this.disconnects = 0; resizeObservers.push(this); }
+    observe(target) { this.targets.push(target); }
+    unobserve(target) { this.targets = this.targets.filter((t) => t !== target); }
+    disconnect() { this.targets = []; this.disconnects += 1; }
+    fire() { if (this.targets.length) this.callback([]); }
+  },
   requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
-  getComputedStyle: () => ({ columnGap: "8px" }),
+  // Insert's track: 3px padding and gaps; its segments 8px padding and a 1px edge.
+  getComputedStyle: (el) => {
+    if (el && el.classList && el.classList.contains("organise-insert-places")) {
+      return { columnGap: "3px", paddingLeft: "3px", paddingRight: "3px" };
+    }
+    if (el && el.classList && el.classList.contains("segmented-btn")) {
+      return { paddingLeft: "8px", paddingRight: "8px", borderLeftWidth: "1px", borderRightWidth: "1px" };
+    }
+    return { columnGap: "8px" };
+  },
   devicePixelRatio: 1,
   callApi, mountIcon: () => {}, mountIcons: () => {}, mountMissingIcons: () => {},
   adoptState: (state) => { adopted.push(state); return state; },
@@ -461,7 +484,8 @@ const context = vm.createContext({
 for (const file of process.argv.slice(2)) vm.runInContext(fs.readFileSync(file, "utf8"), context);
 vm.runInContext(
   "configureOrganise({ title: () => 'Annual Report' });" +
-  "this.__api = { openOrganise, isOrganiseOpen, finishOrganise, cancelOrganise, organiseAct };",
+  "this.__api = { openOrganise, isOrganiseOpen, finishOrganise, cancelOrganise, organiseAct };" +
+  "this.__insert = OrganiseInsertDialog;",
   context
 );
 const api = context.__api;
@@ -880,15 +904,22 @@ const scenarios = {
     dispatch(byId.organiseInsertBtn, "click"); await settle();
     const first = insertDialog();
     out.browsed = browsed[0];
-    out.asked = { open: first.open, title: first.title, desc: first.desc, file: first.file, places: first.places, primary: first.primary, focused: first.focused };
+    out.asked = {
+      open: first.open, title: first.title, desc: first.desc, file: first.file, control: first.control,
+      places: first.places, preview: first.preview, caption: first.caption, primary: first.primary, focused: first.focused,
+    };
+    // By voice: each place by name; a number counts from the left.
+    const said = (intent, extra = {}) => { context.__insert.handleCommand({ intent, ...extra }); const d = insertDialog(); return [d.places.find((p) => p[1])[0], d.preview, d.caption]; };
+    out.spoken = [said("INSERT_BEFORE"), said("INSERT_AT_START"), said("INSERT_AT_END"), said("DIALOG_PICK", { index: 3 })];
     // Choose…: another file, a protected one, unlocked; the first is let go.
     picks.push({ path: "C:/Files/locked.pdf" });
     first.choose(); await settle();
     const second = insertDialog();
     out.chosenAgain = { open: second.open, file: second.file, primary: second.primary, focused: second.focused, password: passwordAsked.slice() };
     out.forgot = calls.filter((c) => c[0] === "organise_forget_source").map((c) => c[1]);
-    second.pick(2); // At the end
-    out.endPicked = insertDialog().places.map((p) => p[2]);
+    second.pick(3); // At the end
+    out.endPicked = insertDialog().places.map((p) => p[1]);
+    out.endPreview = [insertDialog().preview, insertDialog().caption];
     insertDialog().answer(true); await settle();
     out.inserted = actions()[0];
     out.selected = selectedPositions();
@@ -903,6 +934,11 @@ const scenarios = {
     picks.push({ path: "C:/Files/Appendix.pdf" });
     dispatch(byId.organiseInsertBtn, "click"); await settle();
     out.idlePlaces = insertDialog().places;
+    out.idlePreview = [insertDialog().preview, insertDialog().caption];
+    // "before the selection" with nothing selected: says why, changes nothing.
+    const toastsBefore = toasts.length;
+    context.__insert.handleCommand({ intent: "INSERT_BEFORE" });
+    out.idleBefore = { places: insertDialog().places, toast: toasts.slice(toastsBefore).map((t) => t.text) };
     key(activeElement, "Escape"); await settle();
     out.escClosed = { open: insertDialog().open, organise: api.isOrganiseOpen(), actions: actions().length };
     out.forgotAfterCancel = calls.filter((c) => c[0] === "organise_forget_source").map((c) => c[1]);
@@ -914,6 +950,36 @@ const scenarios = {
     const before = calls.length;
     dispatch(byId.organiseInsertBtn, "click"); await settle();
     out.browseCancelled = calls.slice(before).map((c) => c[0]);
+    return out;
+  },
+  // One row while every label fits at full size, else 2×2, else one column,
+  // worked out again whenever the track or a label changes size; nothing
+  // is watched once the dialog closes.
+  async insertFit() {
+    await api.openOrganise(); await settle();
+    intersectAll(); await settle();
+    dispatch(cell(3), "click");
+    picks.push({ path: "C:/Files/Appendix.pdf" });
+    dispatch(byId.organiseInsertBtn, "click"); await settle();
+    const track = document.getElementById("organiseInsert").children[0].children[0].children[2];
+    const observer = resizeObservers[resizeObservers.length - 1];
+    const out = { watched: observer.targets.length, cols: [] };
+    track.fakeWidth = 462; // 456 inside the padding
+    const fit = (widths) => {
+      track.children.forEach((b, i) => { b.children[0].fakeWidth = widths[i]; });
+      observer.fire();
+      out.cols.push(track.style["--places-cols"]);
+    };
+    fit([78, 92, 86, 70]);   // 4 fit: (456 - 9) / 4 - 18 = 93.75 per label
+    fit([78, 93, 86, 70]);   // 93 + 1 for rounding: 2×2
+    fit([78, 120, 118, 70]);
+    fit([78, 220, 118, 70]); // (456 - 3) / 2 - 18 = 208.5: one column
+    fit([78, 92, 86, 70]);   // back to one row
+    key(activeElement, "Escape"); await settle();
+    out.closed = { watched: observer.targets.length, disconnects: observer.disconnects > 0 };
+    track.children.forEach((b) => { b.children[0].fakeWidth = 400; });
+    observer.callback([]); // a late notification while hidden changes nothing
+    out.afterClose = track.style["--places-cols"];
     return out;
   },
   async extractFlow() {
@@ -1182,24 +1248,27 @@ const scenarios = {
     out.everyPageToast = toasts[toasts.length - 1].text;
     return out;
   },
-  // Organise started from Home (Tools, Recent or Favorites): Done and Cancel
-  // hand over to the reader's leaveOrganiseForHome instead of going back to
-  // reading. Done doesn't apply the draft itself (that hand-over does, then
-  // asks "Save changes?"); Cancel drops the draft first (after Discard).
+  // Organise started from Home (Tools, Recent or Favorites): Cancel hands
+  // over to the reader's leaveOrganiseForHome (after Discard, with changes);
+  // Done never does: it applies the draft and stays in the reader, which
+  // forgets the way back (stayInReader), with no question asked.
   async homeOrigin() {
     let leaves = 0;
+    let stays = 0;
     context.__leave = () => { leaves += 1; };
-    vm.runInContext("configureOrganise({ returnsHome: () => true, leaveForHome: () => __leave() });", context);
+    context.__stay = () => { stays += 1; };
+    vm.runInContext(
+      "configureOrganise({ returnsHome: () => true, leaveForHome: () => __leave(), stayInReader: () => __stay() });",
+      context,
+    );
     const count = (name) => calls.filter((c) => c[0] === name).length;
     const out = {};
     await api.openOrganise(); await settle();
-    dispatch(byId.organiseDoneBtn, "click"); await settle();
-    out.doneWithout = { leaves, done: count("organise_done"), cancels: count("organise_cancel"), reloads };
+    key(cell(0), "Escape"); await settle();
+    out.cancelWithout = { leaves, cancels: count("organise_cancel"), asked: discard.open };
+    await api.openOrganise(); await settle();
     dispatch(cell(2), "click");
     dispatch(byId.organiseRotateRightBtn, "click"); await settle();
-    dispatch(byId.organiseDoneBtn, "click"); await settle();
-    out.doneWith = { leaves, done: count("organise_done"), reloads, busy: !byId.pageChangeBusy.hidden,
-      rotated: count("organise_action") };
     dispatch(byId.organiseCancelBtn, "click"); await settle();
     out.discardAsked = discard.open;
     question("organiseDiscard").answer(false); await settle();
@@ -1208,8 +1277,14 @@ const scenarios = {
     question("organiseDiscard").answer(true); await settle();
     out.discarded = { leaves, open: api.isOrganiseOpen(), cancels: count("organise_cancel") };
     await api.openOrganise(); await settle();
-    key(cell(0), "Escape"); await settle();
-    out.cancelWithout = { leaves, cancels: count("organise_cancel"), asked: discard.open };
+    dispatch(byId.organiseDoneBtn, "click"); await settle();
+    out.doneWithout = { leaves, stays, done: count("organise_done"), open: api.isOrganiseOpen(), reloads };
+    await api.openOrganise(); await settle();
+    dispatch(cell(2), "click");
+    dispatch(byId.organiseRotateRightBtn, "click"); await settle();
+    dispatch(byId.organiseDoneBtn, "click"); await settle();
+    out.doneWith = { leaves, stays, done: count("organise_done"), reloads, busy: !byId.pageChangeBusy.hidden,
+      toasts: toasts.length };
     return out;
   },
 };
@@ -1391,29 +1466,32 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
     def test_done_with_changes_shows_the_card_first_blocks_keys_and_reloads(self):
         out = self.run_scenario("doneWithChanges")
         self.assertEqual(out["rotate"], ["rotate", {"positions": [2], "degrees": 90}])
-        self.assertEqual(out["count"], "12 pages · 1 unsaved change")
+        self.assertEqual(out["count"], "12 pages · 1 change")
         self.assertTrue(out["busyAtOnce"])  # before Python has answered
         self.assertEqual(out["ariaBusy"], "true")
         self.assertEqual(out["doneAsked"], 1)
         self.assertEqual(out["thumbsStartedAfterDone"], 0)
         self.assertEqual(out["keyBlocked"], [True, 0])
         self.assertEqual(out["reloads"], 1)
-        self.assertEqual(out["note"], {"unsaved": True, "trimmed": False})
+        self.assertEqual(out["note"], {"trimmed": False})  # no "unsaved" toast: the dot says it
         self.assertTrue(out["busyStill"])  # until the reloaded page has drawn
 
-    def test_started_from_home_done_and_cancel_hand_over_to_going_home(self):
+    def test_started_from_home_cancel_goes_home_and_done_stays_in_the_reader(self):
         out = self.run_scenario("homeOrigin")
-        # Done, with or without changes: the hand-over applies and asks; Organise
-        # itself neither applies the draft nor reloads the reader.
-        self.assertEqual(out["doneWithout"], {"leaves": 1, "done": 0, "cancels": 0, "reloads": 0})
-        self.assertEqual(out["doneWith"], {"leaves": 2, "done": 0, "reloads": 0, "busy": False, "rotated": 1})
+        # Cancel (Esc) with nothing changed: straight home.
+        self.assertEqual(out["cancelWithout"], {"leaves": 1, "cancels": 1, "asked": False})
         # Cancel with changes asks first; Keep editing stays in Organise.
         self.assertTrue(out["discardAsked"])
-        self.assertEqual(out["keepEditing"], {"leaves": 2, "open": True, "cancels": 0})
+        self.assertEqual(out["keepEditing"], {"leaves": 1, "open": True, "cancels": 1})
         # Discard drops the draft, then goes home.
-        self.assertEqual(out["discarded"], {"leaves": 3, "open": False, "cancels": 1})
-        # Cancel (Esc) with nothing changed: straight home.
-        self.assertEqual(out["cancelWithout"], {"leaves": 4, "cancels": 2, "asked": False})
+        self.assertEqual(out["discarded"], {"leaves": 2, "open": False, "cancels": 2})
+        # Done with nothing changed: back to reading, the way home forgotten.
+        self.assertEqual(out["doneWithout"], {"leaves": 2, "stays": 1, "done": 1, "open": False, "reloads": 0})
+        # Done with changes: applied under the card and the reader reloads on
+        # them (which forgets the way home); no hand-over, no question, no toast.
+        self.assertEqual(
+            out["doneWith"], {"leaves": 2, "stays": 1, "done": 2, "reloads": 1, "busy": True, "toasts": 0}
+        )
 
     def test_cancel_and_esc_without_changes_leave_at_once(self):
         out = self.run_scenario("cancelWithout")
@@ -1438,7 +1516,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
             "focused": "safe",  # Enter by reflex keeps the work
         })
         self.assertTrue(out["openWhileAsking"])
-        self.assertEqual(out["afterKeep"], {"open": True, "steps": "12 pages · 2 unsaved changes", "cancels": 0, "focus": 5})
+        self.assertEqual(out["afterKeep"], {"open": True, "steps": "12 pages · 2 changes", "cancels": 0, "focus": 5})
         self.assertTrue(out["buttonAsked"])
         self.assertTrue(out["askedOnce"])  # a second Cancel while asking changes nothing
         self.assertEqual(out["escInQuestion"], {"open": False, "organise": True})
@@ -1462,7 +1540,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertTrue(out["keyAsks"])  # the Delete key asks too
         self.assertEqual(out["deleted"], ["delete", {"positions": [3, 4, 5]}])
         self.assertEqual(out["toast"], ["Deleted 3 pages", "Undo"])
-        self.assertEqual(out["count"], "9 pages · 1 unsaved change")
+        self.assertEqual(out["count"], "9 pages · 1 change")
         self.assertEqual(out["scattered"], ["Delete 3 pages?", "3 pages are removed from Annual Report."])
         self.assertEqual(out["single"], ["Delete 1 page?", "Page 2 is removed from Annual Report.", "Delete 1 page"])
         self.assertEqual(out["many"], ["1", "2", "3", "4", "5", "6", "+2 more"])
@@ -1478,32 +1556,56 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
             "title": "Insert pages",
             "desc": "Adds pages from another PDF or from images.",
             "file": "Appendix.pdf · 3 pages",
+            "control": "segmented organise-insert-places",
             "places": [
-                ["Before the selection", "before page 4", False],
-                ["After the selection", "after page 6", True],  # the default with a selection
-                ["At the end", "after page 12", False],
+                ["At the start", False],
+                ["Before page 4", False],
+                ["After page 6", True],  # the default with a selection
+                ["At the end", False],
             ],
+            "preview": "1 … 6* +3 7 … 12",
+            "caption": "Become pages 7–9 of 15",
             "primary": "Insert 3 pages",
             "focused": "insert",
         })
+        self.assertEqual(out["spoken"], [
+            ["Before page 4", "1 2 3 +3 4* … 12", "Become pages 4–6 of 15"],
+            ["At the start", "+3 1 … 12", "Become pages 1–3 of 15"],
+            ["At the end", "1 … 12 +3", "Become pages 13–15 of 15"],
+            ["After page 6", "1 … 6* +3 7 … 12", "Become pages 7–9 of 15"],  # "three"
+        ])
         self.assertEqual(out["chosenAgain"], {
             "open": True, "file": "locked.pdf · 1 page", "primary": "Insert 1 page", "focused": "choose",
             "password": ["locked.pdf"],
         })
         self.assertEqual(out["forgot"], ["insert-0"])  # the file it replaced
-        self.assertEqual(out["endPicked"], [False, False, True])
+        self.assertEqual(out["endPicked"], [False, False, False, True])
+        self.assertEqual(out["endPreview"], ["1 … 12 +1", "Becomes page 13 of 13"])
         self.assertEqual(out["inserted"], ["insert", {"source": "insert-1", "gap": 12}])
         self.assertEqual(out["selected"], [12])
         self.assertEqual(out["focus"], 12)
         self.assertTrue(out["newPill"])
         self.assertEqual(out["toast"], ["Inserted 1 page from locked.pdf", "Undo"])
-        self.assertEqual(out["count"], "13 pages · 1 unsaved change")
+        self.assertEqual(out["count"], "13 pages · 1 change")
         self.assertFalse(out["closed"])
-        self.assertEqual(out["idlePlaces"], [["At the end", "after page 13", True]])  # the only place
+        # Nothing selected: the start and the end, the end chosen.
+        self.assertEqual(out["idlePlaces"], [["At the start", False], ["At the end", True]])
+        self.assertEqual(out["idlePreview"], ["1 … 13 +3", "Become pages 14–16 of 16"])
+        self.assertEqual(out["idleBefore"], {
+            "places": [["At the start", False], ["At the end", True]],
+            "toast": ["No pages are selected, so the new pages can go at the start or the end."],
+        })
         self.assertEqual(out["escClosed"], {"open": False, "organise": True, "actions": 1})
         self.assertEqual(out["forgotAfterCancel"], ["insert-0", "insert-2"])
         self.assertEqual(out["junk"], {"open": False, "toast": "Couldn't read junk.pdf. It may be damaged."})
         self.assertEqual(out["browseCancelled"], [])
+
+    def test_insert_places_fit_one_row_else_two_by_two_else_one_column(self):
+        out = self.run_scenario("insertFit")
+        self.assertEqual(out["watched"], 5)  # the track and its four labels
+        self.assertEqual(out["cols"], ["4", "2", "2", "1", "4"])
+        self.assertEqual(out["closed"], {"watched": 0, "disconnects": True})
+        self.assertEqual(out["afterClose"], "4")
 
     def test_extract_saves_then_deletes_as_one_step_only_when_asked(self):
         out = self.run_scenario("extractFlow")
@@ -1520,7 +1622,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
             "open": True, "phase": "Taking the pages", "buttons": ["Cancel"], "actions": 0,  # Esc didn't close it
         })
         self.assertEqual(out["afterDone"], {
-            "open": False, "deleted": ["delete", {"positions": [3, 4, 5]}], "count": "9 pages · 1 unsaved change",
+            "open": False, "deleted": ["delete", {"positions": [3, 4, 5]}], "count": "9 pages · 1 change",
         })
         self.assertEqual(out["deleteToast"], [
             "Saved Annual Report (pages 4–6).pdf, beside the original and removed them here", ["Undo", "Show in folder"],
@@ -1566,7 +1668,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertIn("doc:6@90deg", out["rotate"]["shownAtOnce"])
         self.assertEqual(len(out["delete"]["shownAtOnce"]), 11)
         self.assertEqual(len(out["insert"]["shownAtOnce"]), 14)
-        self.assertEqual(out["count"], "14 pages · 5 unsaved changes")
+        self.assertEqual(out["count"], "14 pages · 5 changes")
 
     def test_a_step_python_does_differently_goes_back_to_pythons_draft(self):
         out = self.run_scenario("diverged")
@@ -1579,7 +1681,7 @@ class OrganiseViewBehaviourTests(unittest.TestCase):
         self.assertEqual(out["python"][-1], "doc:11@180deg")
         self.assertEqual(out["sent"], 1)  # the step queued behind it was dropped
         self.assertEqual(out["toast"], "Couldn't move that page")
-        self.assertEqual(out["count"], "12 pages · 1 unsaved change")
+        self.assertEqual(out["count"], "12 pages · 1 change")
         self.assertEqual(out["undoTitle"], "Undo  (Ctrl+Z)")
 
     def test_five_quick_moves_reach_python_in_order_and_end_right(self):

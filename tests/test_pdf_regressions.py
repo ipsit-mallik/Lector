@@ -200,7 +200,7 @@ class ChangeThenSaveTests(TempFolderCase):
                 self.doc.remove_highlight(0, self.uncoloured)
                 self.doc.undo_highlight()
                 self.doc.undo_highlight()
-                self.assertTrue(self.doc.is_dirty)  # undoing is itself an unsaved change
+                self.assertFalse(self.doc.is_dirty)  # back where the file on disk is
                 self.assertEqual(
                     self.saved(how), [(pdf_support.FOREIGN_RGB, "quick brown"), (default, "lazy dog.")]
                 )

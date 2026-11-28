@@ -50,6 +50,8 @@ class OrganiseController(Controller):
         be changed."""
         message = self._core.organise_block_message()
         if message is not None:
+            # The reader shows it instead, and says why: an ordinary open now.
+            self._core.adopt_organise_open()
             return {"ok": False, "message": message}
         if self._organise is None:
             self._organise = page_plan.PlanHistory(page_plan.initial(self._doc.page_count))
@@ -247,6 +249,13 @@ class OrganiseController(Controller):
         """Leave Organise without applying the draft: it is dropped, with
         the files Insert opened. Nothing in the open document changes, so no
         snapshot is taken and nothing is recorded."""
+        if self._core.opened_for_organise:
+            # Opened only to organise: closed again, as if never opened (not
+            # in Recent, no position, the file let go of). `closed` tells the
+            # page to go straight back where it came from.
+            self._core.close_document()
+            self._vocabulary.viewport = []
+            return {**self._state(), "pages_changed": False, "history_trimmed": False, "closed": True}
         self._organise = None
         self._doc.drop_page_sources()
         return {**self._state(), "pages_changed": False, "history_trimmed": False}
@@ -282,6 +291,9 @@ class OrganiseController(Controller):
             return {**self._state(), "pages_changed": False, "history_trimmed": False, "error": PAGE_CHANGES_FAILED}
         self._organise = None
         self._doc.drop_page_sources()
+        # Opened only to organise: Done takes it into the reader, so it is
+        # an ordinary open from here (Recent, the reading position).
+        self._core.adopt_organise_open()
         if applied:
             self._after_pages_changed()
         return {

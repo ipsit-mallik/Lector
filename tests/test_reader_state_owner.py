@@ -57,7 +57,7 @@ NODE = shutil.which("node")
 # whole state. A new one fails test_the_list_matches_api_py until it is added
 # here and its reply adopted in the frontend.
 STATE_METHODS = {
-    "open_pdf", "set_layout_mode", "get_state", "next_page", "prev_page", "goto_page",
+    "open_pdf", "open_pdf_to_organise", "set_layout_mode", "get_state", "next_page", "prev_page", "goto_page",
     "zoom_in", "zoom_out", "set_zoom", "highlight_chars", "add_ink_stroke",
     "set_highlight_color", "recolor_highlight", "set_highlight_appearance", "remove_highlight",
     "undo_highlight", "redo_highlight", "organise_cancel", "organise_done",
@@ -192,9 +192,12 @@ const source = fs.readFileSync(process.argv[2], "utf8").split(String.fromCharCod
 const start = source.indexOf("function adoptState(");
 const end = source.indexOf("\n}\n", start) + 2;
 const context = vm.createContext({});
-vm.runInContext("let state = { is_open: false };\n" + source.slice(start, end) +
-  "\nthis.adopt = adoptState; this.get = () => state; this.set = (s) => { state = s; };", context);
+vm.runInContext("let state = { is_open: false };\nconst stateAdoptedListeners = [];\n" + source.slice(start, end) +
+  "\nthis.adopt = adoptState; this.get = () => state; this.set = (s) => { state = s; };" +
+  "\nthis.listen = (fn) => stateAdoptedListeners.push(fn);", context);
 const out = {};
+const heard = [];
+context.listen((s) => heard.push(s.is_dirty));
 const first = { is_open: true, page_index: 3, highlight_color: "green" };
 out.adopted = context.adopt(first) === first && context.get() === first;
 context.set({ is_open: true, page_index: 9, highlight_color: "green" });
@@ -206,6 +209,7 @@ context.adopt(reply);
 out.tookPage = context.get().page_index;
 for (const junk of [null, undefined, { error: "Couldn't" }, { ok: true }, "text"]) context.adopt(junk);
 out.afterJunk = context.get() === reply;
+out.heard = heard;
 console.log(JSON.stringify(out));
 """
 
@@ -226,6 +230,8 @@ class AdoptStateBehaviourTests(unittest.TestCase):
         self.assertTrue(out["replyUntouched"])
         self.assertEqual(out["tookPage"], 3)
         self.assertTrue(out["afterJunk"])
+        # Every adopted state reaches the listeners (the unsaved dot); junk doesn't.
+        self.assertEqual(len(out["heard"]), 3)
 
 
 class ChosenColourStaysTests(unittest.TestCase):

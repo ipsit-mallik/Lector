@@ -178,6 +178,9 @@ class Api:
 
     # ---- Reader: document, pages, navigation, zoom, OCR, find (bridge/reader.py) ----
 
+    def open_pdf_to_organise(self, path: str, password: str | None = None) -> dict:
+        return self._reader.open_pdf_to_organise(path, password)
+
     def open_pdf(self, path: str, password: str | None = None) -> dict:
         return self._reader.open_pdf(path, password)
 
@@ -503,6 +506,12 @@ class Api:
 
     def bind_file_drop(self, window) -> None:
         return self._window.bind_file_drop(window)
+
+    def on_page_loaded(self, window) -> None:
+        return self._window.on_page_loaded(window)
+
+    def sync_window_title(self) -> None:
+        return self._core.sync_window_title()
 
     def open_file_from_launch(self, path: str) -> None:
         return self._window.open_file_from_launch(path)

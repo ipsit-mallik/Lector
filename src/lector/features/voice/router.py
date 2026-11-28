@@ -113,6 +113,9 @@ FILE_TOOL = "file_tool"
 # the globals ("undo", "what can I say", "go home") still reach the page, which
 # decides what they mean there.
 ORGANISE = "organise"
+# Organise's Insert pages dialog: the file tools' answers plus its four places
+# by name. Its own scope so the other file tools don't hear the places.
+ORGANISE_INSERT = "organise_insert"
 
 # Every context a page or dialog may declare itself as, via `Api.set_voice_context`.
 # Extendable: 8.6-8.9 add screens that need no new entry here beyond what is
@@ -120,7 +123,7 @@ ORGANISE = "organise"
 CONTEXTS: tuple[str, ...] = (
     HOME, READING, SETTINGS, SAVE_DIALOG, OPEN_DIALOG, PICKER, DICTATION,
     REMOVE_CONFIRM, SAVE_CONFIRM, REFERENCE, OVERWRITE_CONFIRM, REPLACE_CONFIRM,
-    PASSWORD_PROMPT, FILE_TOOL, ORGANISE,
+    PASSWORD_PROMPT, FILE_TOOL, ORGANISE, ORGANISE_INSERT,
 )
 
 # What a fresh `VoiceEngine`/`Api` should behave as before any page has made
@@ -445,6 +448,24 @@ FILE_TOOL_PHRASES: dict[str, tuple[str, ...]] = {
     CANCEL: ("cancel", "never mind"),
 }
 
+# Organise's Insert pages: where the pages go, by name, on top of the file
+# tools' grammar (a bare number still picks the place, counted from the
+# left). "before the selection" and "after the selection" score 0.75 against
+# each other, above the 0.72 match threshold: an exact phrase always wins, and
+# a mishearing only moves the choice, which nothing applies until "confirm".
+INSERT_AT_START = "INSERT_AT_START"
+INSERT_BEFORE = "INSERT_BEFORE"
+INSERT_AFTER = "INSERT_AFTER"
+INSERT_AT_END = "INSERT_AT_END"
+
+ORGANISE_INSERT_PHRASES: dict[str, tuple[str, ...]] = {
+    **FILE_TOOL_PHRASES,
+    INSERT_AT_START: ("at the start",),
+    INSERT_BEFORE: ("before the selection",),
+    INSERT_AFTER: ("after the selection",),
+    INSERT_AT_END: ("at the end",),
+}
+
 
 # Milestone F2: Organise pages. "done" applies the page changes and goes back
 # to reading (the Done button); "cancel" is the Cancel button, which leaves
@@ -487,6 +508,7 @@ MODAL_ALLOWED_GLOBALS: dict[str, frozenset[str]] = {
     REPLACE_CONFIRM: frozenset(),
     PASSWORD_PROMPT: frozenset(),
     FILE_TOOL: frozenset(),
+    ORGANISE_INSERT: frozenset(),
 }
 
 
@@ -522,6 +544,9 @@ _PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT = _flatten_p
     PASSWORD_PROMPT_PHRASES
 )
 _FILE_TOOL_ORDERED_PHRASES, _FILE_TOOL_PHRASE_TO_INTENT = _flatten_phrases(FILE_TOOL_PHRASES)
+_ORGANISE_INSERT_ORDERED_PHRASES, _ORGANISE_INSERT_PHRASE_TO_INTENT = _flatten_phrases(
+    ORGANISE_INSERT_PHRASES
+)
 _ORGANISE_ORDERED_PHRASES, _ORGANISE_PHRASE_TO_INTENT = _flatten_phrases(ORGANISE_PHRASES)
 
 # Per-context lookup for `resolve`'s fixed-phrase contexts — every context
@@ -545,6 +570,7 @@ _CONTEXT_PHRASE_TABLES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
     REPLACE_CONFIRM: (_REPLACE_CONFIRM_ORDERED_PHRASES, _REPLACE_CONFIRM_PHRASE_TO_INTENT),
     PASSWORD_PROMPT: (_PASSWORD_PROMPT_ORDERED_PHRASES, _PASSWORD_PROMPT_PHRASE_TO_INTENT),
     FILE_TOOL: (_FILE_TOOL_ORDERED_PHRASES, _FILE_TOOL_PHRASE_TO_INTENT),
+    ORGANISE_INSERT: (_ORGANISE_INSERT_ORDERED_PHRASES, _ORGANISE_INSERT_PHRASE_TO_INTENT),
     ORGANISE: (_ORGANISE_ORDERED_PHRASES, _ORGANISE_PHRASE_TO_INTENT),
 }
 
@@ -593,6 +619,9 @@ _CONTEXT_VOCABULARY: dict[str, list[str]] = {
     REPLACE_CONFIRM: _vocabulary_from_phrases(REPLACE_CONFIRM_PHRASES),
     PASSWORD_PROMPT: _vocabulary_from_phrases(PASSWORD_PROMPT_PHRASES),
     FILE_TOOL: sorted(set(_vocabulary_from_phrases(FILE_TOOL_PHRASES)) | set(_PICKER_NUMBER_WORDS)),
+    ORGANISE_INSERT: sorted(
+        set(_vocabulary_from_phrases(ORGANISE_INSERT_PHRASES)) | set(_PICKER_NUMBER_WORDS)
+    ),
     ORGANISE: _vocabulary_from_phrases(ORGANISE_PHRASES),
 }
 
@@ -791,7 +820,7 @@ def resolve(context: str, text: str, alternatives: list[str] | None = None) -> d
             if command is not None:
                 return {"command": command, "clarify": None}
 
-    if context in (OPEN_DIALOG, SAVE_DIALOG, FILE_TOOL):
+    if context in (OPEN_DIALOG, SAVE_DIALOG, FILE_TOOL, ORGANISE_INSERT):
         for candidate in (text, *(alternatives or ())):
             command = _parse_dialog_number(candidate)
             if command is not None:

@@ -22,12 +22,12 @@ import os
 import sys
 from pathlib import Path
 
-from lector.shared import theme
+from lector.shared import theme, window_title
 
 log = logging.getLogger(__name__)
 
 APP_ID = "Lector.Reader"
-WINDOW_TITLE = "Lector"
+WINDOW_TITLE = window_title.APP_TITLE
 ICON_PATH = Path(__file__).resolve().parents[3] / "assets" / "lector.ico"
 
 _WM_SETICON = 0x0080
@@ -59,8 +59,27 @@ def _colorref(hex_color: str) -> ctypes.c_uint:
     return ctypes.c_uint(r | (g << 8) | (b << 16))
 
 
+# The app window's handle, once found. The title changes with the document
+# ("*Report – Lector", shared/window_title.py), so after the first lookup the
+# window is known by its handle, not by what its title says.
+_hwnd: int | None = None
+
+
 def _find_window(title: str) -> int | None:
-    """This process's visible top-level window with the given title."""
+    """This process's app window. `title` is what it was created with; the
+    window is found once by any title `window_title` gives, then kept."""
+    global _hwnd
+    user32 = ctypes.windll.user32
+    if _hwnd is not None and user32.IsWindow(ctypes.c_void_p(_hwnd)):
+        return _hwnd
+    found_hwnd = _enum_window(lambda text: text == title or window_title.is_lector_title(text))
+    if found_hwnd is not None:
+        _hwnd = found_hwnd
+    return found_hwnd
+
+
+def _enum_window(matches) -> int | None:
+    """This process's first visible top-level window whose title `matches`."""
     user32 = ctypes.windll.user32
     pid = os.getpid()
     found: list[int] = []
@@ -72,7 +91,7 @@ def _find_window(title: str) -> int | None:
         if owner.value == pid and user32.IsWindowVisible(ctypes.c_void_p(hwnd)):
             buf = ctypes.create_unicode_buffer(256)
             user32.GetWindowTextW(ctypes.c_void_p(hwnd), buf, 256)
-            if buf.value == title:
+            if matches(buf.value):
                 found.append(hwnd)
                 return False
         return True

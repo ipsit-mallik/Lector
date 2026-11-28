@@ -4,6 +4,11 @@
 
 let state = { is_open: false };
 
+// What follows every adopted state, whichever file adopted it: the header's
+// unsaved-changes dot (reading-chrome.js), since a save, a recolour or an
+// undo can change the unsaved flag without anything else being redrawn.
+const stateAdoptedListeners = [];
+
 // `state` has one owner, this file, and one way in. Every bridge call that
 // answers with the reader's whole state (api._state(): a page turn, a zoom, a
 // highlight, the active colour, a save, Organise's Done…) hands its reply
@@ -19,6 +24,7 @@ let state = { is_open: false };
 function adoptState(next, { keepPage = false } = {}) {
   if (!next || typeof next !== "object" || typeof next.is_open !== "boolean") return state;
   state = keepPage && state.is_open && next.is_open ? { ...next, page_index: state.page_index } : next;
+  for (const listener of stateAdoptedListeners) listener(state);
   return state;
 }
 

@@ -4,6 +4,7 @@
 
 const backBtn = document.getElementById("backBtn");
 const docTitle = document.getElementById("docTitle");
+const unsavedDot = document.getElementById("unsavedDot");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const pageInput = document.getElementById("pageInput");
@@ -22,6 +23,7 @@ const THEME_ORDER = ["light", "dark", "sepia"];
 
 function updateChrome() {
   docTitle.textContent = state.title || "";
+  updateUnsavedDot(Boolean(state.is_dirty));
   pageInput.maxLength = String(state.page_count).length;
   // Never under the reader's fingers: the strip's scroll tracking calls this
   // on every page boundary, and would otherwise overwrite a half-typed number.
@@ -38,6 +40,18 @@ function updateChrome() {
   updateProgressScroll(currentPageReadFraction());
   updateOutlinePanel(state);
 }
+
+// The one unsaved flag (state.is_dirty, Python's), shown as a dot after the
+// name; Python gives the window's title its "*" from the same flag. Hidden,
+// not removed, so the name never moves; the tooltip only while it shows.
+function updateUnsavedDot(dirty) {
+  unsavedDot.classList.toggle("is-shown", dirty);
+  unsavedDot.setAttribute("aria-hidden", String(!dirty));
+  if (dirty) unsavedDot.dataset.tooltip = "Unsaved changes";
+  else delete unsavedDot.dataset.tooltip;
+}
+
+stateAdoptedListeners.push((next) => updateUnsavedDot(Boolean(next.is_open && next.is_dirty)));
 
 // Undo and redo are always in the toolbar. What dims one is the undo stack
 // having nothing for it (state.can_undo / can_redo), not unsaved changes:

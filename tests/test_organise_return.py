@@ -1,8 +1,10 @@
-"""Organise pages started from Home goes back there (reading-save.js):
-Home's note is read once and dropped, Done's changes are applied and
-"Save changes?" asked at once, and then Home opens on the section Organise
-was started from, scrolled where it was; cancelling the question comes back
-into Organise. Organise started in the reader stays in the reader.
+"""Organise pages started from Home goes back there on Cancel
+(reading-save.js): Home's note is read once and dropped, and Home opens on
+the section Organise was started from, scrolled where it was. Done never
+goes there (organise.js keeps it in the reader; tests/test_organise_behavior.py).
+If the PDF has unsaved changes after all, Cancel asks the usual question
+first, and cancelling it stays in the reader. Organise started in the
+reader stays in the reader.
 
 reading-save.js runs under Node with the reader's other parts stubbed
 (tests/dom_standin.py). Skipped when Node is not installed.
@@ -69,32 +71,32 @@ const snapshot = () => ({ href: window.location.href, store: { ...store }, log: 
 (async () => {
   const out = {};
 
-  // Started from Tools, Done with changes, "Don't save": back to Tools.
-  reset({ note: JSON.stringify({ section: "tools", top: 420 }), changed: true, dirty: true });
+  // Started from Tools, Cancel with the PDF somehow unsaved, "Don't save":
+  // back to Tools.
+  reset({ note: JSON.stringify({ section: "tools", top: 420 }), open: false, dirty: true });
   run("takeOrganiseReturn(true)");
   out.taken = { back: run("organiseReturn"), left: store["lector-organise-return"] || null };
   await run("leaveOrganiseForHome()");
-  out.doneDiscard = snapshot();
+  out.cancelDiscard = snapshot();
 
-  // From Favorites, Done with changes, Save: saved, then back.
-  reset({ note: JSON.stringify({ section: "favorites", top: 0 }), changed: true, dirty: true,
+  // From Favorites, the same with Save: saved, then back.
+  reset({ note: JSON.stringify({ section: "favorites", top: 0 }), open: false, dirty: true,
     reply: { action: "save", mode: "overwrite", remember: false } });
   run("takeOrganiseReturn(true)");
   await run("leaveOrganiseForHome()");
-  out.doneSave = snapshot();
+  out.cancelSave = snapshot();
 
-  // From Recent, the question cancelled after the changes were applied: the
-  // reader reloads into Organise, still bound for Home.
+  // The question cancelled: the reader stays, and forgets the way home.
+  reset({ note: JSON.stringify({ section: "recent", top: 96 }), open: false, dirty: true, reply: { action: "cancel" } });
+  run("takeOrganiseReturn(true)");
+  await run("leaveOrganiseForHome()");
+  out.cancelStays = { ...snapshot(), back: run("organiseReturn") };
+
+  // Leaving another way with Organise open and changes in it, the question
+  // cancelled: the reader reloads onto the changed pages, not into Organise.
   reset({ note: JSON.stringify({ section: "recent", top: 96 }), changed: true, dirty: true, reply: { action: "cancel" } });
   run("takeOrganiseReturn(true)");
-  await run("leaveOrganiseForHome()");
-  out.doneCancelled = snapshot();
-
-  // Cancelled with nothing reloaded (no page change): Organise opens again.
-  reset({ note: JSON.stringify({ section: "recent", top: 96 }), changed: false, dirty: true, reply: { action: "cancel" } });
-  run("takeOrganiseReturn(true)");
-  await run("leaveOrganiseForHome()");
-  out.cancelledNoReload = snapshot();
+  out.reloadStays = { stayed: await run("promptSaveIfDirty(true)"), ...snapshot(), back: run("organiseReturn") };
 
   // Cancel (the draft already dropped): nothing to save, straight home.
   reset({ note: JSON.stringify({ section: "recent", top: 96 }), open: false });
@@ -159,28 +161,34 @@ class OrganiseReturnTests(unittest.TestCase):
     def test_homes_note_is_read_once(self):
         self.assertEqual(self.out["taken"], {"back": {"section": "tools", "top": 420}, "left": None})
 
-    def test_done_applies_asks_at_once_then_goes_back_to_the_same_home_page(self):
-        done = self.out["doneDiscard"]
-        self.assertEqual(done["log"], ["apply", "get_save_behavior", "set_voice_context", "ask:true", "set_voice_context"])
-        self.assertEqual(done["href"], "../index.html")
-        self.assertEqual(done["store"], {"lector-home-section": "tools", "lector-home-scroll": "420"})
+    def test_cancel_with_unsaved_changes_asks_then_goes_back_to_the_same_home_page(self):
+        left = self.out["cancelDiscard"]
+        self.assertEqual(left["log"], ["get_save_behavior", "set_voice_context", "ask:true", "set_voice_context"])
+        self.assertEqual(left["href"], "../index.html")
+        # Back on the Tools page with the focus on the Organise pages card.
+        self.assertEqual(left["store"], {"lector-home-section": "tools", "lector-home-scroll": "420",
+                                         "lector-home-focus": "organise"})
 
     def test_save_saves_then_goes_back(self):
-        saved = self.out["doneSave"]
+        saved = self.out["cancelSave"]
         self.assertIn("perform_save", saved["log"])
         self.assertEqual(saved["href"], "../index.html")
         # Scrolled to the top: no scroll note.
         self.assertEqual(saved["store"], {"lector-home-section": "favorites"})
 
-    def test_cancelling_the_question_comes_back_into_organise(self):
-        cancelled = self.out["doneCancelled"]
-        self.assertEqual(cancelled["href"], "pages/reading.html")
-        self.assertIn("reload", cancelled["log"])
-        self.assertIn('notes:1|{"section":"recent","top":96}', cancelled["log"])
-        quiet = self.out["cancelledNoReload"]
-        self.assertEqual(quiet["href"], "pages/reading.html")
-        self.assertEqual(quiet["log"][-1], "reopen")
-        self.assertNotIn("reload", quiet["log"])
+    def test_cancelling_the_question_stays_in_the_reader_and_forgets_home(self):
+        stays = self.out["cancelStays"]
+        self.assertEqual(stays["href"], "pages/reading.html")
+        self.assertIsNone(stays["back"])
+        self.assertNotIn("reopen", stays["log"])
+        self.assertNotIn("reload", stays["log"])
+
+    def test_staying_with_changed_pages_reloads_onto_them_not_into_organise(self):
+        stays = self.out["reloadStays"]
+        self.assertFalse(stays["stayed"])
+        self.assertIn("reload", stays["log"])
+        self.assertIn("notes:null|null", stays["log"])
+        self.assertIsNone(stays["back"])
 
     def test_cancel_goes_straight_home_to_recent_with_its_scroll(self):
         cancel = self.out["cancel"]

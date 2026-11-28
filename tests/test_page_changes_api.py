@@ -53,6 +53,25 @@ def _payload_for(page: pymupdf.Page) -> dict:
         ],
     }
 
+# The close question is asked off the window's thread in the app
+# (`bridge/window.py`'s `ask_off_the_window_thread`); here it is asked at
+# once, so a test sees the call as soon as `handle_window_closing` returns.
+_ASK_INLINE = None
+
+
+def setUpModule():
+    global _ASK_INLINE
+    from unittest import mock as _mock
+
+    from lector.bridge import window as _window_module
+
+    _ASK_INLINE = _mock.patch.object(_window_module, "ask_off_the_window_thread", lambda ask: ask())
+    _ASK_INLINE.start()
+
+
+def tearDownModule():
+    _ASK_INLINE.stop()
+
 
 class _ApiCase(unittest.TestCase):
     def setUp(self):

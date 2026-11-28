@@ -120,6 +120,9 @@ def main(args: list[str] | None = None) -> None:
     # forgets DOM bindings on every navigation, and Lector navigates between
     # Home, Settings and Reading, so this is rebound on each page load.
     window.events.loaded += lambda: api.bind_file_drop(window)
+    # The title follows the page: the document's name (with "*" while it has
+    # unsaved changes) in the reader, "Lector" everywhere else.
+    window.events.loaded += lambda: api.on_page_loaded(window)
     if path:
         # A file to open at launch goes to the first page that loads, once.
         def open_launch_file() -> None:
@@ -132,6 +135,8 @@ def main(args: list[str] | None = None) -> None:
     window.events.shown += lambda: window_chrome.apply(
         window_chrome.WINDOW_TITLE, settings.get_theme()
     )
+    # A title asked for before the window was shown is set now.
+    window.events.shown += api.sync_window_title
     try:
         # A kept profile in the app's own folder, so WebView2 does not build a
         # fresh one on every launch. Nothing of Lector's lives in it: the pages'

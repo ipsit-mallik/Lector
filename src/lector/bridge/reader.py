@@ -16,8 +16,21 @@ MAX_FIND_QUERY_CHARS = 200
 
 class ReaderController(Controller):
     def open_pdf(self, path: str, password: str | None = None) -> dict:
-        """Open `path` (unlocked with `password`, for a protected PDF) and
-        return the reader's state. A PDF that can't be opened comes back as
+        refused = self._open(path, password, for_organise=False)
+        return refused if refused is not None else self._state()
+
+    def open_pdf_to_organise(self, path: str, password: str | None = None) -> dict:
+        """Open `path` only to organise its pages (Home's Tools page, a
+        Recent or Favorites menu): as `open_pdf`, but Recent and the saved
+        reading position are left alone until Organise's Done makes it an
+        ordinary open (`BridgeCore.adopt_organise_open`); its Cancel closes
+        it again (`organise_cancel`)."""
+        refused = self._open(path, password, for_organise=True)
+        return refused if refused is not None else self._state()
+
+    def _open(self, path: str, password: str | None, *, for_organise: bool) -> dict | None:
+        """Open `path` (unlocked with `password`, for a protected PDF); None
+        once it is the open document. A PDF that can't be opened comes back as
         `{"error": sentence, "reason": code}` (`open_errors`), with nothing
         else changed: the open document stays open and Recent is untouched.
         `reason` "password" asks the page for the password; the password is
@@ -43,11 +56,15 @@ class ReaderController(Controller):
         # Reading); one with a saved position gets its own back below.
         self._core.layout_mode = settings.get_default_view()
         self._core.persisted_position = None
-        settings.add_recent_file(path)
+        # One whose pages can't be changed goes to the reader instead (which
+        # says why), so it is an ordinary open from the start.
+        self._core.opened_for_organise = for_organise and self._core.organise_block_message() is None
+        if not self._core.opened_for_organise:
+            settings.add_recent_file(path)
         if settings.get_reopen_behavior() == settings.CONTINUE:
             self._restore_position(path)
         self._remember_position()
-        return self._state()
+        return None
 
     def _restore_position(self, path: str) -> None:
         """Reopen `path` where the reader left it, if that is still valid.

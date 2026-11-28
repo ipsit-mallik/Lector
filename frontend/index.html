@@ -4,6 +4,26 @@
   <meta charset="UTF-8">
   <title>Lector — Home</title>
   <link rel="stylesheet" href="pages/home.css">
+  <!-- Arriving on the Tools page (back from Organise pages, or Settings'
+       Tools item): home.js draws it as the page loads (drawToolsAtLoad), so
+       the first paint waits until the page has been read to the end, which
+       is after that has run, and the Tools page is never seen empty. Only
+       here, in <head>: a render-blocking link added later is ignored. -->
+  <script>
+    if (sessionStorage.getItem("lector-home-section") === "tools") {
+      const hold = document.createElement("link");
+      hold.rel = "expect";
+      hold.href = "#homeToolsDrawn";
+      hold.setAttribute("blocking", "render");
+      document.head.appendChild(hold);
+      // Back from Organise pages (reading-save.js's HOME_FOCUS_NOTE): this is
+      // where the reader was, so it is simply there, with no entrance
+      // (home.css's .home-returning); its first frame would be empty.
+      if (sessionStorage.getItem("lector-home-focus") !== null) {
+        document.documentElement.classList.add("home-returning");
+      }
+    }
+  </script>
 </head>
 <body>
   <div class="home-view">

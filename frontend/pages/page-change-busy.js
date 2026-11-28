@@ -9,11 +9,12 @@
 // OCR waits) is keyed by page index, so a real change reloads the reader page,
 // as opening another PDF does: the page reads the open document on load. A
 // note in sessionStorage carries the busy card (js/page-change-pending.js) and
-// what to say (the unsaved changes, older changes dropped) across the reload.
+// what to say (older changes dropped) across the reload. Nothing is said about
+// the changes being unsaved: the header's dot and the window title's "*" show
+// that, as for any other edit (docs/DESIGN_SYSTEM.md § "Unsaved changes").
 "use strict";
 
 const PAGE_CHANGE_NOTE = "lector-page-change";
-const PAGE_CHANGES_UNSAVED = "Page changes are unsaved. Ctrl+S saves them with your highlights.";
 const OLDER_CHANGES_DROPPED = "Older changes can no longer be undone.";
 
 const pageChangeBusy = document.getElementById("pageChangeBusy");
@@ -39,11 +40,10 @@ function hidePageChangeBusy() {
 // Runs `apply` (a bridge call answering the reader's state with
 // `pages_changed` and `history_trimmed`) under the busy card. When pages did
 // change, the page reloads and the note says what the reloaded page should
-// tell the reader (`unsavedNote`: the "Page changes are unsaved" toast);
-// unless `reload` is false, for a page about to be left, when the caller
+// tell the reader (older changes dropped); unless `reload` is false, for a page about to be left, when the caller
 // carries on with the state. Otherwise the card comes down and the state is
 // handed back.
-async function runPageChange(apply, { reload = true, unsavedNote = false } = {}) {
+async function runPageChange(apply, { reload = true } = {}) {
   if (pageChangeRunning) return null;
   pageChangeRunning = true;
   showPageChangeBusy();
@@ -57,7 +57,6 @@ async function runPageChange(apply, { reload = true, unsavedNote = false } = {})
   }
   if (state && state.pages_changed && reload) {
     sessionStorage.setItem(PAGE_CHANGE_NOTE, JSON.stringify({
-      unsaved: unsavedNote,
       trimmed: Boolean(state.history_trimmed),
     }));
     window.location.reload();
@@ -81,7 +80,6 @@ function finishPageChangeAfterReload() {
   return new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       hidePageChangeBusy();
-      if (note.unsaved) showToast(PAGE_CHANGES_UNSAVED);
       if (note.trimmed) showToast(OLDER_CHANGES_DROPPED);
       resolve();
     }));

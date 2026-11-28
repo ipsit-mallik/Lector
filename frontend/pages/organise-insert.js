@@ -1,8 +1,10 @@
 // Insert… in Organise pages (docs/DESIGN_SYSTEM.md § "Organise pages" →
 // "Insert"): where the pages of the file just chosen go. The source row
 // (its first page, its name, how many pages) with Choose… to pick another
-// file, the three places as radio cards (only "At the end" when nothing is
-// selected), and "Insert N pages".
+// file; the places as one segmented control (At the start · Before page X ·
+// After page Y · At the end; only the start and the end when nothing is
+// selected), with a preview strip and a caption saying where the pages land
+// (organise-insert-places.js works them out); and "Insert N pages".
 //
 // It doesn't choose files itself: `open()` is handed the file already
 // chosen and a `choose()` that asks for another (the Open dialog, and a
@@ -10,11 +12,22 @@
 // was chosen and then not used. Resolves `{ source, name, pages, gap }`, or
 // null.
 //
-// A modal voice scope of the file tools' grammar: "confirm" inserts,
-// "cancel" cancels, and a number picks that place.
+// Its own modal voice scope, `organise_insert`: the file tools' grammar
+// ("confirm" inserts, "cancel" cancels, a number picks that place) plus the
+// four places by name.
 "use strict";
 
 const OrganiseInsertDialog = (() => {
+  const Places = OrganiseInsertPlaces;
+  // Each spoken place, and the place it picks.
+  const SPOKEN_PLACES = {
+    INSERT_AT_START: "start",
+    INSERT_BEFORE: "before",
+    INSERT_AFTER: "after",
+    INSERT_AT_END: "end",
+  };
+  const NO_SELECTION = "No pages are selected, so the new pages can go at the start or the end.";
+
   let scrim = null;
   let card = null;
   let thumbEl = null;
@@ -22,10 +35,14 @@ const OrganiseInsertDialog = (() => {
   let metaEl = null;
   let chooseBtn = null;
   let placesEl = null;
+  let previewEl = null;
+  let captionEl = null;
   let insertBtn = null;
   let scope = null;
   let releaseTrap = null;
   let settle = null;
+  let resizes = null;
+  let columnsShown = null;
   // { source, positions, total, place, choose, forget } while open.
   let s = null;
 
@@ -72,10 +89,18 @@ const OrganiseInsertDialog = (() => {
     chooseBtn.addEventListener("click", () => chooseAnother());
     source.append(thumbEl, label, chooseBtn);
 
-    placesEl = el("div", "tool-options tool-options--compact organise-insert-places");
-    placesEl.setAttribute("aria-label", "Where");
+    // The shared segmented control's look (file-tools.css), laid out as a
+    // grid of equal columns by organise.css so it can fall back to 2×2.
+    placesEl = el("div", "segmented organise-insert-places");
+    placesEl.setAttribute("aria-label", "Where the pages go");
+    placesEl.setAttribute("aria-describedby", "organiseInsertCaption");
     initRadioCards(placesEl, { selectOnArrow: true });
-    body.append(header, source, placesEl);
+    previewEl = el("div", "organise-insert-preview");
+    previewEl.setAttribute("aria-hidden", "true");
+    captionEl = el("p", "organise-insert-caption");
+    captionEl.id = "organiseInsertCaption";
+    captionEl.setAttribute("aria-live", "polite");
+    body.append(header, source, placesEl, previewEl, captionEl);
 
     const footer = el("div", "dialog-footer");
     const cancelBtn = el("button", "btn btn-secondary", "Cancel");
@@ -90,7 +115,11 @@ const OrganiseInsertDialog = (() => {
     scrim.appendChild(card);
     document.body.appendChild(scrim);
     mountIcons(scrim);
-    scope = createVoiceScope("file_tool");
+    scope = createVoiceScope("organise_insert");
+    // The track and its labels: a narrower dialog, display scaling or a
+    // larger font each change one of them, and the columns are worked out
+    // again.
+    resizes = new ResizeObserver(() => fitColumns());
     // Esc is Cancel, and goes no further (not to Organise behind).
     document.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape" || !isOpen()) return;
@@ -100,35 +129,73 @@ const OrganiseInsertDialog = (() => {
     }, true);
   }
 
-  // The places this selection allows, each with where that is now.
   function places() {
-    const { positions, total } = s;
-    const list = [];
-    if (positions.length) {
-      const first = positions[0];
-      const last = positions[positions.length - 1];
-      list.push({ value: "before", title: "Before the selection", meta: `before page ${first + 1}`, gap: first });
-      list.push({ value: "after", title: "After the selection", meta: `after page ${last + 1}`, gap: last + 1 });
-    }
-    list.push({ value: "end", title: "At the end", meta: `after page ${total}`, gap: total });
-    return list;
+    return Places.places(s.positions, s.total);
+  }
+
+  function chosenPlace() {
+    return places().find((p) => p.value === s.place);
   }
 
   function renderPlaces() {
+    resizes.disconnect();
     placesEl.replaceChildren();
     for (const place of places()) {
-      const row = el("button", "option-row card-lift");
-      row.type = "button";
-      row.classList.toggle("selected", place.value === s.place);
-      const text = el("span", "option-text");
-      text.append(el("span", "option-title", place.title));
-      row.append(el("span", "option-radio"), text, el("span", "option-meta", place.meta));
-      row.addEventListener("click", () => {
-        s.place = place.value;
-        for (const other of placesEl.children) other.classList.toggle("selected", other === row);
-      });
-      placesEl.appendChild(row);
+      const button = el("button", "segmented-btn");
+      button.type = "button";
+      button.dataset.place = place.value;
+      button.classList.toggle("selected", place.value === s.place);
+      // data-label: organise.css reserves the label's selected (600) width
+      // with it, so choosing a place never changes what fits.
+      const label = el("span", "organise-insert-place-label", place.label);
+      label.dataset.label = place.label;
+      button.appendChild(label);
+      button.addEventListener("click", () => pick(place.value));
+      placesEl.appendChild(button);
     }
+    resizes.observe(placesEl);
+    for (const button of placesEl.children) resizes.observe(button.children[0]);
+  }
+
+  function pick(value) {
+    s.place = value;
+    for (const button of placesEl.children) button.classList.toggle("selected", button.dataset.place === value);
+    renderPreview();
+  }
+
+  // The strip and its caption, for the place chosen.
+  function renderPreview() {
+    const { gap } = chosenPlace();
+    const count = s.source.pages;
+    const items = Places.preview(s.total, gap, count, new Set(s.positions));
+    previewEl.replaceChildren(...items.map((item) => {
+      if (item.kind === "gap") return el("span", "organise-insert-pv organise-insert-pv--gap", "…");
+      if (item.kind === "insert") return el("span", "organise-insert-pv organise-insert-pv--new", `+${item.count}`);
+      const page = el("span", "organise-insert-pv organise-insert-pv--page", String(item.page));
+      page.classList.toggle("is-selected", item.selected);
+      return page;
+    }));
+    captionEl.textContent = Places.caption(gap, count, s.total);
+  }
+
+  // One row while every label fits on one line at full size; else 2×2
+  // (else one column). Labels are measured at their selected weight
+  // (organise.css), with offsetWidth, which the dialog's pop-in scale
+  // doesn't affect.
+  function fitColumns() {
+    if (!isOpen() || !placesEl.children.length) return;
+    const track = getComputedStyle(placesEl);
+    const first = getComputedStyle(placesEl.children[0]);
+    const px = (value) => parseFloat(value) || 0;
+    const inner = placesEl.clientWidth - px(track.paddingLeft) - px(track.paddingRight);
+    const padX = px(first.paddingLeft) + px(first.paddingRight) + px(first.borderLeftWidth) + px(first.borderRightWidth);
+    // offsetWidth is rounded to a whole pixel: one more keeps a label that
+    // rounds down from being squeezed.
+    const widths = Array.from(placesEl.children, (button) => button.children[0].offsetWidth + 1);
+    const columns = Places.columns(widths, inner, px(track.columnGap), padX);
+    if (columns === columnsShown) return;
+    columnsShown = columns;
+    placesEl.style.setProperty("--places-cols", String(columns));
   }
 
   function renderSource() {
@@ -152,6 +219,7 @@ const OrganiseInsertDialog = (() => {
 
   function show(focus) {
     scrim.hidden = false;
+    fitColumns();
     releaseTrap = trapFocus(card);
     (focus || insertBtn).focus();
     // The buttons still work if this fails; only the spoken answer is lost.
@@ -181,20 +249,21 @@ const OrganiseInsertDialog = (() => {
       s.forget(s.source.source);
       s.source = next;
       renderSource();
+      renderPreview();
     }
     show(chooseBtn);
   }
 
   function confirm() {
-    const place = places().find((p) => p.value === s.place);
     const { source, name, pages } = s.source;
-    close({ source, name, pages, gap: place.gap });
+    close({ source, name, pages, gap: chosenPlace().gap });
   }
 
   function close(result) {
     if (!s) return;
     if (!result) s.forget(s.source.source);
     hide();
+    resizes.disconnect();
     s = null;
     const resolve = settle;
     settle = null;
@@ -206,9 +275,10 @@ const OrganiseInsertDialog = (() => {
   // selection is the place when there is one, else the end.
   function open({ source, positions, total, choose, forget }) {
     build();
-    s = { source, positions, total, place: positions.length ? "after" : "end", choose, forget };
+    s = { source, positions, total, place: Places.defaultPlace(positions), choose, forget };
     renderSource();
     renderPlaces();
+    renderPreview();
     show();
     return new Promise((resolve) => {
       settle = resolve;
@@ -219,16 +289,24 @@ const OrganiseInsertDialog = (() => {
     return Boolean(scrim) && !scrim.hidden;
   }
 
-  // TOOL_CONFIRM/CANCEL/DIALOG_PICK arrive while this is the active voice
-  // context.
+  // A place said by name. Before and after need a selection: without one
+  // the reason is said and nothing changes.
+  function pickSpoken(value) {
+    if (places().some((p) => p.value === value)) pick(value);
+    else showToast(NO_SELECTION);
+  }
+
+  // TOOL_CONFIRM/CANCEL/DIALOG_PICK and the INSERT_* places arrive while
+  // this is the active voice context. A number counts the places from the
+  // left (the top-left in 2×2), as they are read.
   function handleCommand(command) {
     if (!isOpen()) return;
     if (command.intent === "TOOL_CONFIRM") confirm();
     else if (command.intent === "CANCEL") close(null);
     else if (command.intent === "DIALOG_PICK") {
-      const row = placesEl.children[command.index - 1];
-      if (row) row.click();
-    }
+      const button = placesEl.children[command.index - 1];
+      if (button) pick(button.dataset.place);
+    } else if (command.intent in SPOKEN_PLACES) pickSpoken(SPOKEN_PLACES[command.intent]);
   }
 
   return { open, isOpen, handleCommand };

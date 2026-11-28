@@ -102,6 +102,58 @@ class OrganiseGrammarTests(unittest.TestCase):
         self.assertTrue(files["available"])  # it holds Home's two openers
 
 
+class InsertPlacesGrammarTests(unittest.TestCase):
+    """Insert pages' own modal scope: the file tools' answers plus the four
+    places by name. The shared file-tool scope itself is unchanged."""
+
+    PLACES = (
+        ("at the start", router.INSERT_AT_START), ("before the selection", router.INSERT_BEFORE),
+        ("after the selection", router.INSERT_AFTER), ("at the end", router.INSERT_AT_END),
+    )
+
+    def test_each_place_by_name(self):
+        for phrase, intent in self.PLACES:
+            with self.subTest(phrase=phrase):
+                self.assertEqual(_intent(router.ORGANISE_INSERT, phrase), intent)
+
+    def test_the_file_tools_answers_and_numbers_still_work_there(self):
+        self.assertEqual(_intent(router.ORGANISE_INSERT, "confirm"), router.TOOL_CONFIRM)
+        self.assertEqual(_intent(router.ORGANISE_INSERT, "cancel"), router.CANCEL)
+        self.assertEqual(_intent(router.ORGANISE_INSERT, "never mind"), router.CANCEL)
+        self.assertEqual(_intent(router.ORGANISE_INSERT, "four"), router.DIALOG_PICK)
+
+    def test_it_is_modal(self):
+        self.assertIn(router.ORGANISE_INSERT, router.CONTEXTS)
+        self.assertEqual(router.MODAL_ALLOWED_GLOBALS[router.ORGANISE_INSERT], frozenset())
+        for phrase in ("quit", "go home", "undo", "done"):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(_intent(router.ORGANISE_INSERT, phrase))
+
+    def test_the_recognizer_hears_every_word(self):
+        heard = set(router.vocabulary_for(router.ORGANISE_INSERT))
+        for phrase, _ in self.PLACES:
+            self.assertTrue(set(phrase.split()) <= heard, phrase)
+        self.assertTrue({"confirm", "cancel", "two"} <= heard)
+
+    def test_the_other_file_tools_hear_nothing_new(self):
+        self.assertEqual(set(router.FILE_TOOL_PHRASES), {router.TOOL_CONFIRM, router.CANCEL})
+        for phrase, _ in self.PLACES:
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(_intent(router.FILE_TOOL, phrase))
+                self.assertIsNone(_intent(router.ORGANISE, phrase))
+
+    def test_listed_in_what_can_i_say(self):
+        prompts = next(s for s in reference.sections(router.READING) if s["id"] == "prompts")
+        places = next(c for c in prompts["commands"] if "at the start" in c["phrases"])
+        self.assertEqual(places["phrases"],
+                         ["at the start", "before the selection", "after the selection", "at the end"])
+        self.assertIn(router.ORGANISE_INSERT, places["contexts"])
+        for intent in (router.TOOL_CONFIRM, router.CANCEL):
+            phrase = router.FILE_TOOL_PHRASES[intent][0]
+            listed = next(c for c in prompts["commands"] if phrase in c["phrases"])
+            self.assertIn(router.ORGANISE_INSERT, listed["contexts"])
+
+
 class OrganiseVoiceWiringTests(unittest.TestCase):
     """The page side: which function each intent reaches."""
 
@@ -132,13 +184,16 @@ class OrganiseVoiceWiringTests(unittest.TestCase):
         self.assertRegex(handler, r'"TOOL_CONFIRM"\) \{\s*if \(primaryBtn && !primaryBtn\.disabled\) primaryBtn\.click\(\)')
         self.assertRegex(handler, r'"CANCEL"\) \{\s*if \(s\.phase === "working"\) cancelJob\(\)')
 
-    def test_insert_hears_confirm_cancel_and_a_place_number(self):
-        # Insert…: "confirm" inserts, "cancel" cancels, "two" picks the second place.
-        self.assertIn('createVoiceScope("file_tool")', INSERT_JS)
+    def test_insert_hears_confirm_cancel_a_place_number_and_the_places(self):
+        # Insert…: its own modal scope. "confirm" inserts, "cancel" cancels,
+        # "two" picks the second place, and each place can be said by name.
+        self.assertIn('createVoiceScope("organise_insert")', INSERT_JS)
         self.assertRegex(INSERT_JS, r'command\.intent === "TOOL_CONFIRM"\) confirm\(\)')
         self.assertRegex(INSERT_JS, r'command\.intent === "CANCEL"\) close\(null\)')
         self.assertIn('command.intent === "DIALOG_PICK"', INSERT_JS)
-        self.assertEqual(_intent(router.FILE_TOOL, "two"), router.DIALOG_PICK)
+        for intent in ("INSERT_AT_START", "INSERT_BEFORE", "INSERT_AFTER", "INSERT_AT_END"):
+            self.assertIn(f"{intent}:", INSERT_JS)
+        self.assertEqual(_intent(router.ORGANISE_INSERT, "two"), router.DIALOG_PICK)
         # Its Open dialog is routed before anything else in Organise.
         handler = READING_JS[READING_JS.index("function onVoiceCommand(ev) {"):]
         self.assertLess(handler.index("openFileDialog.isOpen()"), handler.index("ORGANISE_VOICE_ACTIONS"))

@@ -485,6 +485,12 @@ const OPEN_ORGANISE_NOTE = "lector-open-organise";
 // the same section scrolled where it was (reading-save.js's
 // ORGANISE_RETURN_NOTE): `{section, top}`.
 const ORGANISE_RETURN_NOTE = "lector-organise-return";
+// A PDF whose pages can't be changed: the reader opens it as usual and says
+// why (reading.js).
+const ORGANISE_REFUSED_NOTE = "lector-organise-refused";
+// Back from Organise started on the Tools page: the card to focus
+// (reading-save.js's HOME_FOCUS_NOTE).
+const HOME_FOCUS_NOTE = "lector-home-focus";
 
 // Opens `path` to organise it, as Open does (a protected one asks for its
 // password, a missing one offers Remove from Recent), and leaves the reader
@@ -492,9 +498,19 @@ const ORGANISE_RETURN_NOTE = "lector-organise-return";
 // The note carries the page count and name, so the reader's first frame is
 // already Organise, with a placeholder tile per page (organise.js's
 // `showOrganisePlaceholder`).
+// Opened only to organise (Recent and the reading position are left alone
+// until Done; Cancel closes it again). A PDF whose pages can't be changed
+// opens in the reader as usual instead, which says why.
 async function openForOrganise(path) {
-  const opened = await openPdf(path, { onMissing: (message) => offerRemoval(path, message) });
+  const opened = await openPdf(path, {
+    onMissing: (message) => offerRemoval(path, message),
+    forOrganise: true,
+  });
   if (!opened) return false;
+  if (opened.organise_blocked) {
+    sessionStorage.setItem(ORGANISE_REFUSED_NOTE, "1");
+    return true;
+  }
   const pages = (opened && opened.page_count) || 0;
   sessionStorage.setItem(OPEN_ORGANISE_NOTE, JSON.stringify({ pages, name: pdfFileName(path) }));
   sessionStorage.setItem(ORGANISE_RETURN_NOTE, JSON.stringify({ section: homeSection, top: homeScroller.scrollTop }));
@@ -737,6 +753,12 @@ let loadGeneration = 0;
 async function loadSection() {
   const generation = ++loadGeneration;
   if (homeSection === "tools") {
+    // Already drawn as the page loaded (drawToolsAtLoad): kept as it is,
+    // with its scroll and focus.
+    if (toolsDrawnAtLoad) {
+      toolsDrawnAtLoad = false;
+      return;
+    }
     await drawWhenSettled(generation, renderToolsSection);
     return;
   }
@@ -963,6 +985,33 @@ configureCommandReference({
   ranges: () => ({ number: displayedEntries.length }),
   focusSection: () => (homeSection === "favorites" ? "favorites" : null),
 });
+
+// Arriving on the Tools page (back from Organise pages, or from Settings):
+// it needs no data, so it is drawn now, before the first paint, with the
+// icons this session already has (js/icons.js's mountIconsFromCache), where
+// it was scrolled, and back from Organise with the focus on its card. The
+// page holds its first paint until it has been read to the end, which is
+// after this has run (index.html's render-blocking `expect` link), so it
+// never shows an empty Tools page.
+let toolsDrawnAtLoad = false;
+function drawToolsAtLoad() {
+  if (homeSection !== "tools") return;
+  // Nothing to wait for: the skeleton armed as the script loaded never comes
+  // up (it would replace the page just drawn, as for a list still loading).
+  listSkeleton.settle();
+  renderToolsSection();
+  mountIconsFromCache(recentArea);
+  toolsDrawnAtLoad = true;
+  if (pendingHomeScroll) {
+    homeScroller.scrollTop = pendingHomeScroll;
+    pendingHomeScroll = 0;
+  }
+  const focus = sessionStorage.getItem(HOME_FOCUS_NOTE);
+  sessionStorage.removeItem(HOME_FOCUS_NOTE);
+  const card = focus && recentArea.querySelector(`.tool-card[data-tool="${CSS.escape(focus)}"]`);
+  if (card) card.focus({ preventScroll: true });
+}
+drawToolsAtLoad();
 
 (async function init() {
   // The list is asked for first, alongside the first-run check and the

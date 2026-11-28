@@ -8,6 +8,7 @@ them sees next.
 """
 import json
 import logging
+import threading
 from pathlib import Path
 
 import webview
@@ -20,6 +21,7 @@ from lector.features.reading import ocr, page_changes
 from lector.features.reading.document import PdfDocument
 from lector.features.settings import store as settings
 from lector.features.voice.engine import VoiceEngine
+from lector.shared import window_title
 
 # Every controller logs here, as all of this did when it was api.py.
 log = logging.getLogger("lector.api")
@@ -68,8 +70,24 @@ class BridgeCore:
         # since it opened, for its own Undo/Redo. The open document is
         # untouched until Done applies the current plan.
         self.organise = None
+        # Whether the page on screen is the reader (set on every page load,
+        # `WindowController.on_page_loaded`): only there does the window's
+        # title name the document. After "Don't save" on the way to the
+        # Library the PDF is still open here, dirty, but Home says "Lector".
+        self.reader_showing = False
+        # Opened only to organise its pages (Home's Tools page, or a Recent
+        # or Favorites menu): not in Recent and no reading position written
+        # until Organise's Done makes it a real open (`adopt_organise_open`);
+        # Cancel closes it again (`close_document`), leaving nothing behind.
+        self.opened_for_organise = False
+        # The title last given to the window, so it is set only on a change.
+        self._window_title = window_title.APP_TITLE
+        self._title_lock = threading.Lock()
 
     def state(self) -> dict:
+        # Every change the unsaved flag follows (a highlight, an undo, a
+        # save, Organise's Done) answers with this, so the title follows too.
+        self.sync_window_title()
         if not self.doc.is_open:
             return {"is_open": False}
         highlight_counts = self.doc.highlight_counts()
@@ -99,9 +117,62 @@ class BridgeCore:
             "layout_mode": self.layout_mode,
         }
 
+    def sync_window_title(self) -> None:
+        """Give the window the title for what is on screen
+        (`window_title.compose`: "*Report – Lector" while unsaved, "Lector"
+        off the reader). Only on a change; quietly nothing with no window
+        (tests, teardown), and a failure is logged, never raised: the title
+        is cosmetic and must not fail the call that changed the document."""
+        on_screen = self.title if self.reader_showing and self.doc.is_open else None
+        wanted = window_title.compose(on_screen, self.doc.is_open and self.doc.is_dirty)
+        with self._title_lock:
+            if wanted == self._window_title:
+                return
+            try:
+                window = webview.windows[0]
+            except IndexError:
+                return
+            # pywebview's set_title waits up to 20s for the window to be
+            # shown; before that (or for a window that never is) the title
+            # is left for the `shown` handler to set (`__main__.py`).
+            if not window.events.shown.is_set():
+                return
+            try:
+                window.set_title(wanted)
+            except Exception:
+                log.debug("Could not set the window title", exc_info=True)
+                return
+            self._window_title = wanted
+
+    def adopt_organise_open(self) -> None:
+        """A PDF opened only for Organise pages becomes an ordinary open one
+        (Done, or a PDF whose pages can't be changed, which the reader shows):
+        into Recent, with its reading position. Nothing for any other."""
+        if not self.opened_for_organise:
+            return
+        self.opened_for_organise = False
+        if self.path and self.doc.is_open:
+            settings.add_recent_file(self.path)
+            self.persisted_position = None
+            self.remember_position()
+
+    def close_document(self) -> None:
+        """Let go of the open PDF (its file handle, Insert's files, any
+        draft): Home leaves a PDF open in Python, and a tool or a cancelled
+        Organise must not keep it locked."""
+        self.organise = None
+        self.doc.drop_page_sources()
+        if self.doc.is_open:
+            self.doc.close()
+        self.title = ""
+        self.path = ""
+        self.persisted_position = None
+        self.opened_for_organise = False
+
     def remember_position(self) -> None:
-        """Persist the current page/layout/zoom, but only when it actually moved."""
-        if not self.path or not self.doc.is_open:
+        """Persist the current page/layout/zoom, but only when it actually moved.
+        Never for a PDF opened only to organise it (`opened_for_organise`)."""
+        if not self.path or not self.doc.is_open or self.opened_for_organise:
             return
         current = (self.doc.page_index, self.layout_mode, self.doc.zoom)
         if current == self.persisted_position:

@@ -1,6 +1,8 @@
 """The app window: files dropped on it or handed over at launch, failures
 off-screen, closing it (the unsaved-work gatekeeper), and shutting down the
 workers (docs/ARCHITECTURE.md § "App-close gatekeeper")."""
+import threading
+
 import webview
 from webview.dom import DOMEventHandler
 
@@ -11,6 +13,21 @@ from lector.features.home import file_drop
 JOB_STOP_WAIT_S = 10
 # How long quitting waits for a stopped Compress estimate to let go of its file.
 ESTIMATES_STOP_WAIT_S = 5
+# The reader's page, as its address ends (frontend/pages/reading.html).
+READER_PAGE = "/pages/reading.html"
+
+
+def ask_off_the_window_thread(ask) -> None:
+    """Run `ask` (an `evaluate_js` with a callback) on a thread of its own.
+
+    The closing handler runs on the window's own thread, and pywebview's
+    `evaluate_js` (6.x, WebView2) waits for the script's result on the
+    calling thread even when given a callback: the script is run and its
+    result delivered on the window's thread, which would be the one waiting.
+    Asked from there, the question never appears and the window freezes,
+    with the unsaved changes in it. From another thread the handler returns
+    at once (cancelling the close) and the question shows."""
+    threading.Thread(target=ask, name="lector-close-question", daemon=True).start()
 
 
 class WindowController(Controller):
@@ -58,6 +75,19 @@ class WindowController(Controller):
             DOMEventHandler(self._drop_handler, prevent_default=True, stop_propagation=True),
         )
 
+    def on_page_loaded(self, window) -> None:
+        """Every page load (`window.events.loaded`, see `__main__.py`): note
+        whether it is the reader, and give the window the title for it
+        ("Report – Lector" there, "Lector" on Home, Settings and the
+        welcome screens; docs/DESIGN_SYSTEM.md § "Unsaved changes")."""
+        try:
+            url = window.get_current_url() or ""
+        except Exception:
+            log.debug("Could not read the page's address", exc_info=True)
+            url = ""
+        self._core.reader_showing = READER_PAGE in url
+        self._core.sync_window_title()
+
     def on_file_drop(self, event: dict) -> None:
         """Tell the page which PDF was dropped, or why it can't be opened.
 
@@ -104,7 +134,8 @@ class WindowController(Controller):
         JS confirmation, and blocking the UI thread for it risks deadlocking
         against the very message loop that would deliver its result. So a
         dirty document always cancels the *first* close attempt, kicks off
-        the save-or-discard prompt in the frontend, and — once that resolves
+        the save-or-discard prompt in the frontend (from another thread:
+        `ask_off_the_window_thread`), and — once that resolves
         — reissues the close with `window.destroy()`, which pywebview itself
         marshals back onto the UI thread (see `platforms/winforms.py`'s
         `destroy_window`, which wraps it in `Control.Invoke`). Only when a
@@ -129,7 +160,9 @@ class WindowController(Controller):
                         log.warning("A cancelled file job had not stopped when the app closed")
                     window.destroy()
 
-                window.evaluate_js("confirmStopFileJob()", callback=_on_job_answer)
+                ask_off_the_window_thread(
+                    lambda: window.evaluate_js("confirmStopFileJob()", callback=_on_job_answer)
+                )
                 return False
 
         # An Organise draft with changes in it is unsaved too: the page
@@ -153,7 +186,7 @@ class WindowController(Controller):
             self._shutdown_voice()
             window.destroy()
 
-        window.evaluate_js("promptSaveIfDirty(true)", callback=_on_resolved)
+        ask_off_the_window_thread(lambda: window.evaluate_js("promptSaveIfDirty(true)", callback=_on_resolved))
         return False
 
     def close_app(self) -> None:

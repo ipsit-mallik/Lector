@@ -15,20 +15,20 @@ function pdfFileName(path) {
 
 // The bridge call, with a rejected one (Lector's own error, not the PDF's)
 // turned into the generic sentence. Its text goes to the console only.
-async function callOpenPdf(...args) {
+async function callOpenPdf(method, ...args) {
   try {
-    return await callApi("open_pdf", ...args);
+    return await callApi(method, ...args);
   } catch (err) {
     console.error("open_pdf failed:", err);
     return { error: OPEN_FAILED, reason: "unknown" };
   }
 }
 
-function askForPassword(path) {
+function askForPassword(method, path) {
   return PasswordDialog.ask({
     name: pdfFileName(path),
     attempt: async (password) => {
-      const result = await callOpenPdf(path, password);
+      const result = await callOpenPdf(method, path, password);
       if (result && result.reason === "wrong_password") return { error: result.error };
       return { done: result };
     },
@@ -41,10 +41,15 @@ function askForPassword(path) {
 // cancelled.
 // `onMissing(message)`, if given, shows a missing file's message instead of
 // the plain toast (Home offers to remove it from Recent).
-async function openPdf(path, { onMissing } = {}) {
-  let result = await callOpenPdf(path);
+// `forOrganise` opens it only to organise its pages (Home's Tools page, a
+// Recent or Favorites menu): Recent and its reading position are left alone
+// until Organise's Done, and its Cancel closes it again
+// (Api.open_pdf_to_organise).
+async function openPdf(path, { onMissing, forOrganise = false } = {}) {
+  const method = forOrganise ? "open_pdf_to_organise" : "open_pdf";
+  let result = await callOpenPdf(method, path);
   if (result && result.reason === "password") {
-    result = await askForPassword(path);
+    result = await askForPassword(method, path);
     if (!result) return false;
   }
   if (result && result.error) {

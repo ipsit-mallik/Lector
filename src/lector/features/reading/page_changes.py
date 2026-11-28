@@ -118,3 +118,18 @@ def trim(
             redo = redo[_first_change(redo) + 1:]
         trimmed = True
     return undo, redo, trimmed
+
+
+def saved_at_after_trim(saved_at: int | None, old_undo_len: int, undo: list, redo: list) -> int | None:
+    """Where the save point (`PdfDocument._saved_at`, a position on the
+    undo/redo timeline counted in undo entries) is once `trim` has left
+    `undo` and `redo`, or None if it was among what was dropped. `trim`
+    only ever cuts the bottom of the undo stack and the far end of the redo
+    stack, so the point moves down by what left the undo stack and is gone
+    if it was below that, or beyond the redo stack's new end."""
+    if saved_at is None:
+        return None
+    moved = saved_at - (old_undo_len - len(undo))
+    if moved < 0 or moved > len(undo) + len(redo):
+        return None
+    return moved
